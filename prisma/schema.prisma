@@ -1,0 +1,1293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+enum Role {
+  ADMIN
+  OPERATION_MANAGER
+  SUPERVISOR
+  ACCOUNTANT
+  HR
+  VIEWER
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  APPROVED
+  REJECTED
+  LOCKED
+}
+
+enum DriverStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  ACCIDENT
+  INACTIVE
+}
+
+enum PayrollStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  PAID
+  LOCKED
+}
+
+enum Severity {
+  CRITICAL
+  WARNING
+  INFO
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String?
+  role         Role     @default(VIEWER)
+  cityId       String?
+  driverId     String?
+  supervisorId String?
+  cityScope    String?
+  projectScope String?
+  status       String   @default("active")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  city                 City?                    @relation(fields: [cityId], references: [id])
+  driver               Driver?                  @relation("UserDriverAccount", fields: [driverId], references: [id])
+  supervisor           Supervisor?              @relation("UserSupervisorAccount", fields: [supervisorId], references: [id])
+  approvedPayrollRuns  PayrollRun[]             @relation("PayrollRunApprovedBy")
+  createdImportBatches ApplicationImportBatch[] @relation("ApplicationImportBatchCreatedBy")
+  payrollAdjustments   PayrollAdjustment[]      @relation("PayrollAdjustmentCreatedBy")
+  auditLogs            AuditLog[]               @relation("AuditLogUser")
+}
+
+model City {
+  id        String       @id @default(cuid())
+  nameAr    String
+  nameEn    String?
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  users               User[]
+  projects            Project[]
+  supervisors         Supervisor[]
+  drivers             Driver[]
+  vehicles            Vehicle[]
+  reports             DailyReport[]
+  tasks               Task[]
+  applicationAccounts ApplicationAccount[]
+  applicationProjects ApplicationProject[]
+  payrollSettings     ApplicationPayrollSetting[]
+  payrollRuns         PayrollRun[]
+  financeEntries      FinanceEntry[]
+}
+
+model Project {
+  id        String       @id @default(cuid())
+  name      String
+  appName   String?
+  cityId    String?
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  city                City?                @relation(fields: [cityId], references: [id])
+  drivers             Driver[]
+  accounts            ApplicationAccount[]
+  reports             DailyReport[]
+  payrolls            Payroll[]
+  applicationProjects ApplicationProject[]
+}
+
+model Supervisor {
+  id        String       @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  cityId    String?
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  city    City?    @relation(fields: [cityId], references: [id])
+  users   User[]   @relation("UserSupervisorAccount")
+  drivers Driver[]
+  tasks   Task[]
+}
+
+model Driver {
+  id                String       @id @default(cuid())
+  internalCode      String       @unique
+  driverCode        String?
+  name              String
+  actualName        String?
+  phone             String?
+  mobile            String?
+  nationalId        String?
+  nationality       String?
+  cityId            String?
+  projectId         String?
+  supervisorId      String?
+  vehicleId         String?
+  accountId         String?
+  status            DriverStatus @default(ACTIVE)
+  contractType      String?
+  sponsorshipType   String?
+  accommodationType String?
+  housingStatus     String?
+  joinDate          DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  city                City?                  @relation(fields: [cityId], references: [id])
+  project             Project?               @relation(fields: [projectId], references: [id])
+  supervisor          Supervisor?            @relation(fields: [supervisorId], references: [id])
+  vehicle             Vehicle?               @relation("DriverVehicle", fields: [vehicleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  account             ApplicationAccount?    @relation("DriverPrimaryAccount", fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  userAccounts        User[]                 @relation("UserDriverAccount")
+  currentVehicles     Vehicle[]              @relation("VehicleCurrentDriver")
+  applicationAccounts ApplicationAccount[]   @relation("ApplicationAccountAssignedDriver")
+  vehicleAssignments  VehicleAssignment[]
+  reports             DailyReport[]
+  advances            Advance[]
+  deductions          Deduction[]
+  violations          Violation[]
+  payrolls            Payroll[]
+  payrollItems        PayrollItem[]
+  fuelRecords         FuelRecord[]
+  documents           DriverDocument[]
+  contracts           DriverContract[]
+  housingRecords      DriverHousing[]
+  warnings            DriverWarning[]
+  attendanceRecords   AttendanceRecord[]
+  shifts              Shift[]
+  financeEntries      FinanceEntry[]
+  importRows          ApplicationImportRow[]
+  tasks               Task[]
+  notifications       Notification[]
+
+  @@index([driverCode])
+  @@index([nationalId])
+  @@index([cityId, projectId, supervisorId])
+}
+
+model Vehicle {
+  id              String        @id @default(cuid())
+  vehicleCode     String?
+  plateAr         String?
+  plateArabic     String?
+  plateEn         String        @unique
+  plateEnglish    String?
+  brand           String?
+  model           String?
+  year            Int?
+  rentalCompany   String?
+  monthlyRent     Decimal       @default(0)
+  status          VehicleStatus @default(AVAILABLE)
+  currentDriverId String?
+  cityId          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  city          City?               @relation(fields: [cityId], references: [id])
+  currentDriver Driver?             @relation("VehicleCurrentDriver", fields: [currentDriverId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  drivers       Driver[]            @relation("DriverVehicle")
+  assignments   VehicleAssignment[]
+  payrollItems  PayrollItem[]
+  fuelRecords   FuelRecord[]
+  violations    Violation[]
+
+  @@index([plateAr])
+  @@index([plateArabic])
+  @@index([plateEnglish])
+  @@index([vehicleCode])
+  @@index([currentDriverId])
+}
+
+model Application {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  description String?
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  projects        ApplicationProject[]
+  accounts        ApplicationAccount[]
+  invoiceSettings ApplicationInvoiceSetting[]
+  rankSettings    ApplicationRankSetting[]
+  payrollSettings ApplicationPayrollSetting[]
+  importTemplates ApplicationImportTemplate[]
+  importBatches   ApplicationImportBatch[]
+  payrollRuns     PayrollRun[]
+  financeEntries  FinanceEntry[]
+}
+
+model ApplicationProject {
+  id            String       @id @default(cuid())
+  applicationId String
+  projectId     String?
+  cityId        String?
+  code          String       @unique
+  name          String
+  monthlyTarget Int?
+  dailyTarget   Int?
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  application     Application                 @relation(fields: [applicationId], references: [id])
+  project         Project?                    @relation(fields: [projectId], references: [id])
+  city            City?                       @relation(fields: [cityId], references: [id])
+  accounts        ApplicationAccount[]
+  invoiceSettings ApplicationInvoiceSetting[]
+  rankSettings    ApplicationRankSetting[]
+  payrollSettings ApplicationPayrollSetting[]
+  importTemplates ApplicationImportTemplate[]
+  importBatches   ApplicationImportBatch[]
+  payrollRuns     PayrollRun[]
+  financeEntries  FinanceEntry[]
+
+  @@index([applicationId])
+  @@index([projectId])
+  @@index([cityId])
+}
+
+model ApplicationInvoiceSetting {
+  id                   String       @id @default(cuid())
+  applicationId        String
+  applicationProjectId String?
+  name                 String
+  invoiceType          String?
+  requiredColumns      Json?
+  optionalColumns      Json?
+  columnMapping        Json?
+  calculationRules     Json?
+  deductionRules       Json?
+  bonusRules           Json?
+  status               RecordStatus @default(ACTIVE)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application         @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+}
+
+model ApplicationRankSetting {
+  id                   String       @id @default(cuid())
+  applicationId        String
+  applicationProjectId String?
+  name                 String
+  rankType             String?
+  minimumOrders        Int?
+  onTimeRule           Json?
+  cancellationRule     Json?
+  rejectionRule        Json?
+  workingHoursRule     Json?
+  bonusRule            Json?
+  deductionRule        Json?
+  levelOutput          Json?
+  status               RecordStatus @default(ACTIVE)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application         @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+}
+
+model ApplicationPayrollSetting {
+  id                   String       @id @default(cuid())
+  applicationId        String
+  applicationProjectId String?
+  cityId               String?
+  name                 String
+  basicSalary          Decimal?     @db.Decimal(12, 2)
+  targetOrders         Int?
+  extraOrderPrice      Decimal?     @db.Decimal(12, 2)
+  levelRules           Json?
+  bonusRules           Json?
+  deductionRules       Json?
+  carRentRule          Json?
+  status               RecordStatus @default(ACTIVE)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application         @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  payrollRuns        PayrollRun[]
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+}
+
+model ApplicationImportTemplate {
+  id                   String       @id @default(cuid())
+  applicationId        String?
+  applicationProjectId String?
+  name                 String
+  fileType             String
+  requiredColumns      Json?
+  optionalColumns      Json?
+  columnMapping        Json?
+  sampleFileUrl        String?
+  status               RecordStatus @default(ACTIVE)
+  lastUsedAt           DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application?             @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?      @relation(fields: [applicationProjectId], references: [id])
+  batches            ApplicationImportBatch[]
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+}
+
+model ApplicationImportBatch {
+  id                   String    @id @default(cuid())
+  applicationId        String?
+  applicationProjectId String?
+  templateId           String?
+  fileType             String
+  fileName             String?
+  status               String    @default("preview")
+  totalRows            Int       @default(0)
+  validRows            Int       @default(0)
+  invalidRows          Int       @default(0)
+  duplicateRows        Int       @default(0)
+  missingDrivers       Int       @default(0)
+  unlinkedAccounts     Int       @default(0)
+  createdById          String?
+  committedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  application        Application?               @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?        @relation(fields: [applicationProjectId], references: [id])
+  template           ApplicationImportTemplate? @relation(fields: [templateId], references: [id])
+  createdBy          User?                      @relation("ApplicationImportBatchCreatedBy", fields: [createdById], references: [id])
+  rows               ApplicationImportRow[]
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([templateId])
+  @@index([createdById])
+  @@index([status, createdAt])
+}
+
+model ApplicationImportRow {
+  id                   String   @id @default(cuid())
+  batchId              String
+  rowNumber            Int
+  rawData              Json
+  mappedData           Json?
+  isValid              Boolean  @default(false)
+  errorType            String?
+  errorMessage         String?
+  driverId             String?
+  applicationAccountId String?
+  status               String   @default("pending")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  batch              ApplicationImportBatch @relation(fields: [batchId], references: [id])
+  driver             Driver?                @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount?    @relation(fields: [applicationAccountId], references: [id])
+
+  @@unique([batchId, rowNumber])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([status])
+}
+
+model ApplicationAccount {
+  id                   String       @id @default(cuid())
+  appName              String
+  username             String       @unique
+  appUserId            String?
+  appUsername          String?
+  applicationId        String?
+  applicationProjectId String?
+  projectId            String?
+  cityId               String?
+  driverId             String?
+  isEmpty              Boolean      @default(true)
+  status               RecordStatus @default(ACTIVE)
+  linkedAt             DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application?           @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?    @relation(fields: [applicationProjectId], references: [id])
+  project            Project?               @relation(fields: [projectId], references: [id])
+  city               City?                  @relation(fields: [cityId], references: [id])
+  driver             Driver?                @relation("ApplicationAccountAssignedDriver", fields: [driverId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  drivers            Driver[]               @relation("DriverPrimaryAccount")
+  payrollItems       PayrollItem[]
+  importRows         ApplicationImportRow[]
+
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([projectId])
+  @@index([cityId])
+  @@index([driverId])
+  @@index([appUserId])
+}
+
+model DailyReport {
+  id               String   @id @default(cuid())
+  reportDate       DateTime
+  month            String
+  driverId         String?
+  cityId           String?
+  projectId        String?
+  appName          String?
+  orders           Int      @default(0)
+  workingHours     Decimal  @default(0)
+  onTimeRate       Decimal  @default(0)
+  cancellationRate Decimal  @default(0)
+  rejectionRate    Decimal  @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  driver  Driver?  @relation(fields: [driverId], references: [id])
+  city    City?    @relation(fields: [cityId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([month, cityId, projectId])
+}
+
+model Advance {
+  id              String       @id @default(cuid())
+  driverId        String
+  payrollItemId   String?
+  amount          Decimal      @default(0)
+  remainingAmount Decimal      @default(0)
+  reason          String?
+  deductionMonth  String?
+  status          RecordStatus @default(PENDING)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  driver      Driver       @relation(fields: [driverId], references: [id])
+  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+
+  @@index([driverId])
+  @@index([payrollItemId])
+  @@index([deductionMonth, status])
+}
+
+model Deduction {
+  id            String       @id @default(cuid())
+  driverId      String
+  payrollItemId String?
+  type          String
+  amount        Decimal      @default(0)
+  month         String?
+  status        RecordStatus @default(PENDING)
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  driver      Driver       @relation(fields: [driverId], references: [id])
+  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+
+  @@index([driverId])
+  @@index([payrollItemId])
+  @@index([month, status])
+}
+
+model Violation {
+  id            String       @id @default(cuid())
+  driverId      String
+  vehicleId     String?
+  payrollItemId String?
+  type          String
+  amount        Decimal      @default(0)
+  status        RecordStatus @default(PENDING)
+  occurredAt    DateTime     @default(now())
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  driver      Driver       @relation(fields: [driverId], references: [id])
+  vehicle     Vehicle?     @relation(fields: [vehicleId], references: [id])
+  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+
+  @@index([driverId])
+  @@index([vehicleId])
+  @@index([payrollItemId])
+  @@index([status, occurredAt])
+}
+
+model Payroll {
+  id          String        @id @default(cuid())
+  driverId    String
+  projectId   String?
+  month       String
+  basicSalary Decimal       @default(0)
+  bonus       Decimal       @default(0)
+  deductions  Decimal       @default(0)
+  netSalary   Decimal       @default(0)
+  status      PayrollStatus @default(DRAFT)
+  lockedAt    DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  driver  Driver   @relation(fields: [driverId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@unique([driverId, month])
+}
+
+model PayrollRun {
+  id                   String        @id @default(cuid())
+  month                Int
+  year                 Int
+  applicationId        String?
+  applicationProjectId String?
+  cityId               String?
+  payrollSettingId     String?
+  status               PayrollStatus @default(DRAFT)
+  totalDrivers         Int           @default(0)
+  totalOrders          Int           @default(0)
+  totalEarnings        Decimal       @default(0) @db.Decimal(12, 2)
+  totalDeductions      Decimal       @default(0) @db.Decimal(12, 2)
+  netTotal             Decimal       @default(0) @db.Decimal(12, 2)
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  application        Application?               @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?        @relation(fields: [applicationProjectId], references: [id])
+  city               City?                      @relation(fields: [cityId], references: [id])
+  payrollSetting     ApplicationPayrollSetting? @relation(fields: [payrollSettingId], references: [id])
+  approvedBy         User?                      @relation("PayrollRunApprovedBy", fields: [approvedById], references: [id])
+  items              PayrollItem[]
+  financeEntries     FinanceEntry[]
+
+  @@index([year, month])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([payrollSettingId])
+  @@index([approvedById])
+  @@index([year, month, applicationId, applicationProjectId, cityId])
+}
+
+model PayrollItem {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  driverId             String
+  applicationAccountId String?
+  vehicleId            String?
+  orders               Int      @default(0)
+  extraOrders          Int      @default(0)
+  workingHours         Decimal? @db.Decimal(8, 2)
+  onTimeRate           Decimal? @db.Decimal(8, 2)
+  cancellationRate     Decimal? @db.Decimal(8, 2)
+  rejectionRate        Decimal? @db.Decimal(8, 2)
+  level                String?
+  basicSalary          Decimal  @default(0) @db.Decimal(12, 2)
+  extraOrdersBonus     Decimal  @default(0) @db.Decimal(12, 2)
+  performanceBonus     Decimal  @default(0) @db.Decimal(12, 2)
+  totalEarnings        Decimal  @default(0) @db.Decimal(12, 2)
+  rentalDays           Int      @default(0)
+  carRent              Decimal  @default(0) @db.Decimal(12, 2)
+  advancesTotal        Decimal  @default(0) @db.Decimal(12, 2)
+  violationsTotal      Decimal  @default(0) @db.Decimal(12, 2)
+  fuelTotal            Decimal  @default(0) @db.Decimal(12, 2)
+  appDeductionsTotal   Decimal  @default(0) @db.Decimal(12, 2)
+  damagesTotal         Decimal  @default(0) @db.Decimal(12, 2)
+  accidentDeduction    Decimal  @default(0) @db.Decimal(12, 2)
+  otherDeductions      Decimal  @default(0) @db.Decimal(12, 2)
+  totalDeductions      Decimal  @default(0) @db.Decimal(12, 2)
+  netSalary            Decimal  @default(0) @db.Decimal(12, 2)
+  status               String   @default("draft")
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  payrollRun         PayrollRun          @relation(fields: [payrollRunId], references: [id])
+  driver             Driver              @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount? @relation(fields: [applicationAccountId], references: [id])
+  vehicle            Vehicle?            @relation(fields: [vehicleId], references: [id])
+  adjustments        PayrollAdjustment[]
+  advances           Advance[]
+  violations         Violation[]
+  fuelRecords        FuelRecord[]
+  deductions         Deduction[]
+
+  @@index([payrollRunId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([vehicleId])
+  @@index([status])
+}
+
+model PayrollAdjustment {
+  id            String   @id @default(cuid())
+  payrollItemId String
+  type          String
+  amount        Decimal  @db.Decimal(12, 2)
+  reason        String
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  payrollItem PayrollItem @relation(fields: [payrollItemId], references: [id])
+  createdBy   User?       @relation("PayrollAdjustmentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([payrollItemId])
+  @@index([createdById])
+}
+
+model VehicleAssignment {
+  id             String       @id @default(cuid())
+  vehicleId      String
+  driverId       String
+  startDate      DateTime
+  endDate        DateTime?
+  rentalDays     Int?
+  calculatedRent Decimal?     @db.Decimal(12, 2)
+  status         RecordStatus @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  driver  Driver  @relation(fields: [driverId], references: [id])
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([status])
+}
+
+model FuelRecord {
+  id            String       @id @default(cuid())
+  driverId      String
+  vehicleId     String?
+  amount        Decimal      @db.Decimal(12, 2)
+  liters        Decimal?     @db.Decimal(10, 2)
+  fuelDate      DateTime
+  notes         String?
+  payrollItemId String?
+  status        RecordStatus @default(PENDING)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  driver      Driver       @relation(fields: [driverId], references: [id])
+  vehicle     Vehicle?     @relation(fields: [vehicleId], references: [id])
+  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+
+  @@index([driverId])
+  @@index([vehicleId])
+  @@index([payrollItemId])
+  @@index([fuelDate, status])
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  title        String
+  description  String?
+  cityId       String?
+  supervisorId String?
+  driverId     String?
+  priority     Severity     @default(INFO)
+  status       RecordStatus @default(PENDING)
+  dueDate      DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  city       City?       @relation(fields: [cityId], references: [id])
+  supervisor Supervisor? @relation(fields: [supervisorId], references: [id])
+  driver     Driver?     @relation(fields: [driverId], references: [id])
+}
+
+model Notification {
+  id         String       @id @default(cuid())
+  title      String
+  body       String?
+  severity   Severity     @default(INFO)
+  status     RecordStatus @default(PENDING)
+  driverId   String?
+  entityType String?
+  entityId   String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  driver Driver? @relation(fields: [driverId], references: [id])
+}
+
+model Interview {
+  id                String       @id @default(cuid())
+  candidateName     String
+  phone             String?
+  cityId            String?
+  projectId         String?
+  status            RecordStatus @default(PENDING)
+  scheduledAt       DateTime?
+  convertedDriverId String?
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model DriverDocument {
+  id                 String       @id @default(cuid())
+  driverId           String
+  type               String
+  documentType       String?
+  documentNumber     String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  status             RecordStatus @default(PENDING)
+  verificationStatus String       @default("pending")
+  fileUrl            String?
+  notes              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+  @@index([documentType])
+  @@index([expiryDate])
+}
+
+model DriverContract {
+  id           String       @id @default(cuid())
+  driverId     String
+  contractType String
+  sponsor      String?
+  startDate    DateTime?
+  endDate      DateTime?
+  status       RecordStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+}
+
+model DriverHousing {
+  id                String       @id @default(cuid())
+  driverId          String
+  housingType       String
+  accommodationType String?
+  location          String?
+  roomNumber        String?
+  monthlyCost       Decimal      @default(0)
+  status            RecordStatus @default(ACTIVE)
+  startDate         DateTime?
+  endDate           DateTime?
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+}
+
+model DriverWarning {
+  id         String       @id @default(cuid())
+  driverId   String
+  type       String
+  severity   Severity     @default(WARNING)
+  status     RecordStatus @default(PENDING)
+  issuedAt   DateTime     @default(now())
+  followUpAt DateTime?
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+}
+
+model AttendanceRecord {
+  id           String       @id @default(cuid())
+  driverId     String
+  workDate     DateTime
+  checkIn      DateTime?
+  checkOut     DateTime?
+  workingHours Decimal      @default(0)
+  status       RecordStatus @default(PENDING)
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, workDate])
+}
+
+model Shift {
+  id        String       @id @default(cuid())
+  driverId  String?
+  name      String
+  startTime String?
+  endTime   String?
+  cityId    String?
+  status    RecordStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  driver Driver? @relation(fields: [driverId], references: [id])
+}
+
+model UploadedReport {
+  id         String       @id @default(cuid())
+  fileName   String
+  importType String
+  appName    String?
+  cityId     String?
+  month      String?
+  status     RecordStatus @default(PENDING)
+  rowsCount  Int          @default(0)
+  uploadedBy String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model AppAccountMovement {
+  id           String       @id @default(cuid())
+  accountId    String?
+  appName      String?
+  fromDriverId String?
+  toDriverId   String?
+  movementType String
+  movementDate DateTime     @default(now())
+  status       RecordStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model CityTarget {
+  id                  String       @id @default(cuid())
+  cityId              String
+  projectId           String?
+  appName             String?
+  month               String
+  monthlyTarget       Int          @default(0)
+  requiredValidRiders Int          @default(0)
+  status              RecordStatus @default(PENDING)
+  notes               String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@unique([cityId, appName, month])
+}
+
+model ImportBatch {
+  id           String       @id @default(cuid())
+  fileName     String
+  importType   String
+  appName      String?
+  month        String?
+  status       RecordStatus @default(PENDING)
+  rowsFound    Int          @default(0)
+  rowsImported Int          @default(0)
+  rowsSkipped  Int          @default(0)
+  errors       Json?
+  createdBy    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       String?
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  oldValue   Json?
+  newValue   Json?
+  createdAt  DateTime @default(now())
+
+  userAccount User? @relation("AuditLogUser", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VehicleMovement {
+  id           String       @id @default(cuid())
+  vehicleId    String
+  fromDriverId String?
+  toDriverId   String?
+  cityId       String?
+  movementType String
+  handoverDate DateTime?
+  returnDate   DateTime?
+  status       RecordStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([vehicleId, status])
+}
+
+model VehicleCleaning {
+  id        String       @id @default(cuid())
+  vehicleId String
+  driverId  String?
+  cleanDate DateTime     @default(now())
+  cost      Decimal      @default(0)
+  status    RecordStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model VehicleMaintenance {
+  id        String       @id @default(cuid())
+  vehicleId String
+  driverId  String?
+  type      String
+  vendor    String?
+  cost      Decimal      @default(0)
+  status    RecordStatus @default(PENDING)
+  date      DateTime     @default(now())
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model VehicleAuthorization {
+  id         String       @id @default(cuid())
+  vehicleId  String
+  driverId   String?
+  authNumber String?
+  startDate  DateTime?
+  endDate    DateTime?
+  status     RecordStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model RentalCompany {
+  id        String       @id @default(cuid())
+  name      String
+  contact   String?
+  phone     String?
+  status    RecordStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model VehicleCost {
+  id              String       @id @default(cuid())
+  vehicleId       String
+  month           String
+  rentCost        Decimal      @default(0)
+  maintenanceCost Decimal      @default(0)
+  cleaningCost    Decimal      @default(0)
+  accidentCost    Decimal      @default(0)
+  damageCost      Decimal      @default(0)
+  otherCost       Decimal      @default(0)
+  totalCost       Decimal      @default(0)
+  status          RecordStatus @default(PENDING)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([vehicleId, month])
+}
+
+model VehicleAccident {
+  id               String       @id @default(cuid())
+  vehicleId        String
+  driverId         String?
+  cityId           String?
+  type             String?
+  cost             Decimal      @default(0)
+  liabilityPercent Decimal      @default(0)
+  status           RecordStatus @default(PENDING)
+  date             DateTime     @default(now())
+  notes            String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model VehicleDamage {
+  id            String       @id @default(cuid())
+  vehicleId     String
+  driverId      String?
+  type          String
+  estimatedCost Decimal      @default(0)
+  finalCost     Decimal      @default(0)
+  status        RecordStatus @default(PENDING)
+  date          DateTime     @default(now())
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model FinanceEntry {
+  id                   String       @id @default(cuid())
+  sourceType           String
+  sourceId             String?
+  entryType            String
+  applicationId        String?
+  applicationProjectId String?
+  cityId               String?
+  driverId             String?
+  payrollRunId         String?
+  amount               Decimal      @db.Decimal(12, 2)
+  direction            String
+  description          String?
+  status               RecordStatus @default(ACTIVE)
+  entryDate            DateTime     @default(now())
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  application        Application?        @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  driver             Driver?             @relation(fields: [driverId], references: [id])
+  payrollRun         PayrollRun?         @relation(fields: [payrollRunId], references: [id])
+
+  @@index([sourceType, sourceId])
+  @@index([entryType, direction])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([driverId])
+  @@index([payrollRunId])
+  @@index([entryDate])
+}
+
+model Invoice {
+  id        String       @id @default(cuid())
+  number    String       @unique
+  client    String?
+  projectId String?
+  month     String?
+  amount    Decimal      @default(0)
+  vatAmount Decimal      @default(0)
+  status    RecordStatus @default(PENDING)
+  issuedAt  DateTime     @default(now())
+  dueDate   DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model Receivable {
+  id         String       @id @default(cuid())
+  client     String
+  amount     Decimal      @default(0)
+  paidAmount Decimal      @default(0)
+  dueDate    DateTime?
+  status     RecordStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model Payment {
+  id          String       @id @default(cuid())
+  payee       String
+  amount      Decimal      @default(0)
+  method      String?
+  referenceNo String?
+  status      RecordStatus @default(PENDING)
+  paidAt      DateTime?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Expense {
+  id        String       @id @default(cuid())
+  type      String
+  amount    Decimal      @default(0)
+  month     String?
+  status    RecordStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model Revenue {
+  id        String       @id @default(cuid())
+  source    String
+  amount    Decimal      @default(0)
+  month     String?
+  status    RecordStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model SupplierAccount {
+  id        String       @id @default(cuid())
+  supplier  String
+  balance   Decimal      @default(0)
+  dueDate   DateTime?
+  status    RecordStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model CashboxEntry {
+  id          String       @id @default(cuid())
+  type        String
+  amount      Decimal      @default(0)
+  balance     Decimal      @default(0)
+  responsible String?
+  status      RecordStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BankAccount {
+  id        String       @id @default(cuid())
+  bankName  String
+  iban      String?
+  balance   Decimal      @default(0)
+  status    RecordStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model VatRecord {
+  id          String       @id @default(cuid())
+  month       String
+  salesVat    Decimal      @default(0)
+  purchaseVat Decimal      @default(0)
+  netVat      Decimal      @default(0)
+  status      RecordStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model ProfitLossRecord {
+  id           String       @id @default(cuid())
+  month        String       @unique
+  revenues     Decimal      @default(0)
+  expenses     Decimal      @default(0)
+  payroll      Decimal      @default(0)
+  vehicleCosts Decimal      @default(0)
+  netProfit    Decimal      @default(0)
+  status       RecordStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model QualityAuditRecord {
+  id         String       @id @default(cuid())
+  entityType String
+  entityId   String?
+  result     String?
+  status     RecordStatus @default(PENDING)
+  reviewedBy String?
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model ReportTemplate {
+  id         String       @id @default(cuid())
+  name       String
+  reportType String
+  columns    Json?
+  filters    Json?
+  status     RecordStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model ExcelMapping {
+  id         String       @id @default(cuid())
+  name       String
+  importType String
+  mapping    Json
+  status     RecordStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model ApiIntegration {
+  id         String       @id @default(cuid())
+  name       String
+  provider   String?
+  status     RecordStatus @default(PENDING)
+  lastSyncAt DateTime?
+  settings   Json?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model BackupRecord {
+  id        String       @id @default(cuid())
+  fileName  String
+  type      String
+  status    RecordStatus @default(PENDING)
+  createdBy String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model DataCleaningIssue {
+  id         String       @id @default(cuid())
+  issueType  String
+  entityType String
+  entityId   String?
+  severity   Severity     @default(WARNING)
+  status     RecordStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}

@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mshawki_erp
+      POSTGRES_USER: mshawki
+      POSTGRES_PASSWORD: mshawki
+    ports:
+      - "5432:5432"
+    volumes:
+      - erp_postgres:/var/lib/postgresql/data
+
+  web:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://mshawki:mshawki@postgres:5432/mshawki_erp?schema=public
+      NEXT_PUBLIC_APP_NAME: MOHAMED SHAWKI ERP
+    ports:
+      - "3040:3040"
+
+volumes:
+  erp_postgres:

@@ -1,0 +1,39 @@
+{
+  "name": "mohamed-shawki-erp-production",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3040",
+    "build": "prisma generate && next build",
+    "start": "next start --port 3040",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "db:push": "prisma db push",
+    "migrate:legacy": "node scripts/migrate-legacy-db.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "csv-parse": "^6.2.1",
+    "exceljs": "^4.4.0",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "recharts": "^3.8.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.2.6",
+    "postcss": "^8.5.0",
+    "prisma": "6.19.3",
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3"
+  }
+}
