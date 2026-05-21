@@ -3,6 +3,17 @@ node_modules/
 .env
 .env.local
 .env.production
+.env.development
+
+backups/
+Erp_system/
+
 *.tsbuildinfo
 *.log
 dev-server.log
+.codex-dev.err
+.codex-dev.out
+
+.prisma/
+.DS_Store
+Thumbs.db
