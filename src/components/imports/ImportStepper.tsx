@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { GENERAL_IMPORT_TYPES, importTypeLabel, PROJECT_IMPORT_TYPES } from "@/lib/imports/importScopes";
 import { ImportPreviewTable } from "./ImportPreviewTable";
 import type { ImportPreviewPayload } from "@/lib/imports/previewImport";
 import type { ImportTemplateRow } from "@/lib/imports/templates";
@@ -10,26 +11,42 @@ type Props = {
   templates: ImportTemplateRow[];
   applications: { id: string; code: string; name: string }[];
   projects: { id: string; code: string; name: string; applicationId: string }[];
+  cities?: { id: string; name: string }[];
+  allowedImportTypes?: string[];
+  lockedApplicationId?: string;
+  lockedProjectId?: string;
+  lockedLegacyProjectId?: string;
+  lockedCityId?: string;
+  scopeLabel?: string;
 };
 
 const importTypes = [
-  ["drivers", "بيانات المناديب"],
-  ["vehicles", "بيانات السيارات"],
-  ["application_accounts", "حسابات التطبيقات"],
-  ["keeta_invoice", "تقرير Keeta اليومي"],
-  ["keeta_rank", "Keeta Rank"],
-  ["hungerstation_invoice", "فاتورة HungerStation"],
-  ["hungerstation_performance", "أداء HungerStation"],
-  ["talabat_invoice", "فاتورة Talabat"],
-  ["advances", "السلف"],
-  ["deductions", "الخصومات"],
-  ["violations", "المخالفات"],
-  ["fuel", "البنزين"],
-  ["hr_documents", "مستندات HR"],
-  ["payroll", "مسير الرواتب"],
-] as const;
+  ...GENERAL_IMPORT_TYPES,
+  ...PROJECT_IMPORT_TYPES,
+  "payroll",
+].map((value) => [value, importTypeLabel(value)] as const);
 
-const importTypeValues = new Set(importTypes.map(([value]) => value));
+const dailyReportTypes = new Set(PROJECT_IMPORT_TYPES);
+const dailyReportCommitTypes = new Set(["keeta_period_report_template", "hungerstation_performance", "talabat_invoice", "keeta_invoice", "keeta_rank"]);
+const invoiceCommitTypes = new Set(["keeta_driver_invoice_template", "hungerstation_invoice"]);
+const rankCommitTypes = new Set(["keeta_rank_template"]);
+
+function appNameForImportType(value: string) {
+  if (value.startsWith("keeta")) return "Keeta";
+  if (value.startsWith("hungerstation")) return "HungerStation";
+  if (value.startsWith("talabat")) return "Talabat";
+  return "";
+}
+
+function reportDateFromPreview(preview: ImportPreviewPayload) {
+  const row = preview.rows.find((item) => item.mappedData.reportDate || item.mappedData.date);
+  const value = row?.mappedData.reportDate || row?.mappedData.date;
+  const raw = String(value ?? "").trim();
+  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return "";
+}
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
@@ -58,18 +75,46 @@ function SummaryCard({ title, value, tone = "slate" }: { title: string; value: s
   );
 }
 
-export function ImportStepper({ templates, applications, projects }: Props) {
+function readonlyBox(label: string, value: string) {
+  return (
+    <div className="grid gap-2 text-sm font-black text-slate-700">
+      {label}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+export function ImportStepper({
+  templates,
+  applications,
+  projects,
+  cities = [],
+  allowedImportTypes,
+  lockedApplicationId,
+  lockedProjectId,
+  lockedLegacyProjectId,
+  lockedCityId,
+  scopeLabel,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const requestedType = searchParams.get("importType") || searchParams.get("fileType") || searchParams.get("type") || "drivers";
+  const availableImportTypes = useMemo(() => {
+    const allowed = new Set(allowedImportTypes?.length ? allowedImportTypes : importTypes.map(([value]) => value));
+    return importTypes.filter(([value]) => allowed.has(value));
+  }, [allowedImportTypes]);
+  const fallbackImportType = availableImportTypes[0]?.[0] ?? "drivers";
+  const requestedType = searchParams.get("importType") || searchParams.get("fileType") || searchParams.get("type") || fallbackImportType;
+  const requestedAllowed = availableImportTypes.some(([value]) => value === requestedType);
   const [toast, setToast] = useState("");
-  const [importType, setImportType] = useState(() => (importTypeValues.has(requestedType as (typeof importTypes)[number][0]) ? requestedType : "drivers"));
+  const [importType, setImportType] = useState(() => (requestedAllowed ? requestedType : fallbackImportType));
   const [templateId, setTemplateId] = useState("");
   const [preview, setPreview] = useState<ImportPreviewPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState("");
 
+  const lockedApplication = applications.find((app) => app.id === lockedApplicationId);
+  const lockedProject = projects.find((project) => project.id === lockedProjectId);
   const filteredTemplates = useMemo(() => templates.filter((template) => template.fileType === importType), [importType, templates]);
   const activeTemplateId = templateId || filteredTemplates[0]?.id || "";
 
@@ -82,6 +127,10 @@ export function ImportStepper({ templates, applications, projects }: Props) {
       const form = new FormData(event.currentTarget);
       form.set("importType", importType);
       form.set("templateId", activeTemplateId);
+      if (lockedApplicationId) form.set("applicationId", lockedApplicationId);
+      if (lockedProjectId) form.set("applicationProjectId", lockedProjectId);
+      if (lockedLegacyProjectId) form.set("projectId", lockedLegacyProjectId);
+      if (lockedCityId) form.set("cityId", lockedCityId);
       const res = await fetch("/api/imports/preview", { method: "POST", body: form });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error ?? "تعذر إنشاء المعاينة.");
@@ -107,10 +156,40 @@ export function ImportStepper({ templates, applications, projects }: Props) {
       if (!res.ok) throw new Error(payload.error ?? "تعذر حفظ عملية الاستيراد.");
       const details = payload.data?.drivers
         ? ` المناديب: جديد ${payload.data.drivers.createdDrivers}، تحديث ${payload.data.drivers.updatedDrivers}، حسابات تطبيق ${payload.data.drivers.createdAccounts + payload.data.drivers.updatedAccounts}.`
-        : "";
+        : payload.data?.reports
+          ? ` التقارير اليومية: جديد ${payload.data.reports.createdReports}، تحديث ${payload.data.reports.updatedReports}.`
+          : "";
       setToast(`${payload.data?.message ?? "تم حفظ عملية الاستيراد."}${details}`);
+      const committedType = preview.summary.importType;
+      const committedDate = reportDateFromPreview(preview);
+      const committedProjectId = preview.summary.applicationProjectId;
+      const committedProjectRoute = committedType.startsWith("keeta")
+        ? "keeta"
+        : committedType.startsWith("hungerstation")
+          ? "hungerstation"
+          : committedType.startsWith("talabat")
+            ? "talabat"
+            : committedProjectId;
       setPreview(null);
       router.refresh();
+      if (dailyReportCommitTypes.has(committedType) && (committedDate || payload.data?.reports || payload.data?.keetaRecords?.createdDailyReports || payload.data?.keetaRecords?.updatedDailyReports)) {
+        const query = new URLSearchParams({ fromDate: committedDate, toDate: committedDate });
+        const appName = appNameForImportType(committedType);
+        if (appName) query.set("appName", appName);
+        router.push(`/daily-reports?${query.toString()}`);
+        return;
+      }
+      if (invoiceCommitTypes.has(committedType) && committedProjectRoute) {
+        router.push(`/projects/${committedProjectRoute}/invoices`);
+        return;
+      }
+      if (rankCommitTypes.has(committedType) && committedProjectRoute) {
+        router.push(`/projects/${committedProjectRoute}/imports`);
+        return;
+      }
+      if (dailyReportTypes.has(committedType as (typeof PROJECT_IMPORT_TYPES)[number]) && committedProjectRoute) {
+        router.push(`/projects/${committedProjectRoute}/reports${committedDate ? `?dateFrom=${committedDate}&dateTo=${committedDate}` : ""}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر حفظ عملية الاستيراد.");
     } finally {
@@ -132,6 +211,12 @@ export function ImportStepper({ templates, applications, projects }: Props) {
           ))}
         </div>
 
+        {scopeLabel ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+            هذا الاستيراد مقفول على: <strong>{scopeLabel}</strong>. لا يمكن اعتماد تقرير مشروع بدون هذا الربط.
+          </div>
+        ) : null}
+
         <form onSubmit={submitPreview} className="grid gap-4 md:grid-cols-4">
           <label className="grid gap-2 text-sm font-black text-slate-700">
             نوع الاستيراد
@@ -144,7 +229,7 @@ export function ImportStepper({ templates, applications, projects }: Props) {
               }}
               className="rounded-xl border border-slate-300 px-3 py-2"
             >
-              {importTypes.map(([value, label]) => (
+              {availableImportTypes.map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -152,29 +237,60 @@ export function ImportStepper({ templates, applications, projects }: Props) {
             </select>
           </label>
 
-          <label className="grid gap-2 text-sm font-black text-slate-700">
-            التطبيق
-            <select name="applicationId" className="rounded-xl border border-slate-300 px-3 py-2">
-              <option value="">بدون تطبيق محدد</option>
-              {applications.map((app) => (
-                <option key={app.id} value={app.id}>
-                  {app.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {lockedApplicationId ? (
+            <>
+              {readonlyBox("التطبيق", lockedApplication?.name ?? "تطبيق محدد")}
+              <input type="hidden" name="applicationId" value={lockedApplicationId} />
+            </>
+          ) : (
+            <label className="grid gap-2 text-sm font-black text-slate-700">
+              التطبيق
+              <select name="applicationId" className="rounded-xl border border-slate-300 px-3 py-2">
+                <option value="">بدون تطبيق محدد</option>
+                {applications.map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-          <label className="grid gap-2 text-sm font-black text-slate-700">
-            المشروع
-            <select name="applicationProjectId" className="rounded-xl border border-slate-300 px-3 py-2">
-              <option value="">كل المشاريع</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {lockedProjectId ? (
+            <>
+              {readonlyBox("المشروع", lockedProject?.name ?? "مشروع محدد")}
+              <input type="hidden" name="applicationProjectId" value={lockedProjectId} />
+              {lockedLegacyProjectId ? <input type="hidden" name="projectId" value={lockedLegacyProjectId} /> : null}
+            </>
+          ) : (
+            <label className="grid gap-2 text-sm font-black text-slate-700">
+              المشروع
+              <select name="applicationProjectId" className="rounded-xl border border-slate-300 px-3 py-2">
+                <option value="">كل المشاريع</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {lockedCityId ? (
+            <input type="hidden" name="cityId" value={lockedCityId} />
+          ) : cities.length ? (
+            <label className="grid gap-2 text-sm font-black text-slate-700">
+              المدينة
+              <select name="cityId" className="rounded-xl border border-slate-300 px-3 py-2">
+                <option value="">اختر المدينة</option>
+                {cities.map((city) => (
+                  <option key={city.id} value={city.id}>
+                    {city.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           <label className="grid gap-2 text-sm font-black text-slate-700">
             القالب
@@ -213,25 +329,31 @@ export function ImportStepper({ templates, applications, projects }: Props) {
             <SummaryCard title="Ready To Save" value={preview.summary.rowsReadyToSave} tone="emerald" />
           </div>
 
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">
-            {preview.message}
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">{preview.message}</div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+            <div>
+              <p className="text-sm font-black text-emerald-950">هذه معاينة فقط، لم يتم حفظ أي بيانات بعد.</p>
+              <p className="mt-1 text-xs font-bold text-emerald-800">
+                الصفوف الجاهزة للحفظ: {preview.summary.rowsReadyToSave} من {preview.summary.totalRows}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void commitPreview()}
+                disabled={committing || preview.summary.rowsReadyToSave === 0}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-black text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {committing ? "جاري الحفظ..." : "اعتماد الحفظ الآن"}
+              </button>
+              <button type="button" onClick={() => setPreview(null)} className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">
+                إلغاء المعاينة
+              </button>
+            </div>
           </div>
 
           <ImportPreviewTable preview={preview} onPreviewChange={setPreview} onRowAction={(message) => setToast(message || "تم تنفيذ الإجراء.")} />
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void commitPreview()}
-              disabled={committing || preview.summary.rowsReadyToSave === 0}
-              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-black text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {committing ? "جاري الحفظ..." : "اعتماد الحفظ"}
-            </button>
-            <button type="button" onClick={() => setPreview(null)} className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">
-              إلغاء المعاينة
-            </button>
-          </div>
         </div>
       ) : null}
     </section>

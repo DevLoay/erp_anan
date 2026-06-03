@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { reprocessStoredImportBatch } from "@/lib/imports/commitImport";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 
 type RouteContext = {
@@ -15,13 +15,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const { id } = await context.params;
 
-  const data = await prisma.applicationImportBatch.update({
-    where: { id },
-    data: {
-      status: "committed_pending_processing",
-      committedAt: new Date(),
-    },
-  });
+  const data = await reprocessStoredImportBatch(id);
 
   return NextResponse.json({
     data,

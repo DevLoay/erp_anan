@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { DriverManagementData, DriverManagementRow } from "@/lib/drivers/getDriverManagementData";
@@ -112,6 +113,7 @@ function buildCsv(rows: DriverManagementRow[]) {
 }
 
 export function DriverManagementClient({ data }: Props) {
+  const router = useRouter();
   const [toast, setToast] = useState("");
   const [selectedDriver, setSelectedDriver] = useState<DriverManagementRow | null>(null);
   const [driverAction, setDriverAction] = useState<DriverAction | null>(null);
@@ -119,10 +121,6 @@ export function DriverManagementClient({ data }: Props) {
   const rows = data.rows;
 
   const visibleRows = useMemo(() => rows.slice(0, 100), [rows]);
-
-  function underDevelopment(feature: string) {
-    setToast(`${feature} قيد التطوير`);
-  }
 
   function askToPickDriver(action: string) {
     setToast(`اختر مندوبًا من الجدول ثم اضغط زر ${action} داخل صف المندوب.`);
@@ -244,16 +242,16 @@ export function DriverManagementClient({ data }: Props) {
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => underDevelopment("إضافة مندوب")} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700">
+            <button type="button" onClick={() => router.push("/imports/preview?importType=drivers&mode=create")} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700">
               + إضافة
             </button>
             <Link href="/imports/preview?importType=drivers" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
               استيراد Excel / PDF
             </Link>
-            <button type="button" onClick={() => underDevelopment("تعديل المحدد")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
+            <button type="button" onClick={() => askToPickDriver("تعديل")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
               تعديل
             </button>
-            <button type="button" onClick={() => underDevelopment("حذف المحدد")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-red-700">
+            <button type="button" onClick={() => askToPickDriver("حذف / تعطيل")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-red-700">
               حذف
             </button>
             <button type="button" onClick={exportExcel} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-amber-600">
@@ -448,7 +446,7 @@ export function DriverManagementClient({ data }: Props) {
                         <button type="button" onClick={() => setSelectedDriver(row)} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-800 hover:bg-slate-50" aria-label={`عرض ${row.name}`}>
                           عين
                         </button>
-                        <button type="button" onClick={() => underDevelopment("تعديل المندوب")} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-800 hover:bg-slate-50" aria-label={`تعديل ${row.name}`}>
+                        <button type="button" onClick={() => setSelectedDriver(row)} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-800 hover:bg-slate-50" aria-label={`تعديل ${row.name}`}>
                           قلم
                         </button>
                       </div>
@@ -470,10 +468,10 @@ export function DriverManagementClient({ data }: Props) {
 
         <div className="mt-4 flex items-center justify-between text-xs font-bold text-slate-500">
           <div className="flex gap-2">
-            <button type="button" onClick={() => underDevelopment("الصفحة السابقة")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+            <button type="button" onClick={() => setToast("أنت بالفعل في الصفحة الأولى حسب البيانات المعروضة حاليًا.")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
               السابق
             </button>
-            <button type="button" onClick={() => underDevelopment("الصفحة التالية")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+            <button type="button" onClick={() => setToast("لا توجد صفحة تالية محفوظة في نتائج الفلاتر الحالية.")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
               التالي
             </button>
           </div>
@@ -559,7 +557,7 @@ export function DriverManagementClient({ data }: Props) {
                     <button type="button" onClick={() => window.location.assign(`/rider-kpi?driverId=${driverAction.row.id}`)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">
                       فتح KPI المندوب
                     </button>
-                    <button type="button" onClick={() => window.location.assign(`/daily-reports?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
+                    <button type="button" onClick={() => window.location.assign(`/rider-reports?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
                       التقارير اليومية
                     </button>
                     <button type="button" onClick={() => window.location.assign(`/payroll?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">

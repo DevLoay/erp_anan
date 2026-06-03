@@ -2,6 +2,7 @@ import { buildInsight, moneyValue } from "./applicationAnalytics";
 
 export type ApplicationProjectRow = {
   id: string;
+  routeId?: string;
   code: string;
   name: string;
   cityName: string;
@@ -160,4 +161,3 @@ export function emptyFinanceSummary(): ApplicationFinanceSummary {
     financeEntriesCount: 0,
   };
 }
-

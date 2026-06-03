@@ -1,10 +1,8 @@
-import Link from "next/link";
-import { PageAnalyticsSection } from "@/components/analytics/PageAnalyticsSection";
-import { MetricCard } from "@/components/reports/MetricCard";
-import { ReportFilterBar } from "@/components/reports/ReportFilterBar";
-import { StatusBadge } from "@/components/reports/StatusBadge";
-import { PageShell } from "@/components/ui/PageShell";
-import { getPageAnalytics } from "@/lib/page-analytics";
+import { headers } from "next/headers";
+import { PayrollStatus, Prisma, RecordStatus } from "@prisma/client";
+import { ManagementReportsOldClient, type ManagementReportRow } from "@/components/reports/ManagementReportsOldClient";
+import { getAccessScope } from "@/lib/auth/accessScope";
+import { prisma } from "@/lib/prisma";
 import { getCityRanking, getFilterOptions, getProjectPerformance, getRiderKpiReport, resolveFilters } from "@/lib/reporting";
 
 export const dynamic = "force-dynamic";
@@ -13,79 +11,164 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+function approvedStatusWhere() {
+  return [
+    { status: { in: [RecordStatus.APPROVED, RecordStatus.LOCKED] } },
+    { invoiceStatus: { in: ["Approved", "Locked", "Paid", "APPROVED", "LOCKED", "PAID"] } },
+  ];
+}
+
+function decimalNumber(value: unknown) {
+  if (value instanceof Prisma.Decimal) return value.toNumber();
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function money(value: unknown) {
+  return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 0 }).format(decimalNumber(value));
+}
+
+function average(values: number[]) {
+  return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10 : 0;
+}
+
+function startOfDay(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function endOfDay(value: string) {
+  return new Date(`${value}T23:59:59.999Z`);
+}
+
+function toneFromScore(score: number): "green" | "amber" | "red" | "blue" | "slate" {
+  if (score >= 80) return "green";
+  if (score >= 55) return "amber";
+  return "red";
+}
+
 export default async function ManagementReportsPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const options = await getFilterOptions();
-  const filters = resolveFilters(params, options);
-  const [kpi, cityRows, projectRows, analytics] = await Promise.all([
+  const accessScope = await getAccessScope(await headers());
+  const options = await getFilterOptions(accessScope);
+  const filters = { ...resolveFilters(params, options), accessScope };
+
+  const dateFrom = filters.dateFrom ? startOfDay(filters.dateFrom) : undefined;
+  const dateTo = filters.dateTo ? endOfDay(filters.dateTo) : undefined;
+
+  const invoiceWhere: Prisma.InvoiceWhereInput = {
+    ...(filters.projectId ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] } : {}),
+    ...(dateFrom || dateTo
+      ? { issuedAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
+      : filters.month
+        ? { month: filters.month }
+        : {}),
+    OR: approvedStatusWhere(),
+  };
+  const payrollWhere: Prisma.PayrollRunWhereInput = {
+    ...(filters.projectId ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] } : {}),
+    ...(filters.cityId ? { cityId: filters.cityId } : accessScope.isGlobal || !accessScope.cityIds.length ? {} : { cityId: { in: accessScope.cityIds } }),
+    ...(filters.month ? { year: Number(filters.month.slice(0, 4)), month: Number(filters.month.slice(5, 7)) } : {}),
+    status: { in: [PayrollStatus.APPROVED, PayrollStatus.PAID, PayrollStatus.LOCKED] },
+  };
+  const keetaAnd: Prisma.KeetaInvoiceRecordWhereInput[] = [];
+  if (filters.projectId) keetaAnd.push({ OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] });
+  if (dateFrom || dateTo) {
+    keetaAnd.push({
+      OR: [
+        { periodStart: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } },
+        { approvedAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } },
+        { month: filters.month },
+      ],
+    });
+  } else if (filters.month) {
+    keetaAnd.push({ month: filters.month });
+  }
+  const keetaRevenueWhere: Prisma.KeetaInvoiceRecordWhereInput = {
+    AND: keetaAnd,
+    ...(filters.cityId ? { cityId: filters.cityId } : accessScope.isGlobal || !accessScope.cityIds.length ? {} : { cityId: { in: accessScope.cityIds } }),
+    status: { in: ["Approved", "APPROVED", "Locked", "LOCKED", "Paid", "PAID"] },
+  };
+
+  const [kpi, cityRows, projectRows, approvedInvoices, approvedKeetaRevenue, approvedPayroll] = await Promise.all([
     getRiderKpiReport(filters),
     getCityRanking(filters),
     getProjectPerformance(filters),
-    getPageAnalytics("management-reports"),
+    prisma.invoice.aggregate({ where: invoiceWhere, _sum: { amount: true, vatAmount: true }, _count: { _all: true } }).catch(() => null),
+    prisma.keetaInvoiceRecord.aggregate({ where: keetaRevenueWhere, _sum: { totalPayableAmount: true }, _count: { _all: true } }).catch(() => null),
+    prisma.payrollRun.aggregate({ where: payrollWhere, _sum: { netTotal: true, totalEarnings: true, totalDeductions: true }, _count: { _all: true } }).catch(() => null),
   ]);
-  const bestRiders = kpi.rows.slice(0, 5);
-  const weakRiders = [...kpi.rows].sort((a, b) => a.score - b.score).slice(0, 5);
+
+  const rows: ManagementReportRow[] = kpi.rows.map((row) => ({
+    driverId: row.driverId,
+    driverCode: row.driverCode,
+    driverName: row.driverName,
+    phone: row.phone,
+    cityName: row.cityName,
+    projectName: row.projectName,
+    appName: row.appName,
+    supervisorName: row.supervisorName,
+    account: row.account,
+    orders: row.orders,
+    workingHours: row.workingHours,
+    onTimeRate: row.onTimeRate,
+    cancellationRate: row.cancellationRate,
+    rejectionRate: row.rejectionRate,
+    activeDays: row.activeDays,
+    achievement: row.achievement,
+    score: row.score,
+    status: row.status,
+    valid: row.valid,
+    reasons: row.reasons,
+    targetOrders: row.target.monthlyOrders,
+    targetHours: row.target.workingHours,
+    targetOnTime: row.target.onTimeRate,
+    dailyReports: row.dailyReports,
+  }));
+
+  const invoicesTotal = decimalNumber(approvedInvoices?._sum.amount) + decimalNumber(approvedInvoices?._sum.vatAmount);
+  const keetaRevenueTotal = decimalNumber(approvedKeetaRevenue?._sum.totalPayableAmount);
+  const projectRevenueTotal = invoicesTotal + keetaRevenueTotal;
+  const payrollTotal = decimalNumber(approvedPayroll?._sum.netTotal);
+  const warningRows = rows.filter((row) => row.status === "WARNING").length;
+  const criticalRows = rows.filter((row) => row.status === "CRITICAL").length;
+  const alertsCount = rows.reduce((sum, row) => sum + row.reasons.length, 0);
 
   return (
-    <PageShell title="تقارير الإدارة" description="ملخص إداري للأفضل والأضعف في المدن والمشاريع والمناديب بناء على البيانات الفعلية.">
-      <PageAnalyticsSection analytics={analytics} />
-
-      <ReportFilterBar filters={filters} options={options} resetHref="/management-reports" />
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="إجمالي الطلبات" value={kpi.summary.totalOrders} tone="sky" />
-        <MetricCard label="مؤهلين" value={kpi.summary.validRiders} tone="emerald" />
-        <MetricCard label="غير مؤهلين" value={kpi.summary.invalidRiders} tone="red" />
-        <MetricCard label="ساعات العمل" value={kpi.summary.totalHours} />
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <ReportList title="أفضل المدن" rows={cityRows.slice(0, 5).map((row) => ({ label: row.cityName, sub: `${row.appName} - تحقيق ${row.achievement}%`, value: `${row.score}%`, status: row.status }))} />
-        <ReportList title="أفضل المشاريع" rows={projectRows.slice(0, 5).map((row) => ({ label: row.projectName, sub: `${row.appName} - طلبات ${row.orders}`, value: `${row.score}%`, status: row.score >= 75 ? "GOOD" : "WARNING" }))} />
-        <ReportList title="أفضل المناديب" rows={bestRiders.map((row) => ({ label: row.driverName, sub: `${row.cityName} - ${row.appName}`, value: `${row.score}%`, status: row.status }))} />
-        <ReportList title="مناديب تحتاج متابعة" rows={weakRiders.map((row) => ({ label: row.driverName, sub: row.reasons.slice(0, 2).join("، ") || row.cityName, value: `${row.score}%`, status: row.status }))} />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Link href="/rider-kpi" className="rounded-md bg-slate-950 px-4 py-2 text-sm font-black text-white">
-          فتح KPI التفصيلي
-        </Link>
-        <Link href="/city-ranking" className="rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-black text-sky-700">
-          فتح ترتيب المدن
-        </Link>
-        <Link href="/performance-analysis" className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-700">
-          فتح تحليل الأداء
-        </Link>
-      </div>
-    </PageShell>
-  );
-}
-
-function ReportList({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { label: string; sub: string; value: string; status: string }[];
-}) {
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-black text-slate-950">{title}</h2>
-      <div className="mt-4 space-y-3">
-        {rows.map((row) => (
-          <div key={`${row.label}:${row.sub}`} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 p-3">
-            <div>
-              <strong className="block text-sm font-black text-slate-950">{row.label}</strong>
-              <span className="text-xs font-bold text-slate-500">{row.sub}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <strong className="text-sm font-black text-slate-900">{row.value}</strong>
-              <StatusBadge value={row.status} />
-            </div>
-          </div>
-        ))}
-        {!rows.length ? <p className="text-sm font-bold text-slate-500">لا توجد بيانات كافية.</p> : null}
-      </div>
-    </section>
+    <ManagementReportsOldClient
+      filters={filters}
+      options={options}
+      rows={rows}
+      topCities={cityRows.slice(0, 6).map((row) => ({
+        label: row.cityName,
+        sub: `${row.appName} · طلبات ${row.orders}`,
+        value: `${row.score}%`,
+        tone: toneFromScore(row.score),
+      }))}
+      topProjects={projectRows.slice(0, 6).map((row) => ({
+        label: row.projectName,
+        sub: `${row.appName} · طلبات ${row.orders}`,
+        value: `${row.score}%`,
+        tone: toneFromScore(row.score),
+      }))}
+      summary={{
+        totalRiders: rows.length,
+        totalOrders: kpi.summary.totalOrders,
+        totalHours: kpi.summary.totalHours,
+        avgOnTime: kpi.summary.avgOnTime,
+        avgCancellation: kpi.summary.avgCancellation,
+        avgRejection: kpi.summary.avgRejection,
+        avgKpi: average(rows.map((row) => row.score)),
+        validRiders: kpi.summary.validRiders,
+        invalidRiders: kpi.summary.invalidRiders,
+        warningRows,
+        criticalRows,
+        alertsCount,
+        approvedInvoices: approvedInvoices?._count._all ?? 0,
+        approvedPayrolls: approvedPayroll?._count._all ?? 0,
+        projectRevenue: money(projectRevenueTotal),
+        payrollCost: money(payrollTotal),
+        estimatedProfit: money(projectRevenueTotal - payrollTotal),
+      }}
+    />
   );
 }

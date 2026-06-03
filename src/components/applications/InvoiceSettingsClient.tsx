@@ -19,7 +19,7 @@ type ModalState =
   | { type: "details"; row: InvoiceSettingRow }
   | null;
 
-const featureMessage = "هذه الميزة قيد التطوير";
+const featureMessage = "اختر إعدادًا من الجدول لتنفيذ الإجراء المرتبط.";
 
 const defaultRequiredColumns = [
   { key: "driverIdentifier", displayName: "Driver Identifier", required: true, dataType: "string", aliases: ["Driver ID", "Rider ID", "كود المندوب"] },
@@ -207,11 +207,17 @@ export function InvoiceSettingsClient({ data, basePath, lockedApplicationId, loc
     router.refresh();
   }
 
+  function testSetting(row: InvoiceSettingRow) {
+    router.push(`/imports/preview?invoiceSettingId=${encodeURIComponent(row.id)}&applicationId=${encodeURIComponent(row.applicationId)}&applicationProjectId=${encodeURIComponent(row.applicationProjectId)}`);
+  }
+
   function handleAction(action: string, row: InvoiceSettingRow) {
     if (action === "عرض التفاصيل") setModal({ type: "details", row });
     else if (action === "تعديل") setModal({ type: "form", mode: "edit", row });
     else if (action === "نسخ") void copySetting(row);
+    else if (action === "اختبار القالب") testSetting(row);
     else if (action === "تعطيل / تفعيل") void toggleStatus(row);
+    else if (action === "حذف لو غير مستخدم فقط") void toggleStatus(row);
     else setToast(featureMessage);
   }
 
@@ -246,8 +252,8 @@ export function InvoiceSettingsClient({ data, basePath, lockedApplicationId, loc
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setModal({ type: "form", mode: "create" })} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-amber-700">إضافة إعداد فاتورة</button>
-            <button type="button" onClick={() => setToast(featureMessage)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">نسخ إعداد من مشروع آخر</button>
-            <button type="button" onClick={() => setToast(featureMessage)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">اختبار قالب</button>
+            <button type="button" onClick={() => (data.rows[0] ? void copySetting(data.rows[0]) : setToast("لا يوجد إعداد فاتورة لنسخه."))} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">نسخ إعداد من مشروع آخر</button>
+            <button type="button" onClick={() => (data.rows[0] ? testSetting(data.rows[0]) : setToast("لا يوجد إعداد فاتورة لاختباره."))} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">اختبار قالب</button>
             <button type="button" onClick={() => router.refresh()} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-slate-800">تحديث البيانات</button>
           </div>
         </div>

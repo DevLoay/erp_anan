@@ -1,20 +1,14 @@
-import { PageAnalyticsSection } from "@/components/analytics/PageAnalyticsSection";
-import { DashboardView } from "@/components/dashboard/DashboardView";
-import { PageShell } from "@/components/ui/PageShell";
-import { getPageAnalytics } from "@/lib/page-analytics";
+import { AdminDashboardOldClient } from "@/components/dashboard/AdminDashboardOldClient";
+import { getAdminDashboardOldData, resolveAdminDashboardFilters } from "@/lib/dashboard/getAdminDashboardOldData";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const analytics = await getPageAnalytics("dashboard");
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-  return (
-    <PageShell
-      title="Dashboard"
-      description="مؤشرات حقيقية من PostgreSQL. عند عدم وجود بيانات تظهر القيم صفر بدون أرقام وهمية."
-    >
-      <PageAnalyticsSection analytics={analytics} />
-      <DashboardView />
-    </PageShell>
-  );
+export default async function HomePage({ searchParams }: PageProps) {
+  const filters = await resolveAdminDashboardFilters(await searchParams);
+  const data = await getAdminDashboardOldData(filters);
+  return <AdminDashboardOldClient data={data} />;
 }

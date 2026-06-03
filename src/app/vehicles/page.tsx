@@ -1,8 +1,7 @@
-import { ResourcePage } from "@/components/ui/ResourcePage";
-import { resources } from "@/lib/resources";
+import { VehicleModulePage } from "@/components/vehicles/VehicleModulePage";
 
 export const dynamic = "force-dynamic";
 
 export default function VehiclesPage() {
-  return <ResourcePage resource={resources.vehicles} />;
+  return <VehicleModulePage module="vehicles" />;
 }

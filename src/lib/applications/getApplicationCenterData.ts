@@ -491,6 +491,7 @@ export async function getApplicationCenterData(): Promise<ApplicationCenterData>
         const projectPayrollRuns = payrollRuns.filter((run) => run.applicationProjectId === project.id);
         return {
           id: project.id,
+          routeId: key === "keeta" ? "keeta" : project.id,
           code: project.code,
           name: project.name,
           cityName: cityName(project.city ?? linkedProject?.city),
@@ -510,6 +511,7 @@ export async function getApplicationCenterData(): Promise<ApplicationCenterData>
           const projectPayrollRuns = legacyPayrolls.filter((payroll) => payroll.projectId === project.id);
           return {
             id: project.id,
+            routeId: key === "keeta" ? "keeta" : project.id,
             code: project.id.slice(-8),
             name: project.name,
             cityName: cityName(project.city),
@@ -849,4 +851,3 @@ export async function getApplicationCenterData(): Promise<ApplicationCenterData>
     analytics,
   };
 }
-

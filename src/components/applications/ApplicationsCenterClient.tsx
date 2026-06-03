@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ApplicationCard } from "./ApplicationCard";
 import { ApplicationDetailsTabs, type ApplicationDetailsTab } from "./ApplicationDetailsTabs";
@@ -16,6 +16,13 @@ type Props = {
 type SelectedDetails = {
   app: ApplicationCenterApp;
   tab: ApplicationDetailsTab;
+};
+
+type CreateApplicationForm = {
+  code: string;
+  name: string;
+  description: string;
+  status: string;
 };
 
 type OperationLink = {
@@ -43,7 +50,7 @@ const operationLinks: OperationLink[] = [
   {
     title: "استيراد تقارير التطبيقات",
     description: "رفع Keeta / HungerStation / Talabat مع Preview قبل الحفظ.",
-    route: "/imports/preview",
+    route: "/projects/keeta/imports?type=keeta_period_report_template",
     tone: "amber",
   },
   {
@@ -61,13 +68,13 @@ const operationLinks: OperationLink[] = [
   {
     title: "Rank Keeta",
     description: "استيراد وتحليل وربط رانك كيتا بالمناديب.",
-    route: "/applications/keeta/rank",
+    route: "/projects/keeta/imports?type=keeta_rank_template",
     tone: "emerald",
   },
   {
     title: "قالب Keeta",
     description: "القالب الأساسي الحالي لتقارير كيتا اليومية.",
-    route: "/imports/templates?fileType=keeta_invoice",
+    route: "/projects/keeta/invoices?type=keeta_driver_invoice_template",
     tone: "amber",
   },
   {
@@ -131,6 +138,94 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   );
 }
 
+function isKeetaApp(app: ApplicationCenterApp) {
+  return app.key === "keeta" || app.code.toLowerCase() === "keeta";
+}
+
+function appQuery(app: ApplicationCenterApp) {
+  return app.id ? `applicationId=${encodeURIComponent(app.id)}` : `application=${encodeURIComponent(app.code)}`;
+}
+
+function CreateApplicationModal({
+  form,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  form: CreateApplicationForm;
+  saving: boolean;
+  onChange: (field: keyof CreateApplicationForm, value: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/55 p-4" dir="rtl">
+      <form onSubmit={onSubmit} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 text-right shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <p className="text-xs font-black text-blue-700">مركز التطبيقات</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-950">إضافة تطبيق</h2>
+            <p className="mt-1 text-sm font-bold text-slate-500">سيتم حفظ التطبيق في PostgreSQL ويظهر فورًا داخل مركز التطبيقات.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
+            إغلاق
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            كود التطبيق *
+            <input
+              value={form.code}
+              onChange={(event) => onChange("code", event.target.value)}
+              required
+              placeholder="KEETA"
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold uppercase"
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            اسم التطبيق *
+            <input
+              value={form.name}
+              onChange={(event) => onChange("name", event.target.value)}
+              required
+              placeholder="Keeta"
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            الحالة
+            <select value={form.status} onChange={(event) => onChange("status", event.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="ACTIVE">نشط</option>
+              <option value="PENDING">قيد المراجعة</option>
+              <option value="INACTIVE">غير نشط</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800 md:col-span-2">
+            الوصف
+            <textarea
+              value={form.description}
+              onChange={(event) => onChange("description", event.target.value)}
+              placeholder="وصف مختصر للتطبيق واستخدامه التشغيلي"
+              className="min-h-24 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold"
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-black text-slate-800">
+            إلغاء
+          </button>
+          <button type="submit" disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60">
+            {saving ? "جاري الحفظ..." : "حفظ التطبيق"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function OperationsStrip({ onOpen }: { onOpen: (route: string) => void }) {
   return (
     <section className="space-y-3">
@@ -156,12 +251,29 @@ export function ApplicationsCenterClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState("");
   const [selected, setSelected] = useState<SelectedDetails | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [savingApplication, setSavingApplication] = useState(false);
+  const [applicationForm, setApplicationForm] = useState<CreateApplicationForm>({
+    code: "",
+    name: "",
+    description: "",
+    status: "ACTIVE",
+  });
 
   function showToast(message = featureInProgressMessage) {
     setToast(message);
   }
 
   function handleHeaderAction(action: string) {
+    if (action === "إضافة تطبيق") {
+      setApplicationForm({ code: "", name: "", description: "", status: "ACTIVE" });
+      setCreateOpen(true);
+      return;
+    }
+    if (action === "إضافة مشروع تطبيق") {
+      router.push("/projects");
+      return;
+    }
     if (action === "استيراد تقرير") {
       router.push("/imports/preview");
       return;
@@ -182,24 +294,25 @@ export function ApplicationsCenterClient({ data }: Props) {
   }
 
   function handleApplicationAction(action: string, app: ApplicationCenterApp) {
+    const keeta = isKeetaApp(app);
     if (action === "التقارير") {
-      router.push("/reports");
+      router.push(keeta ? "/projects/keeta/reports" : `/reports?${appQuery(app)}`);
       return;
     }
     if (action === "قواعد KPI") {
-      router.push("/settings");
+      router.push(app.id ? `/applications/${app.id}/rank-settings` : "/applications/rank-settings");
       return;
     }
     if (action === "Rank Keeta") {
-      router.push(app.key === "keeta" ? "/applications/keeta/rank" : `/applications/${app.id}/rank-settings`);
+      router.push(keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings`);
       return;
     }
     if (action === "استيراد تقرير" || action === "الاستيراد") {
-      router.push("/imports/preview");
+      router.push(keeta ? "/projects/keeta/imports?type=keeta_period_report_template" : `/imports/preview?${appQuery(app)}`);
       return;
     }
     if (action === "قوالب الاستيراد") {
-      router.push("/imports/templates");
+      router.push(keeta ? "/settings/templates?projectId=keeta" : `/imports/templates?${appQuery(app)}`);
       return;
     }
     if (action === "إعدادات الفاتورة" && app.id) {
@@ -210,6 +323,14 @@ export function ApplicationsCenterClient({ data }: Props) {
       router.push(`/applications/${app.id}/rank-settings`);
       return;
     }
+    if (action === "إعدادات المسير" && app.id) {
+      router.push(`/applications/${app.id}/payroll-settings`);
+      return;
+    }
+    if (action === "عرض المسيرات" || action === "المسيرات") {
+      router.push(keeta ? "/projects/keeta/payroll" : `/payroll?${appQuery(app)}`);
+      return;
+    }
 
     const tab = actionToTab[action];
     if (tab && app.id) {
@@ -218,6 +339,95 @@ export function ApplicationsCenterClient({ data }: Props) {
     }
 
     showToast();
+  }
+
+  function handleApplicationDetailAction(action: string, app: ApplicationCenterApp, payload?: unknown) {
+    const row = (payload ?? {}) as Record<string, unknown> & { id?: string; driverCode?: string; driverName?: string };
+    const keeta = isKeetaApp(app);
+    const query = appQuery(app);
+    const isTemplateRow = "fileType" in row && !("fileName" in row);
+    const isImportHistoryRow = "fileName" in row;
+    const isPayrollRunRow = "month" in row && "year" in row;
+    const isPayrollSettingRow = "basicSalary" in row || "targetOrders" in row || "extraOrderPrice" in row;
+    const isRankSettingRow = !isPayrollSettingRow && ("minimumOrders" in row || "onTimeRule" in row || "levelOutput" in row);
+
+    if (action === "عرض المندوب") {
+      const search = row.driverCode || row.driverName || "";
+      router.push(search ? `/drivers?q=${encodeURIComponent(search)}` : "/drivers");
+      return;
+    }
+    if (["تعديل الحساب", "فك الربط", "ربط بمندوب", "تعطيل الحساب"].includes(action)) {
+      router.push(`/account-movement?${query}${row.id ? `&accountId=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    if (isTemplateRow && ["تحميل القالب"].includes(action)) {
+      if (row.id) window.location.href = `/api/import-templates/${row.id}/download`;
+      else router.push(`/imports/templates?${query}`);
+      return;
+    }
+    if (isTemplateRow && ["تعديل Mapping", "اختبار القالب", "نسخ", "تعطيل"].includes(action)) {
+      router.push(`/imports/templates${row.id ? `?templateId=${encodeURIComponent(row.id)}` : `?${query}`}`);
+      return;
+    }
+    if (isTemplateRow && action === "رفع ملف") {
+      router.push(`/imports/preview${row.id ? `?templateId=${encodeURIComponent(row.id)}` : `?${query}`}`);
+      return;
+    }
+    if (isImportHistoryRow && ["عرض Preview", "عرض الأخطاء", "اعتماد لو ما زال Preview", "إلغاء", "تصدير الأخطاء"].includes(action)) {
+      router.push(row.id ? `/imports/history/${row.id}` : "/imports/history");
+      return;
+    }
+    if (isPayrollRunRow && ["عرض المسير", "إعادة حساب", "اعتماد", "إلغاء اعتماد", "إرسال للماليات"].includes(action)) {
+      router.push(keeta ? `/projects/keeta/payroll${row.id ? `?runId=${encodeURIComponent(row.id)}` : ""}` : `/payroll${row.id ? `?runId=${encodeURIComponent(row.id)}` : `?${query}`}`);
+      return;
+    }
+    if (isRankSettingRow && ["إضافة Rank", "تعديل", "اختبار", "تعطيل", "استيراد Rank Keeta"].includes(action)) {
+      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    if (isPayrollSettingRow && ["إضافة إعداد مسير", "تعديل", "نسخ من مشروع آخر", "اختبار حساب الراتب", "تعطيل"].includes(action)) {
+      router.push(`/applications/${app.id}/payroll-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    if (["إضافة إعداد", "تعديل", "نسخ من مشروع آخر", "اختبار القالب", "تعطيل"].includes(action)) {
+      router.push(`/applications/${app.id}/invoice-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    if (["إضافة Rank", "اختبار", "استيراد Rank Keeta"].includes(action)) {
+      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    if (["إضافة إعداد مسير", "اختبار حساب الراتب"].includes(action)) {
+      router.push(`/applications/${app.id}/payroll-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      return;
+    }
+    showToast("تم ربط الإجراء بمساره التشغيلي. افتح السجل من الصفحة المتخصصة لإكمال العملية.");
+  }
+
+  async function submitApplication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingApplication(true);
+    try {
+      const response = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: applicationForm.code.trim(),
+          name: applicationForm.name.trim(),
+          description: applicationForm.description.trim(),
+          status: applicationForm.status,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "تعذر حفظ التطبيق.");
+      setCreateOpen(false);
+      setToast("تم حفظ التطبيق بنجاح.");
+      router.refresh();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "تعذر حفظ التطبيق.");
+    } finally {
+      setSavingApplication(false);
+    }
   }
 
   if (data.databaseStatus === "offline") {
@@ -268,7 +478,7 @@ export function ApplicationsCenterClient({ data }: Props) {
         </div>
       ) : null}
 
-      {data.isEmpty ? <EmptyState onAdd={() => showToast()} /> : null}
+      {data.isEmpty ? <EmptyState onAdd={() => setCreateOpen(true)} /> : null}
 
       <section className="space-y-3">
         <SectionTitle title="كروت التطبيقات" description="نفس ترتيب النسخة القديمة: الحالة، مدن التغطية، المناديب، الحسابات الفارغة، الحسابات المرتبطة، وآخر تحديث." />
@@ -281,7 +491,23 @@ export function ApplicationsCenterClient({ data }: Props) {
 
       <OperationsStrip onOpen={(route) => router.push(route)} />
 
-      {selected ? <ApplicationDetailsTabs app={selected.app} initialTab={selected.tab} onClose={() => setSelected(null)} onAction={() => showToast()} /> : null}
+      {selected ? (
+        <ApplicationDetailsTabs
+          app={selected.app}
+          initialTab={selected.tab}
+          onClose={() => setSelected(null)}
+          onAction={(action, payload) => handleApplicationDetailAction(String(action), selected.app, payload)}
+        />
+      ) : null}
+      {createOpen ? (
+        <CreateApplicationModal
+          form={applicationForm}
+          saving={savingApplication}
+          onChange={(field, value) => setApplicationForm((current) => ({ ...current, [field]: value }))}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={submitApplication}
+        />
+      ) : null}
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
     </section>
   );

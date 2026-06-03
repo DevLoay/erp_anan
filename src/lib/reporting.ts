@@ -1,15 +1,20 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { money } from "./format";
+import type { AccessScope } from "@/lib/auth/accessScope";
 
 export type ReportFilters = {
   month: string;
+  dateFrom: string;
+  dateTo: string;
   appName: string;
   cityId: string;
   projectId: string;
   supervisorId: string;
+  driverId: string;
   q: string;
   status: string;
+  accessScope?: AccessScope;
 };
 
 export type ReportFilterOptions = {
@@ -55,6 +60,16 @@ export type KpiRow = {
   valid: boolean;
   reasons: string[];
   target: KpiRules;
+  dailyReports: {
+    id: string;
+    date: string;
+    orders: number;
+    workingHours: number;
+    onTimeRate: number;
+    cancellationRate: number;
+    rejectionRate: number;
+    warnings: string[];
+  }[];
 };
 
 export type KpiSummary = {
@@ -151,6 +166,25 @@ function pct(value: number) {
   return Math.round(value * 10) / 10;
 }
 
+function monthStart(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return "";
+  return `${month}-01`;
+}
+
+function monthEnd(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return "";
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+function startOfDay(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function endOfDay(value: string) {
+  return new Date(`${value}T23:59:59.999Z`);
+}
+
 function systemValue(value: Prisma.JsonValue | null | undefined) {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -194,43 +228,119 @@ export function getRulesForApp(appName: string, settings: Awaited<ReturnType<typ
   return settings.kpiTargets.projects[appName] ?? settings.kpiTargets.default ?? fallbackRules;
 }
 
-export async function getFilterOptions(): Promise<ReportFilterOptions> {
+function scopeWhere(scope?: AccessScope): Prisma.DailyReportWhereInput {
+  if (!scope || scope.isGlobal) return {};
+  const and: Prisma.DailyReportWhereInput[] = [];
+
+  if (scope.driverId) and.push({ driverId: scope.driverId });
+  if (scope.supervisorId) and.push({ driver: { is: { supervisorId: scope.supervisorId } } });
+  if (scope.cityIds.length) and.push({ OR: [{ cityId: { in: scope.cityIds } }, { driver: { is: { cityId: { in: scope.cityIds } } } }] });
+  if (scope.projectIds.length) {
+    and.push({
+      OR: [
+        { applicationProjectId: { in: scope.projectIds } },
+        { applicationProject: { is: { projectId: { in: scope.projectIds } } } },
+      ],
+    });
+  }
+
+  if (!and.length) return { id: "__NO_ACCESS__" };
+  return { AND: and };
+}
+
+function scopedCityWhere(scope?: AccessScope): Prisma.CityWhereInput {
+  if (!scope || scope.isGlobal || !scope.cityIds.length) return {};
+  return { id: { in: scope.cityIds } };
+}
+
+function scopedApplicationProjectWhere(scope?: AccessScope): Prisma.ApplicationProjectWhereInput {
+  if (!scope || scope.isGlobal) return {};
+  const and: Prisma.ApplicationProjectWhereInput[] = [];
+  if (scope.projectIds.length) and.push({ OR: [{ id: { in: scope.projectIds } }, { projectId: { in: scope.projectIds } }] });
+  if (scope.cityIds.length) and.push({ cityId: { in: scope.cityIds } });
+  return and.length ? { AND: and } : {};
+}
+
+function scopedSupervisorWhere(scope?: AccessScope): Prisma.SupervisorWhereInput {
+  if (!scope || scope.isGlobal) return {};
+  if (scope.supervisorId) return { id: scope.supervisorId };
+  if (scope.cityIds.length) return { cityId: { in: scope.cityIds } };
+  return { id: "__NO_ACCESS__" };
+}
+
+export async function getFilterOptions(accessScope?: AccessScope): Promise<ReportFilterOptions> {
+  const reportScopeWhere = scopeWhere(accessScope);
   const [monthRows, appRows, cities, projects, supervisors] = await Promise.all([
-    prisma.dailyReport.findMany({ distinct: ["month"], select: { month: true }, orderBy: { month: "desc" } }).catch(() => []),
-    prisma.dailyReport.findMany({ distinct: ["appName"], select: { appName: true }, where: { appName: { not: null } }, orderBy: { appName: "asc" } }).catch(() => []),
-    prisma.city.findMany({ select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameAr: "asc" } }).catch(() => []),
-    prisma.project.findMany({ select: { id: true, name: true, appName: true }, orderBy: { name: "asc" } }).catch(() => []),
-    prisma.supervisor.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }).catch(() => []),
+    prisma.dailyReport.findMany({ distinct: ["month"], select: { month: true }, where: reportScopeWhere, orderBy: { month: "desc" } }).catch(() => []),
+    prisma.dailyReport.findMany({ distinct: ["appName"], select: { appName: true }, where: { AND: [reportScopeWhere, { appName: { not: null } }] }, orderBy: { appName: "asc" } }).catch(() => []),
+    prisma.city.findMany({ where: scopedCityWhere(accessScope), select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameAr: "asc" } }).catch(() => []),
+    prisma.applicationProject.findMany({
+      where: scopedApplicationProjectWhere(accessScope),
+      select: { id: true, name: true, city: { select: { nameAr: true, nameEn: true } }, application: { select: { name: true } } },
+      orderBy: [{ application: { name: "asc" } }, { name: "asc" }],
+    }).catch(() => []),
+    prisma.supervisor.findMany({ where: scopedSupervisorWhere(accessScope), select: { id: true, name: true }, orderBy: { name: "asc" } }).catch(() => []),
   ]);
 
   return {
     months: monthRows.map((row) => row.month).filter(Boolean),
     appNames: appRows.map((row) => row.appName ?? "").filter(Boolean),
     cities: cities.map((city) => ({ id: city.id, name: city.nameAr || city.nameEn || city.id })),
-    projects: projects.map((project) => ({ id: project.id, name: project.name, appName: project.appName ?? "" })),
+    projects: projects.map((project) => ({ id: project.id, name: project.name || `${project.application.name} - ${project.city?.nameAr || project.city?.nameEn || ""}`.trim(), appName: project.application.name })),
     supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name })),
   };
 }
 
 export function resolveFilters(searchParams: Record<string, string | string[] | undefined>, options: ReportFilterOptions): ReportFilters {
+  const month = one(searchParams.month) || options.months[0] || "2026-04";
   return {
-    month: one(searchParams.month) || options.months[0] || "2026-04",
+    month,
+    dateFrom: one(searchParams.dateFrom) || one(searchParams.fromDate) || monthStart(month),
+    dateTo: one(searchParams.dateTo) || one(searchParams.toDate) || monthEnd(month),
     appName: one(searchParams.appName),
     cityId: one(searchParams.cityId),
     projectId: one(searchParams.projectId),
     supervisorId: one(searchParams.supervisorId),
+    driverId: one(searchParams.driverId) || one(searchParams.riderId),
     q: one(searchParams.q),
     status: one(searchParams.status),
   };
 }
 
 function dailyReportWhere(filters: ReportFilters): Prisma.DailyReportWhereInput {
-  const where: Prisma.DailyReportWhereInput = {};
-  if (filters.month) where.month = filters.month;
-  if (filters.appName) where.appName = filters.appName;
-  if (filters.cityId) where.cityId = filters.cityId;
-  if (filters.projectId) where.projectId = filters.projectId;
-  if (filters.supervisorId) where.driver = { is: { supervisorId: filters.supervisorId } };
+  const and: Prisma.DailyReportWhereInput[] = [scopeWhere(filters.accessScope)];
+  if (filters.dateFrom || filters.dateTo) {
+    and.push({
+      reportDate: {
+        ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}),
+        ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}),
+      },
+    });
+  } else if (filters.month) {
+    and.push({ month: filters.month });
+  }
+  if (filters.appName) and.push({ appName: filters.appName });
+  if (filters.cityId) {
+    const allowed = !filters.accessScope || filters.accessScope.isGlobal || !filters.accessScope.cityIds.length || filters.accessScope.cityIds.includes(filters.cityId);
+    and.push(allowed ? { cityId: filters.cityId } : { id: "__NO_ACCESS__" });
+  }
+  if (filters.projectId) {
+    const allowed = !filters.accessScope || filters.accessScope.isGlobal || !filters.accessScope.projectIds.length || filters.accessScope.projectIds.includes(filters.projectId);
+    and.push(
+      allowed
+        ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { is: { projectId: filters.projectId } } }] }
+        : { id: "__NO_ACCESS__" },
+    );
+  }
+  if (filters.supervisorId) {
+    const allowed = !filters.accessScope || filters.accessScope.isGlobal || !filters.accessScope.supervisorId || filters.accessScope.supervisorId === filters.supervisorId;
+    and.push(allowed ? { driver: { is: { supervisorId: filters.supervisorId } } } : { id: "__NO_ACCESS__" });
+  }
+  if (filters.driverId) {
+    const allowed = !filters.accessScope || filters.accessScope.isGlobal || !filters.accessScope.driverId || filters.accessScope.driverId === filters.driverId;
+    and.push(allowed ? { driverId: filters.driverId } : { id: "__NO_ACCESS__" });
+  }
+  const where: Prisma.DailyReportWhereInput = { AND: and.filter((item) => Object.keys(item).length) };
   return where;
 }
 
@@ -293,6 +403,8 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       driverId: true,
       cityId: true,
       projectId: true,
+      applicationId: true,
+      applicationProjectId: true,
       appName: true,
       reportDate: true,
       month: true,
@@ -303,6 +415,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       rejectionRate: true,
       city: { select: { nameAr: true, nameEn: true } },
       project: { select: { name: true, appName: true } },
+      applicationProject: { select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } },
       driver: {
         select: {
           id: true,
@@ -336,7 +449,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
   const rows = Array.from(groups.entries()).map(([driverId, bucket]) => {
     const first = bucket.reports[0];
     const driver = first.driver;
-    const appName = first.appName || driver?.project?.appName || first.project?.appName || "غير محدد";
+    const appName = first.appName || first.applicationProject?.application.name || driver?.project?.appName || first.project?.appName || "غير محدد";
     const target = getRulesForApp(appName, settings);
     const count = bucket.reports.length || 1;
     const orders = bucket.reports.reduce((sum, report) => sum + report.orders, 0);
@@ -357,7 +470,35 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     if (!driver?.accountId) reasons.push("لا يوجد حساب تطبيق");
     if (!driver?.supervisorId) reasons.push("لا يوجد مشرف");
     if (!driver?.cityId && !first.cityId) reasons.push("لا توجد مدينة");
-    if (!driver?.projectId && !first.projectId) reasons.push("لا يوجد مشروع");
+    if (!first.applicationProjectId && !driver?.projectId && !first.projectId) reasons.push("لا يوجد مشروع");
+
+    const dailyTargetHours = target.minActiveDays ? target.workingHours / target.minActiveDays : 8;
+    const dailyReports = bucket.reports
+      .slice()
+      .sort((a, b) => b.reportDate.getTime() - a.reportDate.getTime())
+      .map((report) => {
+        const reportOrders = numberValue(report.orders);
+        const reportHours = numberValue(report.workingHours);
+        const reportOnTime = numberValue(report.onTimeRate);
+        const reportCancellation = numberValue(report.cancellationRate);
+        const reportRejection = numberValue(report.rejectionRate);
+        const reportWarnings: string[] = [];
+        if (reportOrders < target.dailyOrders) reportWarnings.push("طلبات أقل من اليومي");
+        if (reportHours < dailyTargetHours) reportWarnings.push("ساعات أقل من المطلوب");
+        if (reportOnTime < target.onTimeRate) reportWarnings.push("On-Time منخفض");
+        if (reportCancellation > target.maxCancellationRate) reportWarnings.push("إلغاء مرتفع");
+        if (reportRejection > target.maxRejectionRate) reportWarnings.push("رفض مرتفع");
+        return {
+          id: report.id,
+          date: report.reportDate.toISOString().slice(0, 10),
+          orders: reportOrders,
+          workingHours: pct(reportHours),
+          onTimeRate: pct(reportOnTime),
+          cancellationRate: pct(reportCancellation),
+          rejectionRate: pct(reportRejection),
+          warnings: reportWarnings,
+        };
+      });
 
     const score = Math.max(
       0,
@@ -381,8 +522,8 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       phone: driver?.phone ?? "-",
       cityId: driver?.cityId ?? first.cityId ?? "",
       cityName: driver?.city?.nameAr ?? first.city?.nameAr ?? "غير محدد",
-      projectId: driver?.projectId ?? first.projectId ?? "",
-      projectName: driver?.project?.name ?? first.project?.name ?? "غير محدد",
+      projectId: first.applicationProjectId ?? driver?.projectId ?? first.projectId ?? "",
+      projectName: first.applicationProject?.name ?? driver?.project?.name ?? first.project?.name ?? "غير محدد",
       appName,
       supervisorId: driver?.supervisorId ?? "",
       supervisorName: driver?.supervisor?.name ?? "غير محدد",
@@ -399,6 +540,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       valid,
       reasons,
       target,
+      dailyReports,
     } satisfies KpiRow;
   });
 
@@ -414,8 +556,19 @@ export async function getRiderKpiReport(filters: ReportFilters) {
 export async function getCityRanking(filters: ReportFilters) {
   const [{ rows: kpiRows }, targetRows, accounts] = await Promise.all([
     getRiderKpiReport({ ...filters, status: "" }),
-    prisma.cityTarget.findMany({ where: { month: filters.month || undefined, appName: filters.appName || undefined } }).catch(() => []),
-    prisma.applicationAccount.findMany({ select: { cityId: true, isEmpty: true, status: true, appName: true } }).catch(() => []),
+    prisma.cityTarget.findMany({
+      where: {
+        month: filters.month || undefined,
+        appName: filters.appName || undefined,
+        cityId: filters.accessScope && !filters.accessScope.isGlobal && filters.accessScope.cityIds.length ? { in: filters.accessScope.cityIds } : undefined,
+      },
+    }).catch(() => []),
+    prisma.applicationAccount.findMany({
+      where: {
+        cityId: filters.accessScope && !filters.accessScope.isGlobal && filters.accessScope.cityIds.length ? { in: filters.accessScope.cityIds } : undefined,
+      },
+      select: { cityId: true, isEmpty: true, status: true, appName: true },
+    }).catch(() => []),
   ]);
 
   const targetMap = new Map(targetRows.map((target) => [`${target.cityId}:${target.appName ?? ""}`, target.monthlyTarget]));

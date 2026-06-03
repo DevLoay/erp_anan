@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildImportPreview } from "@/lib/imports/previewImport";
+import { importTypeRequiresProject } from "@/lib/imports/importScopes";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 
 function isSupportedFile(fileName: string) {
@@ -20,14 +21,28 @@ export async function POST(request: Request) {
     const importType = String(form.get("importType") || form.get("fileType") || "").trim();
     if (!importType) return NextResponse.json({ error: "نوع الاستيراد مطلوب." }, { status: 400 });
 
+    const applicationId = String(form.get("applicationId") || "").trim();
+    const applicationProjectId = String(form.get("applicationProjectId") || "").trim();
+    const projectId = String(form.get("projectId") || "").trim();
+    if (importTypeRequiresProject(importType) && (!applicationId || !applicationProjectId)) {
+      return NextResponse.json({ error: "لا يمكن رفع تقرير أو فاتورة خاصة بمشروع بدون تحديد مشروع واضح." }, { status: 400 });
+    }
+
+    const cityId = String(form.get("cityId") || "").trim();
+    if (importTypeRequiresProject(importType) && !cityId) {
+      return NextResponse.json({ error: "لا يمكن رفع ملف مشروع بدون تحديد المدينة. اختر المدينة من مساحة المشروع ثم أعد رفع الملف." }, { status: 400 });
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
     const preview = await buildImportPreview({
       fileName: file.name,
       buffer,
       importType,
       templateId: String(form.get("templateId") || "") || null,
-      applicationId: String(form.get("applicationId") || ""),
-      applicationProjectId: String(form.get("applicationProjectId") || ""),
+      applicationId,
+      applicationProjectId,
+      projectId,
+      cityId,
     });
 
     return NextResponse.json({ data: preview });
@@ -37,4 +52,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 }
-

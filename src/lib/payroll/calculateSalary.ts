@@ -1,5 +1,7 @@
 import { determinePayrollLevel, normalizeLevelRules, type PayrollLevelRules } from "./levels";
 
+export type VehicleOwnershipType = "company_car" | "personal_car" | "no_vehicle";
+
 export type BonusRules = {
   extraOrdersBonus: boolean;
   performanceBonus: boolean;
@@ -36,8 +38,18 @@ export type SalaryCalculationInput = {
   onTimeRate: number;
   cancellationRate: number;
   rejectionRate: number;
+
+  // Legacy fields kept for backwards compatibility.
   hasVehicle: boolean;
   rentalDays: number;
+
+  // New vehicle policy fields.
+  vehicleOwnershipType?: VehicleOwnershipType | string;
+  vehicleRentDays?: number;
+  vehicleMonthlyRent?: number;
+  vehicleDailyRent?: number;
+  personalCarAllowance?: number;
+
   advancesTotal: number;
   violationsTotal: number;
   fuelTotal: number;
@@ -67,8 +79,20 @@ export type SalaryCalculationResult = {
   noCancellationBonus: number;
   highOnTimeBonus: number;
   customBonusTotal: number;
+
+  vehicleOwnershipType: VehicleOwnershipType;
+  vehicleRentDays: number;
+  vehicleDailyRent: number;
+  vehicleMonthlyRent: number;
+  vehicleRentDisplayAmount: number;
+  carAllowance: number;
+  carRentDeduction: number;
+
   totalEarnings: number;
+
+  // Backwards-compatible field. Current policy keeps car rent deduction = 0.
   carRent: number;
+
   advancesTotal: number;
   violationsTotal: number;
   fuelTotal: number;
@@ -103,6 +127,36 @@ function normalizeAmountRows(value: unknown) {
     const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     return { name: String(record.name ?? "Custom"), amount: numberValue(record.amount) };
   });
+}
+
+function normalizeVehicleOwnership(value: unknown, hasVehicle: boolean): VehicleOwnershipType {
+  const text = String(value ?? "").trim().toLowerCase();
+
+  if (["company_car", "company", "company car", "شركة", "سيارة شركة"].some((token) => text.includes(token))) return "company_car";
+  if (["personal_car", "personal", "own", "private", "شخصية", "خاص", "سيارة شخصية"].some((token) => text.includes(token))) return "personal_car";
+  if (["no_vehicle", "none", "بدون", "بدون سيارة"].some((token) => text.includes(token))) return "no_vehicle";
+
+  return hasVehicle ? "company_car" : "no_vehicle";
+}
+
+function isCarAllowanceBonus(name: string) {
+  const text = name.trim().toLowerCase();
+  return text.includes("بدل سيارة") || text.includes("بدل السياره") || text.includes("car allowance") || text.includes("personal car");
+}
+
+function splitCustomBonuses(customBonuses: { name: string; amount: number }[]) {
+  let carAllowanceFromCustomBonus = 0;
+  let regularCustomBonusTotal = 0;
+
+  for (const bonus of customBonuses) {
+    if (isCarAllowanceBonus(bonus.name)) {
+      carAllowanceFromCustomBonus += bonus.amount;
+    } else {
+      regularCustomBonusTotal += bonus.amount;
+    }
+  }
+
+  return { regularCustomBonusTotal, carAllowanceFromCustomBonus };
 }
 
 export function normalizeBonusRules(value: unknown): BonusRules {
@@ -143,12 +197,28 @@ export function normalizeCarRentRule(value: unknown): CarRentRule {
   };
 }
 
-function carRentAmount(input: SalaryCalculationInput, rule: CarRentRule) {
-  if (!input.hasVehicle || !rule.enabled) return 0;
-  const raw = rule.fixedMonthlyDeduction || !rule.calculateByRentalDays
-    ? rule.defaultMonthlyRent
-    : (rule.defaultMonthlyRent / 30) * Math.max(0, input.rentalDays - rule.graceDays);
-  return rule.maxMonthlyDeduction > 0 ? Math.min(raw, rule.maxMonthlyDeduction) : raw;
+function resolveVehicleRentDays(input: SalaryCalculationInput) {
+  return Math.max(0, numberValue(input.vehicleRentDays ?? input.rentalDays));
+}
+
+function resolveVehicleMonthlyRent(input: SalaryCalculationInput, rule: CarRentRule) {
+  return Math.max(0, numberValue(input.vehicleMonthlyRent ?? rule.defaultMonthlyRent));
+}
+
+function resolveVehicleDailyRent(input: SalaryCalculationInput, monthlyRent: number) {
+  const explicitDailyRent = numberValue(input.vehicleDailyRent);
+  if (explicitDailyRent > 0) return explicitDailyRent;
+  return monthlyRent > 0 ? monthlyRent / 30 : 0;
+}
+
+function vehicleRentDisplayAmount(input: SalaryCalculationInput, rule: CarRentRule, vehicleOwnershipType: VehicleOwnershipType) {
+  if (vehicleOwnershipType !== "company_car") return 0;
+
+  const rentDays = resolveVehicleRentDays(input);
+  const monthlyRent = resolveVehicleMonthlyRent(input, rule);
+  const dailyRent = resolveVehicleDailyRent(input, monthlyRent);
+
+  return dailyRent * rentDays;
 }
 
 export function calculateSalary(input: SalaryCalculationInput, setting: SalarySettingLike): SalaryCalculationResult {
@@ -158,6 +228,15 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
   const carRentRule = normalizeCarRentRule(setting.carRentRule);
   const targetOrders = numberValue(setting.targetOrders);
   const baseExtraOrderPrice = numberValue(setting.extraOrderPrice);
+
+  const vehicleOwnershipType = normalizeVehicleOwnership(input.vehicleOwnershipType, input.hasVehicle);
+  const isPersonalCar = vehicleOwnershipType === "personal_car";
+  const isCompanyCar = vehicleOwnershipType === "company_car";
+
+  const vehicleRentDays = resolveVehicleRentDays(input);
+  const vehicleMonthlyRent = resolveVehicleMonthlyRent(input, carRentRule);
+  const vehicleDailyRent = resolveVehicleDailyRent(input, vehicleMonthlyRent);
+  const vehicleRentAmountForDisplay = isCompanyCar ? vehicleRentDisplayAmount(input, carRentRule, vehicleOwnershipType) : 0;
 
   const level = determinePayrollLevel(input, levelRules);
   const levelRule = levelRules[level];
@@ -169,10 +248,32 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
   const targetAchievementBonus = input.orders >= targetOrders ? bonusRules.targetAchievementBonus : 0;
   const noCancellationBonus = input.cancellationRate === 0 ? bonusRules.noCancellationBonus : 0;
   const highOnTimeBonus = input.onTimeRate >= 99 ? bonusRules.highOnTimeBonus : 0;
-  const customBonusTotal = bonusRules.customBonuses.reduce((sum, item) => sum + item.amount, 0);
-  const totalEarnings = basicSalary + extraOrdersBonus + performanceBonus + targetAchievementBonus + noCancellationBonus + highOnTimeBonus + customBonusTotal;
 
-  const carRent = carRentAmount(input, carRentRule);
+  const { regularCustomBonusTotal, carAllowanceFromCustomBonus } = splitCustomBonuses(bonusRules.customBonuses);
+  const personalCarAllowance =
+    input.personalCarAllowance !== undefined
+      ? numberValue(input.personalCarAllowance)
+      : carAllowanceFromCustomBonus > 0
+        ? carAllowanceFromCustomBonus
+        : 1500;
+
+  const carAllowance = isPersonalCar ? personalCarAllowance : 0;
+
+  // Current approved policy: company car rent is display-only and never deducted from driver salary.
+  const carRentDeduction = 0;
+  const carRent = carRentDeduction;
+
+  const customBonusTotal = regularCustomBonusTotal;
+  const totalEarnings =
+    basicSalary +
+    extraOrdersBonus +
+    performanceBonus +
+    targetAchievementBonus +
+    noCancellationBonus +
+    highOnTimeBonus +
+    customBonusTotal +
+    carAllowance;
+
   const advancesTotal = deductionRules.advances ? input.advancesTotal : 0;
   const violationsTotal = deductionRules.violations ? input.violationsTotal : 0;
   const fuelTotal = deductionRules.fuel ? input.fuelTotal : 0;
@@ -181,7 +282,17 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
   const accidentDeduction = deductionRules.accidents ? input.accidentDeduction : 0;
   const otherDeductions = input.otherDeductions;
   const customDeductionsTotal = deductionRules.customDeductions.reduce((sum, item) => sum + item.amount, 0);
-  const totalDeductions = carRent + advancesTotal + violationsTotal + fuelTotal + appDeductionsTotal + damagesTotal + accidentDeduction + otherDeductions + customDeductionsTotal;
+
+  const totalDeductions =
+    advancesTotal +
+    violationsTotal +
+    fuelTotal +
+    appDeductionsTotal +
+    damagesTotal +
+    accidentDeduction +
+    otherDeductions +
+    customDeductionsTotal;
+
   const netSalary = totalEarnings - totalDeductions;
 
   const warnings: string[] = [];
@@ -191,6 +302,7 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
   if (input.rejectionRate > levelRules.B.maxRejection) warnings.push("نسبة الرفض أعلى من الحد المسموح.");
   if (levelRules.meta?.minimumWorkingDays && input.workingDays < levelRules.meta.minimumWorkingDays) warnings.push("أيام العمل أقل من الحد الأدنى.");
   if (levelRules.meta?.minimumWorkingHoursPerDay && input.workingHours / Math.max(1, input.workingDays) < levelRules.meta.minimumWorkingHoursPerDay) warnings.push("متوسط ساعات العمل اليومي أقل من المطلوب.");
+  if (isCompanyCar && vehicleRentAmountForDisplay > 0) warnings.push("إيجار سيارة الشركة ظاهر للعرض فقط ولا يخصم من الراتب.");
   if (netSalary < 0) warnings.push("صافي الراتب سالب ويحتاج مراجعة مالية.");
 
   return {
@@ -203,6 +315,15 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
     noCancellationBonus,
     highOnTimeBonus,
     customBonusTotal,
+
+    vehicleOwnershipType,
+    vehicleRentDays,
+    vehicleDailyRent,
+    vehicleMonthlyRent,
+    vehicleRentDisplayAmount: vehicleRentAmountForDisplay,
+    carAllowance,
+    carRentDeduction,
+
     totalEarnings,
     carRent,
     advancesTotal,
@@ -218,4 +339,3 @@ export function calculateSalary(input: SalaryCalculationInput, setting: SalarySe
     warnings,
   };
 }
-

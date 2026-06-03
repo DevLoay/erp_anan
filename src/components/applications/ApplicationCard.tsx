@@ -32,6 +32,8 @@ function MiniMetric({ label, value, tone = "slate" }: { label: string; value: st
 
 export function ApplicationCard({ app, onAction }: ApplicationCardProps) {
   const tone = toneClass[statusTone(app.status)];
+  const isKeeta = app.key === "keeta" || app.code.toLowerCase() === "keeta";
+  const visibleActions = applicationCardActions.filter((action) => action !== "Rank Keeta" || isKeeta);
   const cityCoverage = uniqueCount([
     ...app.projects.map((project) => project.cityName),
     ...app.accounts.map((account) => account.cityName),
@@ -79,7 +81,7 @@ export function ApplicationCard({ app, onAction }: ApplicationCardProps) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {applicationCardActions.map((action) => (
+        {visibleActions.map((action) => (
           <button
             key={action}
             type="button"

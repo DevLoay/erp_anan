@@ -3,6 +3,13 @@ import { parse } from "csv-parse/sync";
 export type ParsedImportFile = {
   columns: string[];
   rows: Record<string, unknown>[];
+  sheets?: ParsedImportSheet[];
+};
+
+export type ParsedImportSheet = {
+  name: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
 };
 
 export function normalizeCell(value: unknown) {
@@ -27,4 +34,3 @@ export function parseCsvBuffer(buffer: Buffer): ParsedImportFile {
     ),
   };
 }
-

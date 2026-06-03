@@ -10,7 +10,7 @@ type Props = {
 
 type FilterValue = "all" | string;
 
-const actionMessage = "هذه الميزة قيد التطوير";
+const actionMessage = "اختر تنبيهًا من الجدول أو افتح التفاصيل لتنفيذ الإجراء المرتبط.";
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
@@ -131,6 +131,15 @@ function csvEscape(value: string) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
 
+function dateOnly(value: string) {
+  return value.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "";
+}
+
+function usableRouteValue(value: string) {
+  const clean = String(value ?? "").trim();
+  return clean && clean !== "-";
+}
+
 export function NotificationsAlertsClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState("");
@@ -209,6 +218,45 @@ export function NotificationsAlertsClient({ data }: Props) {
     setToast("تم إنشاء مهمة للمشرفين مرتبطة بالتنبيه.");
   }
 
+  async function createManualNotification() {
+    const response = await fetch("/api/notifications", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "تنبيه يدوي",
+        body: "تنبيه يدوي تمت إضافته من شاشة الإشعارات للمراجعة والمتابعة.",
+        severity: "INFO",
+        status: "PENDING",
+        entityType: "manual",
+      }),
+    });
+    if (!response.ok) {
+      setToast("تعذر إضافة التنبيه اليدوي.");
+      return;
+    }
+    setToast("تمت إضافة تنبيه يدوي جديد.");
+    router.refresh();
+  }
+
+  async function deleteSelectedNotification() {
+    if (!selectedRow) {
+      setToast("افتح تفاصيل تنبيه محفوظ أولًا قبل الحذف.");
+      return;
+    }
+    if (selectedRow.source !== "saved") {
+      setToast("التنبيهات المولدة من التقارير لا تُحذف يدويًا؛ عالج السبب أو علّمها كمحلولة من التفاصيل.");
+      return;
+    }
+    const response = await fetch(`/api/notifications/${selectedRow.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      setToast("تعذر حذف التنبيه المحفوظ.");
+      return;
+    }
+    setSelectedRow(null);
+    setToast("تم حذف التنبيه المحفوظ.");
+    router.refresh();
+  }
+
   async function resolveAlert(row: NotificationRow) {
     if (row.source !== "saved") {
       setToast("هذا تنبيه مولد من البيانات، وسيختفي تلقائياً عند معالجة السبب في التقارير أو الحسابات.");
@@ -233,7 +281,15 @@ export function NotificationsAlertsClient({ data }: Props) {
       return;
     }
     if (action === "تقرير المندوب") {
-      if (row.driverId) router.push(`/rider-kpi?driverId=${encodeURIComponent(row.driverId)}`);
+      if (row.driverId) {
+        const params = new URLSearchParams();
+        const exactDate = row.source === "daily-report" || row.source === "saved" ? dateOnly(row.createdAt) : "";
+        params.set("driverId", row.driverId);
+        params.set("dateFrom", exactDate || data.filters.from);
+        params.set("dateTo", exactDate || data.filters.to);
+        if (usableRouteValue(row.appName)) params.set("appName", row.appName);
+        router.push(`/rider-reports?${params.toString()}`);
+      }
       else setToast("لا يوجد مندوب مربوط بهذا التنبيه.");
       return;
     }
@@ -285,13 +341,13 @@ export function NotificationsAlertsClient({ data }: Props) {
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="flex flex-wrap gap-2">
-            <ActionButton onClick={() => setToast(actionMessage)} tone="green">+ إضافة</ActionButton>
-            <ActionButton onClick={() => router.push("/imports/preview?importType=keeta_invoice")} tone="blue">استيراد Excel / PDF</ActionButton>
-            <ActionButton onClick={() => setToast(actionMessage)}>تعديل</ActionButton>
-            <ActionButton onClick={() => setToast(actionMessage)} tone="red">حذف</ActionButton>
+            <ActionButton onClick={() => void createManualNotification()} tone="green">+ إضافة</ActionButton>
+            <ActionButton onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template")} tone="blue">استيراد Excel / PDF</ActionButton>
+            <ActionButton onClick={() => (selectedRow ? setSelectedRow(selectedRow) : setToast("افتح تفاصيل التنبيه من الجدول لتعديله أو حله."))}>تعديل</ActionButton>
+            <ActionButton onClick={() => void deleteSelectedNotification()} tone="red">حذف</ActionButton>
             <ActionButton onClick={exportCsv} tone="amber">تصدير إكسل</ActionButton>
             <ActionButton onClick={() => window.print()}>طباعة / PDF</ActionButton>
-            <ActionButton onClick={() => router.push("/imports/templates?fileType=keeta_invoice")}>قالب Keeta</ActionButton>
+            <ActionButton onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template")}>قالب Keeta</ActionButton>
           </div>
 
           <form onSubmit={submitDates} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">

@@ -17,11 +17,13 @@ export default async function SupervisorsPage({ searchParams }: PageProps) {
   return (
     <PageShell
       title="المشرفين"
-      description="صفحة تشغيلية خفيفة لتقييم المشرفين حسب الأداء والمهام والمناديب المرتبطين، مع الحفاظ على إدارة سجلات المشرفين."
+      description="صفحة تشغيلية لتقييم المشرفين حسب الأداء والمهام والمناديب المرتبطين، مع الحفاظ على إدارة سجلات المشرفين."
     >
-      <SupervisorsOperationsClient report={report} />
+      <div suppressHydrationWarning>
+        <SupervisorsOperationsClient report={report} />
+      </div>
 
-      <details id="supervisor-crud" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <details id="supervisor-crud" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" suppressHydrationWarning>
         <summary className="cursor-pointer text-base font-black text-slate-950">
           إدارة سجلات المشرفين
         </summary>

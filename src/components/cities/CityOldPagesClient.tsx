@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { CityOldPageData } from "@/lib/cities/getCityOldPagesData";
@@ -359,7 +360,7 @@ function CityDetailsModal({
                           <td className="px-3 py-2">{pct(driver.cancellationRate)}</td>
                           <td className="px-3 py-2">{pct(driver.rejectionRate)}</td>
                           <td className="px-3 py-2"><ReasonBadges reasons={driver.reasons} /></td>
-                          <td className="px-3 py-2"><SmallAction onClick={() => onAction("فتح تقرير المندوب قيد التطوير")}>تقرير</SmallAction></td>
+                          <td className="px-3 py-2"><SmallAction onClick={() => onAction("OPEN_RIDER_REPORT")}>تقرير</SmallAction></td>
                         </tr>
                       ))}
                     </tbody>
@@ -413,7 +414,7 @@ function CityDetailsModal({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${alert.severity === "critical" ? "bg-red-100 text-red-800" : alert.severity === "warning" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"}`}>{alert.value}</span>
-                    <SmallAction onClick={() => onAction("إنشاء مهمة للمشرف قيد التطوير")} tone="blue">مهمة</SmallAction>
+                    <SmallAction onClick={() => onAction("CREATE_CITY_TASK")} tone="blue">مهمة</SmallAction>
                   </div>
                 </div>
               )) : <EmptyState text="لا توجد تنبيهات لهذه المدينة حسب البيانات الحالية." />}
@@ -426,10 +427,48 @@ function CityDetailsModal({
 }
 
 export function CityOldPagesClient({ data, mode }: Props) {
+  const router = useRouter();
   const [toast, setToast] = useState("");
   const [activeDetail, setActiveDetail] = useState<CityDetail | null>(null);
   const [detailTab, setDetailTab] = useState<CityDetailTab>("overview");
   const message = (text: string) => setToast(text);
+
+  async function createCityTask(detail: CityDetail) {
+    const response = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `متابعة تشغيل مدينة ${detail.cityName}`,
+        description: `مراجعة أداء المدينة والتنبيهات الحالية. إجمالي التنبيهات: ${detail.overview.alerts}. الطلبات: ${detail.overview.orders}.`,
+        cityId: detail.cityId,
+        priority: detail.overview.alerts > 0 ? "WARNING" : "INFO",
+        status: "PENDING",
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setToast(payload.error || "تعذر إنشاء مهمة المدينة.");
+      return;
+    }
+    setToast("تم إنشاء مهمة تشغيلية مرتبطة بالمدينة.");
+  }
+
+  function handleDetailAction(action: string) {
+    if (action === "OPEN_RIDER_REPORT") {
+      const query = activeDetail ? `?cityId=${encodeURIComponent(activeDetail.cityId)}` : "";
+      router.push(`/daily-reports${query}`);
+      return;
+    }
+    if (action === "CREATE_CITY_TASK") {
+      if (!activeDetail) {
+        setToast("افتح تفاصيل المدينة أولًا.");
+        return;
+      }
+      void createCityTask(activeDetail);
+      return;
+    }
+    message(action);
+  }
 
   const fallbackDetail = (cityId: string): CityDetail | null => {
     const overview = data.citiesRows.find((row) => row.cityId === cityId);
@@ -495,7 +534,7 @@ export function CityOldPagesClient({ data, mode }: Props) {
           tab={detailTab}
           onTabChange={setDetailTab}
           onClose={() => setActiveDetail(null)}
-          onAction={message}
+          onAction={handleDetailAction}
         />
       ) : null}
       <Header mode={mode} />

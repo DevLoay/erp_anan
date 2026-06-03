@@ -145,6 +145,48 @@ export function KeetaRankClient({ data }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  function exportKeetaErrors() {
+    const errorRows = data.rows.filter((row) => row.matchStatus !== "Valid" || row.errorMessage);
+    const headers = ["Import Date", "Project", "Driver Code", "Driver Name", "National ID", "App User ID", "Rank", "Match Status", "Error Message"];
+    const lines = [
+      headers.join(","),
+      ...errorRows.map((row) =>
+        [row.importDate, row.projectName, row.driverCode, row.driverName, row.nationalId, row.appUserId, row.rank, row.matchStatus, row.errorMessage]
+          .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
+          .join(","),
+      ),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "keeta-rank-errors.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    setToast(errorRows.length ? "تم تصدير أخطاء Keeta Rank." : "لا توجد أخطاء Keeta Rank للتصدير.");
+  }
+
+  function handleRowAction(action: string, row: KeetaRankTableRow) {
+    if (action === "عرض الصف") {
+      setToast(`${row.driverName || row.appUserId || row.driverCode}: ${row.matchStatus}`);
+      return;
+    }
+    if (action === "ربط بمندوب") {
+      const q = row.driverCode || row.nationalId || row.appUserId || row.appUsername;
+      router.push(q ? `/drivers?q=${encodeURIComponent(q)}` : "/drivers");
+      return;
+    }
+    if (action === "تجاهل الصف" || action === "إعادة التحقق") {
+      router.push("/imports/history");
+      return;
+    }
+    if (action === "تصدير الأخطاء") {
+      exportKeetaErrors();
+      return;
+    }
+    setToast("تم تنفيذ الإجراء على صف Keeta Rank.");
+  }
+
   if (data.databaseStatus === "offline") {
     return (
       <section className="w-full max-w-none space-y-4 bg-slate-50" dir="rtl">
@@ -242,7 +284,7 @@ export function KeetaRankClient({ data }: Props) {
         </div>
       </form>
 
-      <KeetaRankRowsTable rows={data.rows} onAction={() => setToast("هذه الميزة قيد التطوير")} />
+      <KeetaRankRowsTable rows={data.rows} onAction={handleRowAction} />
 
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-xl font-black text-slate-950">آخر عمليات الاستيراد</h2>

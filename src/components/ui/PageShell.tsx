@@ -10,7 +10,7 @@ type PageShellProps = {
 
 export function PageShell({ title, description, actions, children }: PageShellProps) {
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" suppressHydrationWarning>
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <nav className="mb-2 flex flex-wrap items-center gap-2 text-xs font-black text-slate-500">

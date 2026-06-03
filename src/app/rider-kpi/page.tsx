@@ -13,6 +13,18 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+function dailyReportsHref(driverId: string, month: string) {
+  const params = new URLSearchParams({ riderId: driverId });
+  const match = month.match(/^(\d{4})-(\d{2})$/);
+  if (match) {
+    const year = Number(match[1]);
+    const monthNumber = Number(match[2]);
+    params.set("fromDate", `${match[1]}-${match[2]}-01`);
+    params.set("toDate", new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10));
+  }
+  return `/daily-reports?${params.toString()}`;
+}
+
 export default async function RiderKpiPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const options = await getFilterOptions();
@@ -96,7 +108,7 @@ export default async function RiderKpiPage({ searchParams }: PageProps) {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex gap-2">
-                      <Link href={`/rider-reports?q=${encodeURIComponent(row.driverCode)}`} className="rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-700">
+                      <Link href={dailyReportsHref(row.driverId, filters.month)} className="rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-700">
                         تقرير المندوب
                       </Link>
                       <Link href={`/supervisor-tasks?q=${encodeURIComponent(row.driverName)}`} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700">

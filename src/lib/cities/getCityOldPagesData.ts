@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { AccessScope } from "@/lib/auth/accessScope";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
 import { getCityRanking, getFilterOptions, getRiderKpiReport, resolveFilters, type CityRankingRow, type KpiRow, type ReportFilters } from "@/lib/reporting";
 
@@ -113,6 +114,7 @@ export type CityPageOptions = {
   appNames: string[];
   cities: { id: string; name: string }[];
   supervisors: { id: string; name: string }[];
+  accessScope?: AccessScope;
 };
 
 export type CityOverviewRow = {
@@ -221,12 +223,13 @@ export type CityOldPageData = {
   };
 };
 
-export async function resolveCityPageFilters(params: SearchParams) {
-  const options = await getFilterOptions();
+export async function resolveCityPageFilters(params: SearchParams, accessScope?: AccessScope) {
+  const options = await getFilterOptions(accessScope);
   const reportFilters = resolveFilters(params, options);
   return {
     filters: {
       ...reportFilters,
+      accessScope,
       q: one(params, "q") || reportFilters.q,
       fromDate: one(params, "fromDate") || monthFromDate(reportFilters.month, "start"),
       toDate: one(params, "toDate") || monthFromDate(reportFilters.month, "end"),
@@ -237,6 +240,7 @@ export async function resolveCityPageFilters(params: SearchParams) {
       appNames: options.appNames,
       cities: options.cities,
       supervisors: options.supervisors,
+      accessScope,
     },
   };
 }
@@ -245,19 +249,31 @@ export async function getCityOldPagesData(filters: CityPageFilters, options: Cit
   try {
     const reportFilters: ReportFilters = {
       month: filters.month,
+      dateFrom: filters.fromDate,
+      dateTo: filters.toDate,
       appName: filters.appName,
       cityId: filters.cityId,
       projectId: filters.projectId,
       supervisorId: filters.supervisorId,
+      driverId: filters.driverId,
       q: filters.q,
       status: filters.status,
+      accessScope: filters.accessScope,
     };
+    const accessScope = filters.accessScope;
+    const cityWhere = {
+      AND: [
+        filters.cityId ? { id: filters.cityId } : {},
+        accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { id: { in: accessScope.cityIds } } : {},
+      ].filter((item) => Object.keys(item).length),
+    };
+    const scopedCityIds = accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? accessScope.cityIds : undefined;
 
     const [{ rows: kpiRows }, rankingRows, cities, cityTargets, accounts] = await Promise.all([
       getRiderKpiReport({ ...reportFilters, status: "" }),
       getCityRanking(reportFilters),
       prisma.city.findMany({
-        where: filters.cityId ? { id: filters.cityId } : {},
+        where: cityWhere,
         orderBy: { nameAr: "asc" },
         select: {
           id: true,
@@ -280,13 +296,13 @@ export async function getCityOldPagesData(filters: CityPageFilters, options: Cit
         where: {
           month: filters.month || undefined,
           appName: filters.appName || undefined,
-          cityId: filters.cityId || undefined,
+          cityId: filters.cityId || (scopedCityIds ? { in: scopedCityIds } : undefined),
         },
         orderBy: [{ month: "desc" }, { appName: "asc" }],
       }),
       prisma.applicationAccount.findMany({
         where: {
-          cityId: filters.cityId || undefined,
+          cityId: filters.cityId || (scopedCityIds ? { in: scopedCityIds } : undefined),
           appName: filters.appName || undefined,
         },
         select: { cityId: true, appName: true, isEmpty: true },

@@ -239,8 +239,127 @@ function rowFromSetting(setting: {
   };
 }
 
+type KeetaPayrollPolicy = {
+  name: string;
+  targetOrders: number;
+  baseSalary: number;
+  fuelAllowance: number;
+  levelBonuses: { A: number; B: number; C: number };
+};
+
+const keetaImagePolicies: KeetaPayrollPolicy[] = [
+  { name: "Keeta Target 560 - سياسة الصورة المعتمدة", targetOrders: 560, baseSalary: 2000, fuelAllowance: 1100, levelBonuses: { A: 1800, B: 1300, C: 800 } },
+  { name: "Keeta Target 460 - سياسة الصورة المعتمدة", targetOrders: 460, baseSalary: 1500, fuelAllowance: 900, levelBonuses: { A: 1200, B: 700, C: 200 } },
+];
+
+function keetaLevelRules(policy: KeetaPayrollPolicy) {
+  return {
+    A: { minimumOrders: policy.targetOrders, minimumOnTime: 99, maxCancellation: 0, maxRejection: 0, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.A },
+    B: { minimumOrders: Math.max(460, policy.targetOrders - 100), minimumOnTime: 95, maxCancellation: 5, maxRejection: 5, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.B },
+    C: { minimumOrders: 0, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.C },
+    meta: {
+      contractType: "all",
+      minimumWorkingDays: 28,
+      minimumWorkingHoursPerDay: 0,
+      workingDaysBase: 28,
+      shortageThresholdOrders: 460,
+      shortageDeductionRate: 8,
+      salaryProration: "baseSalary * workedDays / 28",
+    },
+  };
+}
+
+function keetaBonusRules(policy: KeetaPayrollPolicy) {
+  return {
+    extraOrdersBonus: true,
+    performanceBonus: true,
+    targetAchievementBonus: 0,
+    noCancellationBonus: 0,
+    highOnTimeBonus: 0,
+    customBonuses: [
+      { name: "بدل بنزين", amount: policy.fuelAllowance },
+      { name: "بدل سكن", amount: 300 },
+      { name: "بدل اتصال", amount: 100 },
+      { name: "بدل سيارة شخصية", amount: 1500 },
+    ],
+  };
+}
+
+function keetaDeductionRules() {
+  return {
+    appDeductions: true,
+    advances: true,
+    violations: true,
+    fuel: true,
+    damages: true,
+    accidents: true,
+    absenceDeductions: true,
+    customDeductions: [{ name: "خصم نقص الطلبات أقل من 460", amount: 8 }],
+  };
+}
+
+function keetaCarRentRule() {
+  return {
+    enabled: true,
+    defaultMonthlyRent: 1500,
+    calculateByRentalDays: true,
+    fixedMonthlyDeduction: false,
+    graceDays: 0,
+    maxMonthlyDeduction: 1500,
+    vehicleOwnershipRule: "company_car = dailyRent * rentalDays, personal_car = allowance",
+    workingDaysBase: 28,
+  };
+}
+
+async function ensureKeetaImagePayrollSettings() {
+  const application = await prisma.application.findFirst({
+    where: {
+      OR: [
+        { code: { equals: "keeta", mode: "insensitive" } },
+        { name: { contains: "keeta", mode: "insensitive" } },
+        { name: { contains: "كيتا" } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (!application) return;
+
+  for (const policy of keetaImagePolicies) {
+    const payload = {
+      basicSalary: new Prisma.Decimal(policy.baseSalary),
+      targetOrders: policy.targetOrders,
+      extraOrderPrice: new Prisma.Decimal(8),
+      levelRules: keetaLevelRules(policy) as Prisma.InputJsonValue,
+      bonusRules: keetaBonusRules(policy) as Prisma.InputJsonValue,
+      deductionRules: keetaDeductionRules() as Prisma.InputJsonValue,
+      carRentRule: keetaCarRentRule() as Prisma.InputJsonValue,
+      salaryCalculationSource: "payroll_plan",
+      useKeetaInvoiceAsSalaryBase: false,
+      status: "ACTIVE" as const,
+    };
+    const existing = await prisma.applicationPayrollSetting.findFirst({
+      where: { applicationId: application.id, name: policy.name },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.applicationPayrollSetting.update({ where: { id: existing.id }, data: payload });
+    } else {
+      await prisma.applicationPayrollSetting.create({
+        data: {
+          name: policy.name,
+          applicationId: application.id,
+          applicationProjectId: null,
+          cityId: null,
+          ...payload,
+        },
+      });
+    }
+  }
+}
+
 export async function getPayrollSettingsData(filters: PayrollSettingFilters): Promise<PayrollSettingsData> {
   try {
+    await ensureKeetaImagePayrollSettings();
     const [settings, applications, projects, cities] = await Promise.all([
       prisma.applicationPayrollSetting.findMany({
         include: {
@@ -291,6 +410,9 @@ export function normalizePayrollSettingPayload(body: Record<string, unknown>): P
   const name = String(body.name ?? "").trim();
   const applicationId = String(body.applicationId ?? "").trim();
   if (!name || !applicationId) throw new Error("اسم الإعداد والتطبيق مطلوبان.");
+  if (body.useKeetaInvoiceAsSalaryBase === true || body.useKeetaInvoiceAsSalaryBase === "true") {
+    throw new Error("مستحق كيتا يمثل إيراد الشركة وليس راتب المندوب. تفعيل هذا الخيار قد يؤدي إلى حساب راتب خاطئ.");
+  }
 
   return {
     name,
@@ -304,6 +426,8 @@ export function normalizePayrollSettingPayload(body: Record<string, unknown>): P
     bonusRules: json(body.bonusRules),
     deductionRules: json(body.deductionRules),
     carRentRule: json(body.carRentRule),
+    salaryCalculationSource: "payroll_plan",
+    useKeetaInvoiceAsSalaryBase: false,
     status: statusValue(body.status),
   };
 }
@@ -360,8 +484,9 @@ export async function copyPayrollSetting(args: {
       bonusRules: source.bonusRules === null ? Prisma.JsonNull : (source.bonusRules as Prisma.InputJsonValue),
       deductionRules: source.deductionRules === null ? Prisma.JsonNull : (source.deductionRules as Prisma.InputJsonValue),
       carRentRule: source.carRentRule === null ? Prisma.JsonNull : (source.carRentRule as Prisma.InputJsonValue),
+      salaryCalculationSource: "payroll_plan",
+      useKeetaInvoiceAsSalaryBase: false,
       status: source.status,
     },
   });
 }
-

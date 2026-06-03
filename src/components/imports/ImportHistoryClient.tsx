@@ -37,6 +37,38 @@ export function ImportHistoryClient({ data }: { data: ImportHistoryData }) {
     router.refresh();
   }
 
+  async function exportErrors(row: ImportHistoryRow) {
+    const res = await fetch(`/api/imports/history/${row.id}`);
+    const payload = (await res.json().catch(() => ({}))) as {
+      data?: { batch?: { rows?: { rowNumber: number; errorType: string; errorMessage: string; rawData: unknown }[] } };
+      error?: string;
+    };
+    if (!res.ok) {
+      setToast(payload.error || "تعذر تحميل أخطاء عملية الاستيراد.");
+      return;
+    }
+    const errorRows = payload.data?.batch?.rows?.filter((item) => item.errorType || item.errorMessage) ?? [];
+    const lines = [
+      ["rowNumber", "errorType", "errorMessage", "rawData"].join(","),
+      ...errorRows.map((item) =>
+        [
+          item.rowNumber,
+          item.errorType,
+          item.errorMessage,
+          JSON.stringify(item.rawData ?? {}),
+        ].map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","),
+      ),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `import-errors-${row.id}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setToast(errorRows.length ? "تم تصدير أخطاء الاستيراد." : "لا توجد أخطاء مسجلة في هذه العملية.");
+  }
+
   if (data.databaseStatus === "offline") {
     return <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm font-bold text-red-800">{data.databaseMessage}</div>;
   }
@@ -120,7 +152,7 @@ export function ImportHistoryClient({ data }: { data: ImportHistoryData }) {
                       <Link href={`/imports/history/${row.id}`} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
                         عرض التفاصيل
                       </Link>
-                      <button type="button" onClick={() => setToast("تصدير الأخطاء قيد التطوير")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
+                      <button type="button" onClick={() => void exportErrors(row)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
                         تصدير الأخطاء
                       </button>
                       <button type="button" onClick={() => void action(row, "commit")} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-800">
@@ -143,4 +175,3 @@ export function ImportHistoryClient({ data }: { data: ImportHistoryData }) {
     </section>
   );
 }
-

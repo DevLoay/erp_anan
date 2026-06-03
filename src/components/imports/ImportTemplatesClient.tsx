@@ -59,6 +59,54 @@ export function ImportTemplatesClient({ data, basePath = "/imports/templates" }:
     window.location.href = `/api/import-templates/${id}/download?fileType=${encodeURIComponent(row.fileType)}`;
   }
 
+  function testTemplate(row: ImportTemplateRow) {
+    router.push(`/imports/preview?templateId=${encodeURIComponent(row.id)}&importType=${encodeURIComponent(row.fileType)}`);
+  }
+
+  async function copyTemplate(row: ImportTemplateRow) {
+    const res = await fetch("/api/import-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `${row.name} - نسخة`,
+        fileType: row.fileType,
+        applicationId: row.applicationId,
+        applicationProjectId: row.applicationProjectId,
+        requiredColumns: row.requiredColumns,
+        optionalColumns: row.optionalColumns,
+        columnMapping: row.columnMapping,
+        status: "ACTIVE",
+      }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      setToast(payload.error || "تعذر نسخ القالب.");
+      return;
+    }
+    setToast("تم نسخ القالب بنجاح.");
+    router.refresh();
+  }
+
+  async function toggleTemplateStatus(row: ImportTemplateRow) {
+    if (row.source !== "database") {
+      await copyTemplate({ ...row, name: `${row.name} - مخصص` });
+      return;
+    }
+    const nextStatus = row.status === "نشط" ? "INACTIVE" : "ACTIVE";
+    const res = await fetch(`/api/import-templates/${encodeURIComponent(row.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      setToast(payload.error || "تعذر تغيير حالة القالب.");
+      return;
+    }
+    setToast("تم تحديث حالة القالب.");
+    router.refresh();
+  }
+
   async function submitTemplate(payload: Record<string, unknown>) {
     const target = editing?.source === "database" ? `/api/import-templates/${editing.id}` : "/api/import-templates";
     const method = editing?.source === "database" ? "PATCH" : "POST";
@@ -115,7 +163,7 @@ export function ImportTemplatesClient({ data, basePath = "/imports/templates" }:
         <button type="button" onClick={() => setToast("اختر قالبًا من الجدول لتحميله بصيغة Excel")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
           تحميل قالب
         </button>
-        <button type="button" onClick={() => setToast("اختبار القالب قيد التطوير")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
+        <button type="button" onClick={() => (data.rows[0] ? testTemplate(data.rows[0]) : setToast("لا توجد قوالب متاحة للاختبار."))} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
           اختبار قالب
         </button>
         <Link href="/imports" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-800">
@@ -231,13 +279,13 @@ export function ImportTemplatesClient({ data, basePath = "/imports/templates" }:
                     <button type="button" onClick={() => downloadTemplate(row)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-black text-blue-800">
                       تحميل Excel
                     </button>
-                    <button type="button" onClick={() => setToast("اختبار القالب قيد التطوير")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
+                    <button type="button" onClick={() => testTemplate(row)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
                       اختبار
                     </button>
-                    <button type="button" onClick={() => setToast("نسخ القالب قيد التطوير")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
+                    <button type="button" onClick={() => void copyTemplate(row)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
                       نسخ
                     </button>
-                    <button type="button" onClick={() => setToast("تعطيل/تفعيل القالب قيد التطوير")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
+                    <button type="button" onClick={() => void toggleTemplateStatus(row)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">
                       تعطيل / تفعيل
                     </button>
                   </div>
@@ -250,4 +298,3 @@ export function ImportTemplatesClient({ data, basePath = "/imports/templates" }:
     </section>
   );
 }
-

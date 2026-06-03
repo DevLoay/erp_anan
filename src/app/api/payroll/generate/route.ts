@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 import { getRiderKpiReport, getSystemRules, type ReportFilters } from "@/lib/reporting";
+import { generateKeetaPayroll, isKeetaPayrollRequest } from "@/lib/payroll/keetaPayroll";
 
 type GenerateBody = Partial<ReportFilters> & {
   month?: string;
@@ -33,13 +34,48 @@ export async function POST(request: Request) {
   const body = (await request.json()) as GenerateBody;
   const filters: ReportFilters = {
     month: body.month || "2026-04",
+    dateFrom: body.dateFrom || `${body.month || "2026-04"}-01`,
+    dateTo: body.dateTo || new Date(Date.UTC(Number((body.month || "2026-04").slice(0, 4)), Number((body.month || "2026-04").slice(5, 7)), 0)).toISOString().slice(0, 10),
     appName: body.appName || "",
     cityId: body.cityId || "",
     projectId: body.projectId || "",
     supervisorId: body.supervisorId || "",
+    driverId: body.driverId || "",
     q: body.q || "",
     status: "",
   };
+
+  const [legacyProject, applicationProject] = filters.projectId
+    ? await Promise.all([
+        prisma.project.findUnique({ where: { id: filters.projectId }, select: { name: true, appName: true } }).catch(() => null),
+        prisma.applicationProject
+          .findFirst({
+            where: { OR: [{ id: filters.projectId }, { projectId: filters.projectId }] },
+            include: { application: { select: { name: true, code: true } } },
+          })
+          .catch(() => null),
+      ])
+    : [null, null];
+
+  if (
+    isKeetaPayrollRequest({
+      appName: filters.appName || legacyProject?.appName || applicationProject?.application.name || applicationProject?.application.code,
+      projectName: legacyProject?.name || applicationProject?.name,
+      projectId: filters.projectId,
+    })
+  ) {
+    const result = await generateKeetaPayroll({
+      month: filters.month,
+      cityId: filters.cityId || undefined,
+      requestedBy: "Admin",
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error, details: result.details }, { status: result.status });
+    }
+
+    return NextResponse.json({ data: result.data });
+  }
 
   const [settings, kpi] = await Promise.all([getSystemRules(), getRiderKpiReport(filters)]);
   const driverIds = kpi.rows.map((row) => row.driverId).filter((id) => id && !id.startsWith("unassigned:"));

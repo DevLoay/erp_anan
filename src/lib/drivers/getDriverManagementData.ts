@@ -145,7 +145,18 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
 
     const where: Prisma.DriverWhereInput = {
       ...(filters.cityId ? { cityId: filters.cityId } : {}),
-      ...(filters.projectId ? { projectId: filters.projectId } : {}),
+      ...(filters.projectId
+        ? {
+            applicationAccounts: {
+              some: {
+                OR: [
+                  { applicationProjectId: filters.projectId },
+                  { applicationProject: { projectId: filters.projectId } },
+                ],
+              },
+            },
+          }
+        : {}),
       ...(filters.status ? { status: filters.status as Prisma.EnumDriverStatusFilter["equals"] } : {}),
       ...(filters.nationality ? { nationality: filters.nationality } : {}),
       ...(filters.q
@@ -180,6 +191,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
               username: true,
               appUserId: true,
               appUsername: true,
+              applicationProjectId: true,
               application: { select: { name: true, code: true } },
               applicationProject: { select: { name: true } },
             },
@@ -193,6 +205,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
               username: true,
               appUserId: true,
               appUsername: true,
+              applicationProjectId: true,
               application: { select: { name: true, code: true } },
               applicationProject: { select: { name: true } },
             },
@@ -220,7 +233,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         },
       }),
       prisma.city.findMany({ orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
-      prisma.project.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+      prisma.applicationProject.findMany({ orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
       prisma.driver.findMany({ distinct: ["nationality"], where: { nationality: { not: null } }, select: { nationality: true }, take: 200 }),
       prisma.driver.count(),
       prisma.driver.count({ where: { status: "ACTIVE" } }),
@@ -250,8 +263,8 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         nationality: driver.nationality || "-",
         city: driver.city?.nameAr || driver.city?.nameEn || "-",
         cityId: driver.cityId || "",
-        project: driver.project?.name || "-",
-        projectId: driver.projectId || "",
+        project: account?.applicationProject?.name || driver.project?.name || "-",
+        projectId: account?.applicationProjectId || driver.projectId || "",
         application: account?.application?.name || account?.appName || driver.project?.appName || "-",
         appUserId: account?.appUserId || account?.username || "-",
         appUsername: account?.appUsername || account?.username || "-",
@@ -290,7 +303,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
       databaseStatus: "online",
       filters,
       cities: cities.map((city) => ({ id: city.id, name: city.nameAr || city.nameEn || "مدينة بدون اسم" })),
-      projects: projects.map((project) => ({ id: project.id, name: project.name || "مشروع بدون اسم" })),
+      projects: projects.map((project) => ({ id: project.id, name: project.name || `${project.application.name} - ${project.city?.nameAr || project.city?.nameEn || ""}`.trim() || "مشروع بدون اسم" })),
       nationalities: allNationalities.map((row) => row.nationality).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b, "ar")),
       summary,
       insight: buildInsight(summary),

@@ -37,7 +37,13 @@ const hrResources = new Set([
 const supervisorResources = new Set(["drivers", "daily-reports", "tasks", "notifications", "violations", "attendance", "shifts"]);
 
 export function roleFromHeaders(headers: Headers): AppRole {
-  const raw = headers.get("x-user-role")?.toUpperCase().replace(/\s+/g, "_");
+  const cookieRole = headers
+    .get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("erp-user-role="))
+    ?.split("=")[1];
+  const raw = (headers.get("x-user-role") || cookieRole || "").toUpperCase().replace(/\s+/g, "_");
   if (
     raw === "ADMIN" ||
     raw === "OPERATION_MANAGER" ||
@@ -48,7 +54,7 @@ export function roleFromHeaders(headers: Headers): AppRole {
   ) {
     return raw;
   }
-  return "ADMIN";
+  return "VIEWER";
 }
 
 export function canReadResource(role: AppRole, resource: string) {
@@ -65,6 +71,6 @@ export function canWriteResource(role: AppRole, resource: string) {
   if (role === "ADMIN" || role === "OPERATION_MANAGER") return true;
   if (role === "ACCOUNTANT") return financeResources.has(resource);
   if (role === "HR") return hrResources.has(resource);
-  if (role === "SUPERVISOR") return resource === "tasks";
+  if (role === "SUPERVISOR") return resource === "tasks" || resource === "attendance";
   return false;
 }

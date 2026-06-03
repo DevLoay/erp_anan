@@ -19,7 +19,7 @@ type ModalState =
   | { type: "details"; row: RankSettingRow }
   | null;
 
-const featureMessage = "هذه الميزة قيد التطوير";
+const featureMessage = "اختر إعداد رانك من الجدول لتنفيذ الإجراء المرتبط.";
 
 const defaultOnTimeRule = { excellent: { min: 99 }, good: { min: 95 }, weak: { max: 94.99 } };
 const defaultCancellationRule = { valid: { max: 0 }, invalid: { min: 0.01 } };
@@ -183,10 +183,15 @@ export function RankSettingsClient({ data, basePath, lockedApplicationId, locked
     router.refresh();
   }
 
+  function testRank(row: RankSettingRow) {
+    router.push(`/applications/keeta/rank?rankSettingId=${encodeURIComponent(row.id)}&applicationProjectId=${encodeURIComponent(row.applicationProjectId)}`);
+  }
+
   function handleAction(action: string, row: RankSettingRow) {
     if (action === "عرض التفاصيل") setModal({ type: "details", row });
     else if (action === "تعديل") setModal({ type: "form", mode: "edit", row });
     else if (action === "نسخ") void copySetting(row);
+    else if (action === "اختبار") testRank(row);
     else if (action === "تعطيل / تفعيل") void toggleStatus(row);
     else if (action === "استيراد Rank لو التطبيق Keeta") {
       if (row.applicationCode.toLowerCase().includes("keeta") || row.applicationName.toLowerCase().includes("keeta")) router.push("/applications/keeta/rank");
@@ -225,8 +230,8 @@ export function RankSettingsClient({ data, basePath, lockedApplicationId, locked
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setModal({ type: "form", mode: "create" })} className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-amber-700">إضافة Rank Setting</button>
-            <button type="button" onClick={() => setToast(featureMessage)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">نسخ من مشروع آخر</button>
-            <button type="button" onClick={() => setToast(featureMessage)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">اختبار الرانك</button>
+            <button type="button" onClick={() => (data.rows[0] ? void copySetting(data.rows[0]) : setToast("لا يوجد إعداد رانك لنسخه."))} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">نسخ من مشروع آخر</button>
+            <button type="button" onClick={() => (data.rows[0] ? testRank(data.rows[0]) : setToast("لا يوجد إعداد رانك لاختباره."))} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">اختبار الرانك</button>
             <button type="button" onClick={() => router.refresh()} className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-slate-800">تحديث</button>
           </div>
         </div>

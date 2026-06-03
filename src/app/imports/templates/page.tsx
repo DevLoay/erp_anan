@@ -11,6 +11,10 @@ type PageProps = {
 export default async function ImportTemplatesPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const data = await getImportTemplatesData(resolveImportTemplateFilters(params));
+  const globalData = {
+    ...data,
+    rows: data.rows.filter((row) => !row.fileType.startsWith("keeta_")),
+  };
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
@@ -32,8 +36,7 @@ export default async function ImportTemplatesPage({ searchParams }: PageProps) {
           <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">تاريخ الاستيراد</Link>
         </div>
       </div>
-      <ImportTemplatesClient data={data} />
+      <ImportTemplatesClient data={globalData} />
     </main>
   );
 }
-

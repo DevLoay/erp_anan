@@ -11,6 +11,7 @@ type ReportFilterBarProps = {
 export function ReportFilterBar({ filters, options, showStatus = true, resetHref }: ReportFilterBarProps) {
   return (
     <form className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" dir="rtl">
+      {filters.driverId ? <input type="hidden" name="driverId" value={filters.driverId} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         <label htmlFor="month-filter" className="grid gap-1 text-sm font-bold text-slate-700">
           الشهر

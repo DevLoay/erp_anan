@@ -129,7 +129,7 @@ export function resolveNotificationFilters(params: SearchParams): NotificationsD
 
 function keetaTemplate() {
   return {
-    fileType: "keeta_invoice",
+    fileType: "keeta_period_report_template",
     requiredColumns: ["Date", "Courier ID", "Task Volumes_Delivered Tasks"],
     optionalColumns: [
       "Courier First Name",

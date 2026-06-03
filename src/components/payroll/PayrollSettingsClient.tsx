@@ -658,6 +658,18 @@ export function PayrollSettingsClient({ data, basePath = "/payroll/settings", sc
 
       {scopeTitle ? <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">{scopeTitle}</div> : null}
 
+      {data.summary.keeta ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950 shadow-sm">
+          <div className="text-base font-black">سياسة Keeta المعتمدة من الصورة</div>
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            <p>Target 560: راتب أساسي 2000 ريال على 28 يوم، بنزين 1100، سكن 300، اتصال 100، وبدل أداء A/B/C = 1800 / 1300 / 800.</p>
+            <p>Target 460: راتب أساسي 1500 ريال على 28 يوم، بنزين 900، سكن 300، اتصال 100، وبدل أداء A/B/C = 1200 / 700 / 200.</p>
+            <p>سيارة الشركة: خصم الإيجار اليومي × عدد أيام الإيجار، والحد الشهري 1500 ريال.</p>
+            <p>السيارة الشخصية: لا يوجد خصم سيارة، ويظهر بدل السيارة الشخصية حسب الخطة. نقص الطلبات أقل من 460 يخصم 8 ريال لكل طلب ناقص.</p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-black text-white hover:bg-amber-700">
           إضافة إعداد مسير
@@ -751,7 +763,7 @@ export function PayrollSettingsClient({ data, basePath = "/payroll/settings", sc
                       <button type="button" onClick={() => setCopySource(row)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-black text-slate-700">نسخ</button>
                       <button type="button" onClick={() => setTestSettingId(row.id)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-black text-blue-800">اختبار الحساب</button>
                       <button type="button" onClick={() => void toggleStatus(row)} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-black text-amber-800">تفعيل / تعطيل</button>
-                      <button type="button" onClick={() => setToast("حذف الإعداد لو غير مستخدم فقط قيد التطوير")} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-black text-red-800">حذف</button>
+                      <button type="button" onClick={() => void toggleStatus(row)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-black text-red-800">تعطيل</button>
                     </div>
                   </td>
                 </tr>

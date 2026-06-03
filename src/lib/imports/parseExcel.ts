@@ -15,29 +15,30 @@ function cellToValue(cell: ExcelJS.Cell) {
 export async function parseExcelBuffer(buffer: Buffer): Promise<ParsedImportFile> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) return { columns: [], rows: [] };
-
-  const headerRow = worksheet.getRow(1);
-  const columns: string[] = [];
-  headerRow.eachCell((cell) => {
-    const header = normalizeCell(cellToValue(cell));
-    if (header) columns.push(header);
-  });
-
-  const rows: Record<string, unknown>[] = [];
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const record: Record<string, unknown> = {};
-    let hasValue = false;
-    columns.forEach((column, index) => {
-      const value = normalizeCell(cellToValue(row.getCell(index + 1)));
-      if (value !== "") hasValue = true;
-      record[column] = value;
+  const sheets = workbook.worksheets.map((worksheet) => {
+    const headerRow = worksheet.getRow(1);
+    const columns: string[] = [];
+    headerRow.eachCell({ includeEmpty: false }, (cell) => {
+      const header = normalizeCell(cellToValue(cell));
+      if (header) columns.push(header);
     });
-    if (hasValue) rows.push(record);
+
+    const rows: Record<string, unknown>[] = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const record: Record<string, unknown> = {};
+      let hasValue = false;
+      columns.forEach((column, index) => {
+        const value = normalizeCell(cellToValue(row.getCell(index + 1)));
+        if (value !== "") hasValue = true;
+        record[column] = value;
+      });
+      if (hasValue) rows.push(record);
+    });
+
+    return { name: worksheet.name, columns, rows };
   });
 
-  return { columns, rows };
+  const firstSheet = sheets[0] ?? { name: "", columns: [], rows: [] };
+  return { columns: firstSheet.columns, rows: firstSheet.rows, sheets };
 }
-

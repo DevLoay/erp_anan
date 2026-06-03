@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getResource } from "@/lib/resources";
 import { canReadResource, canWriteResource, roleFromHeaders } from "@/lib/permissions";
@@ -32,17 +33,100 @@ function normalizePayload(input: Record<string, unknown>) {
 }
 
 function isNumericField(key: string) {
-  return /amount|cost|rent|salary|bonus|deduction|balance|hours|rate|percent|orders|rows|target|riders|days|payroll|revenues|expenses|profit/i.test(key);
+  return /amount|cost|rent|salary|bonus|deduction|balance|hours|rate|percent|orders|rows|target|riders|days|year|payroll|revenues|expenses|profit/i.test(key);
+}
+
+function jsonValue(value: unknown) {
+  return JSON.parse(JSON.stringify(value ?? null));
+}
+
+async function audit(request: Request, action: string, entityType: string, entityId: string, before: unknown, after: unknown) {
+  await prisma.auditLog
+    .create({
+      data: {
+        userId: request.headers.get("x-user-id") || undefined,
+        user: request.headers.get("x-user-email") || undefined,
+        action,
+        entityType,
+        entityId,
+        before: jsonValue(before),
+        after: jsonValue(after),
+        oldValue: jsonValue(before),
+        newValue: jsonValue(after),
+      },
+    })
+    .catch(() => null);
+}
+
+function vehicleStatusFromBody(body: Record<string, unknown>) {
+  const raw = String(body.status ?? "").toUpperCase();
+  if (["AVAILABLE", "ASSIGNED", "MAINTENANCE", "ACCIDENT", "INACTIVE"].includes(raw)) return raw;
+  return "";
+}
+
+async function updateVehicleWithDriverSync(id: string, body: Record<string, unknown>, select: Record<string, boolean>) {
+  const status = vehicleStatusFromBody(body);
+  const requestedDriverId = "currentDriverId" in body ? String(body.currentDriverId ?? "").trim() : "";
+  const normalizedBody = { ...body };
+  if (status && status !== "ASSIGNED") {
+    normalizedBody.currentDriverId = null;
+  }
+
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const beforeVehicle = await tx.vehicle.findUnique({ where: { id }, select: { id: true, currentDriverId: true, status: true } });
+    if (!beforeVehicle) throw new Error("السيارة غير موجودة.");
+    const effectiveDriverId = requestedDriverId || beforeVehicle.currentDriverId || "";
+    if (status === "ASSIGNED" && !effectiveDriverId) {
+      throw new Error("اختار المندوب قبل حفظ سيارة حالتها مع مندوب.");
+    }
+    if (status === "ASSIGNED" && effectiveDriverId) {
+      normalizedBody.currentDriverId = effectiveDriverId;
+    }
+
+    const updated = await tx.vehicle.update({ where: { id }, data: normalizedBody as Prisma.VehicleUncheckedUpdateInput });
+    const driverId = String(updated.currentDriverId ?? "").trim();
+    const activeAssignment = await tx.vehicleAssignment.findFirst({
+      where: { vehicleId: id, status: "ACTIVE", endDate: null },
+      orderBy: { startDate: "desc" },
+    });
+
+    if (driverId && String(updated.status) === "ASSIGNED") {
+      if (beforeVehicle.currentDriverId && beforeVehicle.currentDriverId !== driverId) {
+        await tx.driver.update({ where: { id: beforeVehicle.currentDriverId }, data: { vehicleId: null } }).catch(() => null);
+      }
+      if (activeAssignment && activeAssignment.driverId !== driverId) {
+        await tx.vehicleAssignment.update({
+          where: { id: activeAssignment.id },
+          data: { endDate: new Date(), status: "INACTIVE" },
+        });
+        await tx.vehicleAssignment.create({
+          data: { vehicleId: id, driverId, startDate: new Date(), status: "ACTIVE", notes: "تم تحديث الربط من شاشة السيارات." },
+        });
+      } else if (!activeAssignment) {
+        await tx.vehicleAssignment.create({
+          data: { vehicleId: id, driverId, startDate: new Date(), status: "ACTIVE", notes: "تم تحديث الربط من شاشة السيارات." },
+        });
+      }
+      await tx.driver.update({ where: { id: driverId }, data: { vehicleId: id, vehicleOwnershipType: "company_car" } }).catch(() => null);
+    }
+
+    if ((!driverId || String(updated.status) !== "ASSIGNED") && activeAssignment) {
+      await tx.vehicleAssignment.update({ where: { id: activeAssignment.id }, data: { endDate: new Date(), status: "INACTIVE" } });
+      await tx.driver.update({ where: { id: activeAssignment.driverId }, data: { vehicleId: null } }).catch(() => null);
+    }
+
+    return tx.vehicle.findUnique({ where: { id }, select });
+  });
 }
 
 function safeSelect(resource: string, fields: string[]) {
   const unsafeRelations = new Set(["city", "project", "driver", "supervisor", "vehicle", "account", "application", "applicationProject"]);
-  const always = ["id", "createdAt", "updatedAt"];
+  const always = ["id", "createdAt"];
   const fieldSet = new Set([...always, ...fields].filter((field) => field && !unsafeRelations.has(field) && !field.includes(".")));
 
   const knownExistingFields: Record<string, string[]> = {
     drivers: ["id", "internalCode", "name", "phone", "nationalId", "cityId", "projectId", "supervisorId", "vehicleId", "accountId", "status", "contractType", "housingStatus", "createdAt", "updatedAt"],
-    vehicles: ["id", "plateAr", "plateEn", "model", "rentalCompany", "monthlyRent", "status", "currentDriverId", "cityId", "createdAt", "updatedAt"],
+    vehicles: ["id", "vehicleCode", "plateAr", "plateArabic", "plateEn", "plateEnglish", "brand", "model", "year", "ownershipType", "rentalCompany", "dailyRent", "monthlyRent", "status", "currentDriverId", "cityId", "createdAt", "updatedAt"],
     advances: ["id", "driverId", "amount", "remainingAmount", "reason", "deductionMonth", "status", "createdAt", "updatedAt"],
     deductions: ["id", "driverId", "type", "amount", "month", "status", "notes", "createdAt", "updatedAt"],
     violations: ["id", "driverId", "type", "amount", "status", "occurredAt", "notes", "createdAt", "updatedAt"],
@@ -78,7 +162,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ resou
 
   const body = normalizePayload((await request.json()) as Record<string, unknown>);
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
-  const data = await delegate(config.delegate).update({ where: { id }, data: body, select });
+  const before = await delegate(config.delegate).findUnique({ where: { id }, select });
+  let data: unknown;
+  try {
+    data = config.key === "vehicles" ? await updateVehicleWithDriverSync(id, body, select) : await delegate(config.delegate).update({ where: { id }, data: body, select });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر تحديث السجل." }, { status: 409 });
+  }
+  await audit(request, "UPDATE", config.key, id, before, data);
   return NextResponse.json({ data });
 }
 
@@ -89,8 +180,22 @@ export async function DELETE(request: Request, context: { params: Promise<{ reso
 
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, config.key)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (role !== "ADMIN") return NextResponse.json({ error: "Delete requires Admin permission" }, { status: 403 });
 
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
-  const data = await delegate(config.delegate).delete({ where: { id }, select });
+  const before = await delegate(config.delegate).findUnique({ where: { id }, select });
+  let data: unknown;
+  if (config.key === "drivers") {
+    data = await delegate(config.delegate).update({ where: { id }, data: { status: "INACTIVE" }, select });
+    await audit(request, "DRIVER_DEACTIVATE", config.key, id, before, data);
+    return NextResponse.json({ data });
+  }
+  if (config.key === "vehicles") {
+    data = await delegate(config.delegate).update({ where: { id }, data: { status: "INACTIVE" }, select });
+    await audit(request, "VEHICLE_DEACTIVATE", config.key, id, before, data);
+    return NextResponse.json({ data });
+  }
+  data = await delegate(config.delegate).delete({ where: { id }, select });
+  await audit(request, "DELETE", config.key, id, before, data);
   return NextResponse.json({ data });
 }

@@ -149,7 +149,9 @@ export function ImportPreviewTable({
         <button
           type="button"
           onClick={() => {
-            window.location.href = `/imports/templates?fileType=${encodeURIComponent(preview.summary.importType)}`;
+            window.location.href = preview.summary.importType.startsWith("keeta_")
+              ? `/settings/templates?projectId=keeta&fileType=${encodeURIComponent(preview.summary.importType)}`
+              : `/imports/templates?fileType=${encodeURIComponent(preview.summary.importType)}`;
           }}
           className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
         >

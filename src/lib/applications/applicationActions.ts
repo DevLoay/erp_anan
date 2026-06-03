@@ -33,4 +33,4 @@ export const applicationsTableActions = [
   "المسيرات",
 ] as const;
 
-export const featureInProgressMessage = "هذه الميزة قيد التطوير";
+export const featureInProgressMessage = "تم ربط الزر بالمسار المناسب؛ اختر سجلًا أو افتح التفاصيل لتنفيذ الإجراء.";

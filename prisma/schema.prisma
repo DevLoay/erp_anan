@@ -75,7 +75,9 @@ model User {
   supervisor           Supervisor?              @relation("UserSupervisorAccount", fields: [supervisorId], references: [id])
   approvedPayrollRuns  PayrollRun[]             @relation("PayrollRunApprovedBy")
   createdImportBatches ApplicationImportBatch[] @relation("ApplicationImportBatchCreatedBy")
+  approvedImportBatches ApplicationImportBatch[] @relation("ApplicationImportBatchApprovedBy")
   payrollAdjustments   PayrollAdjustment[]      @relation("PayrollAdjustmentCreatedBy")
+  attendanceRecords    AttendanceRecord[]       @relation("UserAttendanceRecords")
   auditLogs            AuditLog[]               @relation("AuditLogUser")
 }
 
@@ -99,6 +101,10 @@ model City {
   payrollSettings     ApplicationPayrollSetting[]
   payrollRuns         PayrollRun[]
   financeEntries      FinanceEntry[]
+  keetaPayrollPlans    KeetaPayrollPlan[]
+  keetaRankRecords    KeetaRankRecord[]
+  keetaPerformanceRecords KeetaPerformanceRecord[]
+  keetaInvoiceRecords KeetaInvoiceRecord[]
 }
 
 model Project {
@@ -132,6 +138,7 @@ model Supervisor {
   users   User[]   @relation("UserSupervisorAccount")
   drivers Driver[]
   tasks   Task[]
+  attendanceRecords AttendanceRecord[]
 }
 
 model Driver {
@@ -148,12 +155,15 @@ model Driver {
   projectId         String?
   supervisorId      String?
   vehicleId         String?
+  vehicleOwnershipType String   @default("no_vehicle")
   accountId         String?
   status            DriverStatus @default(ACTIVE)
   contractType      String?
   sponsorshipType   String?
   accommodationType String?
   housingStatus     String?
+  source            String?
+  needsReview       Boolean      @default(false)
   joinDate          DateTime?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
@@ -184,6 +194,10 @@ model Driver {
   importRows          ApplicationImportRow[]
   tasks               Task[]
   notifications       Notification[]
+  keetaRankRecords    KeetaRankRecord[]
+  keetaPerformanceRecords KeetaPerformanceRecord[]
+  keetaInvoiceRecords KeetaInvoiceRecord[]
+  keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
 
   @@index([driverCode])
   @@index([nationalId])
@@ -200,7 +214,9 @@ model Vehicle {
   brand           String?
   model           String?
   year            Int?
+  ownershipType   String        @default("company")
   rentalCompany   String?
+  dailyRent       Decimal       @default(0) @db.Decimal(12, 2)
   monthlyRent     Decimal       @default(0)
   status          VehicleStatus @default(AVAILABLE)
   currentDriverId String?
@@ -241,6 +257,9 @@ model Application {
   importBatches   ApplicationImportBatch[]
   payrollRuns     PayrollRun[]
   financeEntries  FinanceEntry[]
+  dailyReports    DailyReport[]
+  templateConfigs TemplateConfig[]
+  payrollFieldRules PayrollFieldRule[]
 }
 
 model ApplicationProject {
@@ -267,6 +286,15 @@ model ApplicationProject {
   importBatches   ApplicationImportBatch[]
   payrollRuns     PayrollRun[]
   financeEntries  FinanceEntry[]
+  dailyReports    DailyReport[]
+  invoices        Invoice[]
+  templateConfigs TemplateConfig[]
+  payrollFieldRules PayrollFieldRule[]
+  keetaPayrollPlans KeetaPayrollPlan[]
+  keetaRankRecords KeetaRankRecord[]
+  keetaPerformanceRecords KeetaPerformanceRecord[]
+  keetaInvoiceRecords KeetaInvoiceRecord[]
+  keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
 
   @@index([applicationId])
   @@index([projectId])
@@ -334,6 +362,8 @@ model ApplicationPayrollSetting {
   bonusRules           Json?
   deductionRules       Json?
   carRentRule          Json?
+  salaryCalculationSource String       @default("payroll_plan")
+  useKeetaInvoiceAsSalaryBase Boolean  @default(false)
   status               RecordStatus @default(ACTIVE)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
@@ -376,16 +406,33 @@ model ApplicationImportBatch {
   applicationId        String?
   applicationProjectId String?
   templateId           String?
+  projectId            String?
+  cityId               String?
   fileType             String
   fileName             String?
+  sourceFileName       String?
+  importType           String?
+  month                String?
+  periodStart          DateTime?
+  periodEnd            DateTime?
   status               String    @default("preview")
+  sheetNames           Json?
   totalRows            Int       @default(0)
   validRows            Int       @default(0)
   invalidRows          Int       @default(0)
   duplicateRows        Int       @default(0)
   missingDrivers       Int       @default(0)
   unlinkedAccounts     Int       @default(0)
+  unmatchedRows        Int       @default(0)
+  previewData          Json?
+  matchedColumns       Json?
+  errorRows            Json?
+  uploadedBy           String?
+  uploadedAt           DateTime  @default(now())
   createdById          String?
+  approvedById         String?
+  approvedAt           DateTime?
+  lockedAt             DateTime?
   committedAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -394,12 +441,22 @@ model ApplicationImportBatch {
   applicationProject ApplicationProject?        @relation(fields: [applicationProjectId], references: [id])
   template           ApplicationImportTemplate? @relation(fields: [templateId], references: [id])
   createdBy          User?                      @relation("ApplicationImportBatchCreatedBy", fields: [createdById], references: [id])
+  approvedBy         User?                      @relation("ApplicationImportBatchApprovedBy", fields: [approvedById], references: [id])
   rows               ApplicationImportRow[]
+  keetaRankRecords   KeetaRankRecord[]
+  keetaPerformanceRecords KeetaPerformanceRecord[]
+  keetaInvoiceRecords KeetaInvoiceRecord[]
+  keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
 
   @@index([applicationId])
   @@index([applicationProjectId])
+  @@index([projectId])
+  @@index([cityId])
   @@index([templateId])
+  @@index([importType, month])
   @@index([createdById])
+  @@index([approvedById])
+  @@index([periodStart, periodEnd])
   @@index([status, createdAt])
 }
 
@@ -428,6 +485,258 @@ model ApplicationImportRow {
   @@index([status])
 }
 
+model TemplateConfig {
+  id                         String   @id @default(cuid())
+  key                        String   @unique
+  nameAr                     String
+  nameEn                     String
+  projectId                  String?
+  applicationId              String?
+  applicationProjectId       String?
+  scope                      String
+  importType                 String
+  enabled                    Boolean  @default(true)
+  showInGlobalImports        Boolean  @default(false)
+  showInProjectImports       Boolean  @default(true)
+  showInInvoices             Boolean  @default(false)
+  showInPayroll              Boolean  @default(false)
+  showInReports              Boolean  @default(false)
+  showInManagementReports    Boolean  @default(false)
+  showInApplicationCenter    Boolean  @default(false)
+  affectsPayroll             Boolean  @default(false)
+  affectsInvoices            Boolean  @default(false)
+  affectsReports             Boolean  @default(false)
+  affectsRank                Boolean  @default(false)
+  allowedRoles               Json?
+  requiredColumns            Json?
+  optionalColumns            Json?
+  matchingKeys               Json?
+  route                      String?
+  sortOrder                  Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  application        Application?        @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+
+  @@index([projectId])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([scope, importType])
+  @@index([enabled, sortOrder])
+}
+
+model KeetaRankRecord {
+  id                              String   @id @default(cuid())
+  projectId                       String   @default("keeta")
+  applicationProjectId            String?
+  driverId                        String?
+  applicationAccountId            String?
+  courierId                       String
+  courierName                     String?
+  cityId                          String?
+  month                           String?
+  periodStart                     DateTime?
+  periodEnd                       DateTime?
+  currentEstimatedLevel           String?
+  currentEstimatedRanking         Decimal? @db.Decimal(12, 2)
+  courierRankingPercentile        Decimal? @db.Decimal(12, 4)
+  currentScoreForForcedAssignment Decimal? @db.Decimal(12, 4)
+  currentEstimatedRewardAmount    Decimal? @db.Decimal(12, 2)
+  onTimeRate                      Decimal? @db.Decimal(8, 4)
+  orderCompletionRate             Decimal? @db.Decimal(8, 4)
+  dropOffNotEarlyRate             Decimal? @db.Decimal(8, 4)
+  orderVolume                     Int?
+  rawData                         Json?
+  importBatchId                   String?
+  status                          String   @default("Approved")
+  approvedBy                      String?
+  approvedAt                      DateTime?
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+
+  applicationProject ApplicationProject?      @relation(fields: [applicationProjectId], references: [id])
+  driver             Driver?                  @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount?      @relation(fields: [applicationAccountId], references: [id])
+  city               City?                    @relation(fields: [cityId], references: [id])
+  importBatch        ApplicationImportBatch?  @relation(fields: [importBatchId], references: [id])
+
+  @@index([projectId, month])
+  @@index([applicationProjectId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([courierId])
+  @@index([cityId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+model KeetaPerformanceRecord {
+  id                                  String   @id @default(cuid())
+  projectId                           String   @default("keeta")
+  applicationProjectId                String?
+  driverId                            String?
+  applicationAccountId                String?
+  courierId                           String
+  courierFirstName                    String?
+  courierLastName                     String?
+  supervisorName                      String?
+  vehicleType                         String?
+  cityId                              String?
+  reportDate                          DateTime
+  month                               String?
+  periodStart                         DateTime?
+  periodEnd                           DateTime?
+  shiftAttendanceSummary              String?
+  onShift                             Boolean?
+  validDay                            Boolean?
+  courierAppOnlineTime                Decimal? @db.Decimal(10, 2)
+  validOnlineTime                     Decimal? @db.Decimal(10, 2)
+  peakOnlineHours                     Decimal? @db.Decimal(10, 2)
+  acceptedTasks                       Int?
+  tasksWithRestaurantArrivals         Int?
+  deliveredTasks                      Int?
+  largeOrderTasksCompleted            Int?
+  rejectedTasks                       Int?
+  rejectedTasksCourier                Int?
+  rejectedTasksAuto                   Int?
+  cancellationRateFromDeliveryIssues  Decimal? @db.Decimal(8, 4)
+  orderCompletionRateNonDelivery      Decimal? @db.Decimal(8, 4)
+  onTimeRate                          Decimal? @db.Decimal(8, 4)
+  largeOrderOnTimeRate                Decimal? @db.Decimal(8, 4)
+  avgDeliveryTime                     Decimal? @db.Decimal(10, 2)
+  deliveredOrdersOver55MinPercent     Decimal? @db.Decimal(8, 4)
+  overdueOrderTasks                   Int?
+  severelyOverdueOrderTasks           Int?
+  rawData                             Json?
+  importBatchId                       String?
+  status                              String   @default("Approved")
+  approvedBy                          String?
+  approvedAt                          DateTime?
+  createdAt                           DateTime @default(now())
+  updatedAt                           DateTime @updatedAt
+
+  applicationProject ApplicationProject?     @relation(fields: [applicationProjectId], references: [id])
+  driver             Driver?                 @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount?     @relation(fields: [applicationAccountId], references: [id])
+  city               City?                   @relation(fields: [cityId], references: [id])
+  importBatch        ApplicationImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([projectId, month])
+  @@index([applicationProjectId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([courierId])
+  @@index([cityId])
+  @@index([reportDate])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+model KeetaInvoiceRecord {
+  id                         String   @id @default(cuid())
+  projectId                  String   @default("keeta")
+  applicationProjectId       String?
+  driverId                   String?
+  applicationAccountId       String?
+  courierId                  String
+  courierName                String?
+  partnerId                  String?
+  partnerName                String?
+  billingCycle               String?
+  cityId                     String?
+  month                      String?
+  periodStart                DateTime?
+  periodEnd                  DateTime?
+  isValid                    Boolean?
+  reason                     String?
+  onlineDaysValid            Decimal? @db.Decimal(10, 2)
+  dailyOnlineHoursValid      Decimal? @db.Decimal(10, 2)
+  dailyOnlineHoursPeakValid  Decimal? @db.Decimal(10, 2)
+  deliveredOrders            Int?
+  orderBasedPricing          Decimal? @db.Decimal(12, 2)
+  distanceFromPriceIncrease  Decimal? @db.Decimal(12, 2)
+  validDaCapacityIncentives  Decimal? @db.Decimal(12, 2)
+  experienceIncentive        Decimal? @db.Decimal(12, 2)
+  dxgy                       Decimal? @db.Decimal(12, 2)
+  subsidy                    Decimal? @db.Decimal(12, 2)
+  activitiesAndOtherRewards  Decimal? @db.Decimal(12, 2)
+  deduction                  Decimal? @db.Decimal(12, 2)
+  foodCompensation           Decimal? @db.Decimal(12, 2)
+  registrationServiceFee     Decimal? @db.Decimal(12, 2)
+  otherAdjustment            Decimal? @db.Decimal(12, 2)
+  tipsExcludingTax           Decimal? @db.Decimal(12, 2)
+  tgaDeductionVatExcluded    Decimal? @db.Decimal(12, 2)
+  totalPayableAmount         Decimal? @db.Decimal(12, 2)
+  rawData                    Json?
+  invoiceBatchId             String?
+  status                     String   @default("Approved")
+  approvedBy                 String?
+  approvedAt                 DateTime?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  applicationProject ApplicationProject?     @relation(fields: [applicationProjectId], references: [id])
+  driver             Driver?                 @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount?     @relation(fields: [applicationAccountId], references: [id])
+  city               City?                   @relation(fields: [cityId], references: [id])
+  invoiceBatch       ApplicationImportBatch? @relation(fields: [invoiceBatchId], references: [id])
+
+  @@index([projectId, month])
+  @@index([applicationProjectId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([courierId])
+  @@index([cityId])
+  @@index([invoiceBatchId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+model KeetaInvoiceDetailRecord {
+  id                       String   @id @default(cuid())
+  projectId                String   @default("keeta")
+  applicationProjectId     String?
+  invoiceBatchId           String?
+  driverId                 String?
+  applicationAccountId     String?
+  courierId                String
+  courierName              String?
+  partnerId                String?
+  partnerName              String?
+  billingCycle             String?
+  transactionType          String?
+  businessId               String?
+  note                     String?
+  feeType                  String?
+  detailAmount             Decimal? @db.Decimal(12, 2)
+  totalPayableAmount       Decimal? @db.Decimal(12, 2)
+  deliveryDistance         Decimal? @db.Decimal(12, 2)
+  ticketId                 String?
+  violationId              String?
+  violationType            String?
+  punishmentMethods        String?
+  timeOfFaceVerification   String?
+  faceVerificationResult   String?
+  rawData                  Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  applicationProject ApplicationProject?     @relation(fields: [applicationProjectId], references: [id])
+  invoiceBatch       ApplicationImportBatch? @relation(fields: [invoiceBatchId], references: [id])
+  driver             Driver?                 @relation(fields: [driverId], references: [id])
+  applicationAccount ApplicationAccount?     @relation(fields: [applicationAccountId], references: [id])
+
+  @@index([projectId])
+  @@index([applicationProjectId])
+  @@index([invoiceBatchId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([courierId])
+  @@index([violationType])
+  @@index([feeType])
+}
+
 model ApplicationAccount {
   id                   String       @id @default(cuid())
   appName              String
@@ -440,6 +749,9 @@ model ApplicationAccount {
   cityId               String?
   driverId             String?
   isEmpty              Boolean      @default(true)
+  needsReview          Boolean      @default(false)
+  unmatchedReason      String?
+  source               String?
   status               RecordStatus @default(ACTIVE)
   linkedAt             DateTime?
   createdAt            DateTime     @default(now())
@@ -453,6 +765,10 @@ model ApplicationAccount {
   drivers            Driver[]               @relation("DriverPrimaryAccount")
   payrollItems       PayrollItem[]
   importRows         ApplicationImportRow[]
+  keetaRankRecords   KeetaRankRecord[]
+  keetaPerformanceRecords KeetaPerformanceRecord[]
+  keetaInvoiceRecords KeetaInvoiceRecord[]
+  keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
 
   @@index([applicationId])
   @@index([applicationProjectId])
@@ -460,6 +776,7 @@ model ApplicationAccount {
   @@index([cityId])
   @@index([driverId])
   @@index([appUserId])
+  @@index([applicationId, applicationProjectId, cityId, appUserId])
 }
 
 model DailyReport {
@@ -469,6 +786,8 @@ model DailyReport {
   driverId         String?
   cityId           String?
   projectId        String?
+  applicationId    String?
+  applicationProjectId String?
   appName          String?
   orders           Int      @default(0)
   workingHours     Decimal  @default(0)
@@ -481,8 +800,13 @@ model DailyReport {
   driver  Driver?  @relation(fields: [driverId], references: [id])
   city    City?    @relation(fields: [cityId], references: [id])
   project Project? @relation(fields: [projectId], references: [id])
+  application Application? @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
 
   @@index([month, cityId, projectId])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([month, cityId, applicationProjectId])
 }
 
 model Advance {
@@ -582,6 +906,8 @@ model PayrollRun {
   totalEarnings        Decimal       @default(0) @db.Decimal(12, 2)
   totalDeductions      Decimal       @default(0) @db.Decimal(12, 2)
   netTotal             Decimal       @default(0) @db.Decimal(12, 2)
+  totalCompanyRevenue  Decimal       @default(0) @db.Decimal(12, 2)
+  estimatedCompanyProfit Decimal     @default(0) @db.Decimal(12, 2)
   approvedById         String?
   approvedAt           DateTime?
   createdAt            DateTime      @default(now())
@@ -610,6 +936,11 @@ model PayrollItem {
   driverId             String
   applicationAccountId String?
   vehicleId            String?
+  vehicleOwnershipType String   @default("no_vehicle")
+  vehicleRentDays      Int      @default(0)
+  vehicleDailyRent     Decimal  @default(0) @db.Decimal(12, 2)
+  vehicleMonthlyRent   Decimal  @default(0) @db.Decimal(12, 2)
+  vehicleRentDisplayAmount Decimal @default(0) @db.Decimal(12, 2)
   orders               Int      @default(0)
   extraOrders          Int      @default(0)
   workingHours         Decimal? @db.Decimal(8, 2)
@@ -627,11 +958,56 @@ model PayrollItem {
   violationsTotal      Decimal  @default(0) @db.Decimal(12, 2)
   fuelTotal            Decimal  @default(0) @db.Decimal(12, 2)
   appDeductionsTotal   Decimal  @default(0) @db.Decimal(12, 2)
+  adminCarryoverDeduction Decimal @default(0) @db.Decimal(12, 2)
+  housingDeduction     Decimal  @default(0) @db.Decimal(12, 2)
+  trafficViolationDeduction Decimal @default(0) @db.Decimal(12, 2)
+  advanceDeduction     Decimal  @default(0) @db.Decimal(12, 2)
+  keetaDeduction       Decimal  @default(0) @db.Decimal(12, 2)
+  keetaFoodCompensation Decimal @default(0) @db.Decimal(12, 2)
+  keetaTgaDeduction    Decimal  @default(0) @db.Decimal(12, 2)
+  totalAppDeductions   Decimal  @default(0) @db.Decimal(12, 2)
+  vehicleCarryoverDeduction Decimal @default(0) @db.Decimal(12, 2)
+  vehicleDamageDeduction Decimal @default(0) @db.Decimal(12, 2)
+  accidentLiabilityDeduction Decimal @default(0) @db.Decimal(12, 2)
+  bikeRentDeduction    Decimal  @default(0) @db.Decimal(12, 2)
+  kafalaDeduction      Decimal  @default(0) @db.Decimal(12, 2)
+  kafalaDeductionNotes String?
+  kafalaDeductionSource String?
+  userDeduction        Decimal  @default(0) @db.Decimal(12, 2)
+  userDeductionApplied Boolean  @default(false)
+  userDeductionReason  String?
   damagesTotal         Decimal  @default(0) @db.Decimal(12, 2)
   accidentDeduction    Decimal  @default(0) @db.Decimal(12, 2)
   otherDeductions      Decimal  @default(0) @db.Decimal(12, 2)
   totalDeductions      Decimal  @default(0) @db.Decimal(12, 2)
   netSalary            Decimal  @default(0) @db.Decimal(12, 2)
+  salaryPlanId         String?
+  relationshipType     String?
+  monthlyTargetOrders  Int      @default(0)
+  deliveredOrders      Int      @default(0)
+  extraOrderRate       Decimal  @default(0) @db.Decimal(12, 2)
+  shortageOrders       Int      @default(0)
+  shortageDeduction    Decimal  @default(0) @db.Decimal(12, 2)
+  salaryBaseWorkingDays Int     @default(28)
+  workedDaysForSalary  Int      @default(0)
+  baseSalaryBeforeProration Decimal @default(0) @db.Decimal(12, 2)
+  levelBonus           Decimal  @default(0) @db.Decimal(12, 2)
+  manualBonus          Decimal  @default(0) @db.Decimal(12, 2)
+  grossSalary          Decimal  @default(0) @db.Decimal(12, 2)
+  internalAdvances     Decimal  @default(0) @db.Decimal(12, 2)
+  internalPenalties    Decimal  @default(0) @db.Decimal(12, 2)
+  carRentDeduction     Decimal  @default(0) @db.Decimal(12, 2)
+  fuelDeduction        Decimal  @default(0) @db.Decimal(12, 2)
+  manualDeduction      Decimal  @default(0) @db.Decimal(12, 2)
+  finalSalary          Decimal  @default(0) @db.Decimal(12, 2)
+  companyRevenueFromKeeta Decimal @default(0) @db.Decimal(12, 2)
+  keetaTotalPayableAmount Decimal @default(0) @db.Decimal(12, 2)
+  keetaDeductions      Decimal  @default(0) @db.Decimal(12, 2)
+  keetaIncentives      Decimal  @default(0) @db.Decimal(12, 2)
+  companyGrossRevenue  Decimal  @default(0) @db.Decimal(12, 2)
+  estimatedCompanyProfit Decimal @default(0) @db.Decimal(12, 2)
+  costPerOrder         Decimal  @default(0) @db.Decimal(12, 2)
+  lastEditedBy         String?
   status               String   @default("draft")
   notes                String?
   createdAt            DateTime @default(now())
@@ -641,6 +1017,7 @@ model PayrollItem {
   driver             Driver              @relation(fields: [driverId], references: [id])
   applicationAccount ApplicationAccount? @relation(fields: [applicationAccountId], references: [id])
   vehicle            Vehicle?            @relation(fields: [vehicleId], references: [id])
+  salaryPlan         KeetaPayrollPlan?   @relation(fields: [salaryPlanId], references: [id])
   adjustments        PayrollAdjustment[]
   advances           Advance[]
   violations         Violation[]
@@ -651,6 +1028,7 @@ model PayrollItem {
   @@index([driverId])
   @@index([applicationAccountId])
   @@index([vehicleId])
+  @@index([salaryPlanId])
   @@index([status])
 }
 
@@ -668,6 +1046,81 @@ model PayrollAdjustment {
 
   @@index([payrollItemId])
   @@index([createdById])
+}
+
+model PayrollFieldRule {
+  id                   String   @id @default(cuid())
+  fieldKey             String
+  labelAr              String
+  labelEn              String
+  category             String
+  calculationRole      String
+  projectId            String?
+  applicationId        String?
+  applicationProjectId String?
+  affectsPayroll       Boolean  @default(false)
+  affectsFinalSalary   Boolean  @default(false)
+  visibleInPayroll     Boolean  @default(true)
+  visibleInDetails     Boolean  @default(true)
+  visibleInReports     Boolean  @default(true)
+  includedInBaseAmount Boolean  @default(false)
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  application        Application?        @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+
+  @@unique([fieldKey, applicationProjectId])
+  @@index([projectId])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([calculationRole])
+}
+
+model KeetaPayrollPlan {
+  id                          String   @id @default(cuid())
+  projectId                   String   @default("keeta")
+  applicationProjectId        String?
+  cityId                      String?
+  name                        String
+  relationshipType            String
+  level                       String?
+  baseSalary                  Decimal  @default(0) @db.Decimal(12, 2)
+  fixedAllowance              Decimal  @default(0) @db.Decimal(12, 2)
+  monthlyTargetOrders         Int      @default(0)
+  workingDaysBase             Int      @default(28)
+  shortageThresholdOrders     Int      @default(460)
+  shortageDeductionRate       Decimal  @default(8) @db.Decimal(12, 2)
+  carAllowanceAmount          Decimal  @default(1500) @db.Decimal(12, 2)
+  companyCarMonthlyRent       Decimal  @default(1500) @db.Decimal(12, 2)
+  fuelAllowanceAmount         Decimal  @default(0) @db.Decimal(12, 2)
+  housingAllowanceAmount      Decimal  @default(300) @db.Decimal(12, 2)
+  communicationAllowanceAmount Decimal @default(100) @db.Decimal(12, 2)
+  extraOrderRate              Decimal  @default(0) @db.Decimal(12, 2)
+  bonusAmount                 Decimal  @default(0) @db.Decimal(12, 2)
+  bonusCondition              Json?
+  carRentDeduction            Decimal  @default(0) @db.Decimal(12, 2)
+  fuelDeduction               Decimal  @default(0) @db.Decimal(12, 2)
+  internalPenaltyEnabled      Boolean  @default(true)
+  salaryCalculationSource     String   @default("payroll_plan")
+  useKeetaInvoiceAsSalaryBase Boolean  @default(false)
+  enableFreelancerUserDeduction Boolean @default(true)
+  freelancerUserDeductionAmount Decimal @default(300) @db.Decimal(12, 2)
+  enableKafalaDeduction      Boolean  @default(true)
+  keetaDeductionSource       String   @default("riderDetail")
+  active                      Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  payrollItems       PayrollItem[]
+
+  @@index([projectId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([relationshipType, level, active])
 }
 
 model VehicleAssignment {
@@ -839,19 +1292,29 @@ model DriverWarning {
 
 model AttendanceRecord {
   id           String       @id @default(cuid())
-  driverId     String
+  driverId     String?
+  supervisorId String?
+  userId       String?
+  personType   String       @default("driver")
   workDate     DateTime
   checkIn      DateTime?
   checkOut     DateTime?
+  checkInPhoto String?
+  checkOutPhoto String?
   workingHours Decimal      @default(0)
   status       RecordStatus @default(PENDING)
   notes        String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  driver Driver @relation(fields: [driverId], references: [id])
+  driver     Driver?     @relation(fields: [driverId], references: [id])
+  supervisor Supervisor? @relation(fields: [supervisorId], references: [id])
+  user       User?       @relation("UserAttendanceRecords", fields: [userId], references: [id])
 
   @@index([driverId, workDate])
+  @@index([supervisorId, workDate])
+  @@index([userId, workDate])
+  @@index([personType, workDate])
 }
 
 model Shift {
@@ -1107,18 +1570,30 @@ model FinanceEntry {
 }
 
 model Invoice {
-  id        String       @id @default(cuid())
-  number    String       @unique
-  client    String?
-  projectId String?
-  month     String?
-  amount    Decimal      @default(0)
-  vatAmount Decimal      @default(0)
-  status    RecordStatus @default(PENDING)
-  issuedAt  DateTime     @default(now())
-  dueDate   DateTime?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id                   String       @id @default(cuid())
+  number               String       @unique
+  client               String?
+  projectId            String?
+  applicationProjectId String?
+  importBatchId        String?
+  month                String?
+  amount               Decimal      @default(0)
+  vatAmount            Decimal      @default(0)
+  status               RecordStatus @default(PENDING)
+  invoiceStatus        String       @default("Draft")
+  issuedAt             DateTime     @default(now())
+  dueDate              DateTime?
+  approvedAt           DateTime?
+  lockedAt             DateTime?
+  paidAt               DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+
+  @@index([projectId])
+  @@index([applicationProjectId])
+  @@index([invoiceStatus, month])
 }
 
 model Receivable {

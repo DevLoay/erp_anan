@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ImportStepper } from "@/components/imports/ImportStepper";
+import { GENERAL_IMPORT_TYPES } from "@/lib/imports/importScopes";
 import { getImportTemplatesData, resolveImportTemplateFilters } from "@/lib/imports/templates";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +33,13 @@ export default async function ImportsPage() {
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4">
       <Header />
-      <ImportStepper templates={data.rows} applications={data.applications} projects={data.projects} />
+      <ImportStepper
+        templates={data.rows.filter((template) => (GENERAL_IMPORT_TYPES as readonly string[]).includes(template.fileType))}
+        applications={data.applications}
+        projects={data.projects}
+        allowedImportTypes={[...GENERAL_IMPORT_TYPES]}
+        scopeLabel="الاستيراد العام مخصص للبيانات الأساسية فقط: المناديب، السيارات، المدن، المشرفين، حسابات التطبيقات وبيانات HR"
+      />
     </main>
   );
 }
-

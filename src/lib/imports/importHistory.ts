@@ -113,24 +113,43 @@ export async function getImportHistoryData(): Promise<ImportHistoryData> {
 
 export async function getImportBatchDetails(id: string) {
   try {
-    const batch = await prisma.applicationImportBatch.findUnique({
-      where: { id },
-      include: {
-        application: { select: { name: true, code: true } },
-        applicationProject: { select: { name: true, code: true } },
-        template: { select: { name: true, fileType: true } },
-        createdBy: { select: { name: true, email: true } },
-        rows: {
-          include: {
-            driver: { select: { internalCode: true, name: true, actualName: true } },
-            applicationAccount: { select: { appUserId: true, appUsername: true, username: true } },
+    const [batch, drivers] = await Promise.all([
+      prisma.applicationImportBatch.findUnique({
+        where: { id },
+        include: {
+          application: { select: { name: true, code: true } },
+          applicationProject: { select: { name: true, code: true } },
+          template: { select: { name: true, fileType: true } },
+          createdBy: { select: { name: true, email: true } },
+          rows: {
+            include: {
+              driver: { select: { internalCode: true, name: true, actualName: true } },
+              applicationAccount: { select: { appUserId: true, appUsername: true, username: true } },
+            },
+            orderBy: { rowNumber: "asc" },
           },
-          orderBy: { rowNumber: "asc" },
         },
-      },
-    });
+      }),
+      prisma.driver.findMany({
+        select: {
+          id: true,
+          internalCode: true,
+          driverCode: true,
+          name: true,
+          actualName: true,
+          nationalId: true,
+          mobile: true,
+          phone: true,
+          city: { select: { nameAr: true, nameEn: true } },
+          project: { select: { name: true, appName: true } },
+          account: { select: { appUserId: true, appUsername: true, username: true } },
+        },
+        orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+        take: 1000,
+      }),
+    ]);
 
-    if (!batch) return { databaseStatus: "online" as const, batch: null };
+    if (!batch) return { databaseStatus: "online" as const, batch: null, drivers: [] };
 
     function mappedText(value: unknown, keys: string[]) {
       if (!value || typeof value !== "object") return "-";
@@ -144,6 +163,26 @@ export async function getImportBatchDetails(id: string) {
 
     return {
       databaseStatus: "online" as const,
+      drivers: drivers.map((driver) => ({
+        id: driver.id,
+        label: `${driver.internalCode || driver.driverCode || "-"} - ${driver.actualName || driver.name}${driver.nationalId ? ` - ${driver.nationalId}` : ""}`,
+        searchText: [
+          driver.internalCode,
+          driver.driverCode,
+          driver.actualName,
+          driver.name,
+          driver.nationalId,
+          driver.mobile,
+          driver.phone,
+          driver.city?.nameAr,
+          driver.city?.nameEn,
+          driver.project?.name,
+          driver.project?.appName,
+          driver.account?.appUserId,
+          driver.account?.appUsername,
+          driver.account?.username,
+        ].filter(Boolean).join(" ").toLowerCase(),
+      })),
       batch: {
         id: batch.id,
         fileName: batch.fileName ?? "-",
@@ -177,7 +216,7 @@ export async function getImportBatchDetails(id: string) {
     };
   } catch (error) {
     const message = databaseOfflineMessage(error);
-    if (message) return { databaseStatus: "offline" as const, databaseMessage: message, batch: null };
+    if (message) return { databaseStatus: "offline" as const, databaseMessage: message, batch: null, drivers: [] };
     throw error;
   }
 }

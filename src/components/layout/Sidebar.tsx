@@ -2,50 +2,180 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { navSections } from "@/lib/navigation";
+import type { ModuleItem, ModuleSection } from "@/lib/modules";
+
+function isActivePath(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function itemHasActivePath(item: ModuleItem, pathname: string): boolean {
+  return isActivePath(pathname, item.href) || Boolean(item.children?.some((child) => itemHasActivePath(child, pathname)));
+}
+
+function activeSectionKeys(sections: ModuleSection[], pathname: string) {
+  return sections.filter((section) => section.items.some((item) => itemHasActivePath(item, pathname))).map((section) => section.title);
+}
+
+function activeGroupKeys(items: ModuleItem[], pathname: string): string[] {
+  return items.flatMap((item) => {
+    const children = item.children ?? [];
+    const childActive = children.some((child) => itemHasActivePath(child, pathname));
+    return [...(childActive ? [item.href] : []), ...activeGroupKeys(children, pathname)];
+  });
+}
 
 export function Sidebar() {
   const pathname = usePathname();
+  const initialSections = useMemo(() => {
+    const active = activeSectionKeys(navSections, pathname);
+    return new Set(active.length ? active : navSections.slice(0, 2).map((section) => section.title));
+  }, [pathname]);
+  const initialGroups = useMemo(() => new Set(navSections.flatMap((section) => activeGroupKeys(section.items, pathname))), [pathname]);
+
+  const [openSections, setOpenSections] = useState<Set<string>>(initialSections);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(initialGroups);
+
+  useEffect(() => {
+    const sectionsToOpen = activeSectionKeys(navSections, pathname);
+    const groupsToOpen = navSections.flatMap((section) => activeGroupKeys(section.items, pathname));
+
+    if (sectionsToOpen.length) {
+      setOpenSections((current) => new Set([...current, ...sectionsToOpen]));
+    }
+    if (groupsToOpen.length) {
+      setOpenGroups((current) => new Set([...current, ...groupsToOpen]));
+    }
+  }, [pathname]);
+
+  function toggleSection(title: string) {
+    setOpenSections((current) => {
+      const next = new Set(current);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  }
+
+  function toggleGroup(href: string) {
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (next.has(href)) next.delete(href);
+      else next.add(href);
+      return next;
+    });
+  }
 
   return (
-    <aside className="hidden sticky top-0 h-screen w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-[#07111f] text-white lg:block">
+    <aside className="hidden sticky top-0 h-screen w-[20rem] shrink-0 overflow-y-auto border-l border-slate-200 bg-[#07111f] text-white lg:block">
       <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07111f] px-5 py-5">
-        <p className="text-xs font-semibold text-sky-200">Production ERP</p>
-        <h1 className="mt-1 text-lg font-black tracking-normal">MOHAMED SHAWKI</h1>
+        <p className="text-xs font-semibold text-sky-200">نظام إنتاجي منظم</p>
+        <h1 className="mt-1 text-lg font-black tracking-normal">MOHAMED SHAWKI ERP</h1>
       </div>
 
-      <nav className="space-y-5 px-4 py-5">
-        {navSections.map((section) => (
-          <section key={section.title}>
-            <h2 className="px-2 text-xs font-black text-sky-200">{section.title}</h2>
-            <div className="mt-2 grid gap-1">
-              {section.items.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
-                      active ? "bg-white text-slate-950 shadow-sm" : "text-slate-100 hover:bg-white/10"
-                    }`}
-                  >
-                    <span className="truncate">{item.label}</span>
-                    {item.status === "migration" ? (
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-black ${
-                          active ? "bg-amber-100 text-amber-800" : "bg-amber-300/15 text-amber-200"
-                        }`}
-                      >
-                        مرتبط
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+      <nav className="space-y-3 px-3 py-4" aria-label="القائمة الرئيسية">
+        {navSections.map((section) => {
+          const sectionOpen = openSections.has(section.title);
+          const sectionActive = section.items.some((item) => itemHasActivePath(item, pathname));
+
+          return (
+            <section key={section.title} className="rounded-2xl border border-white/5 bg-white/[0.03]">
+              <button
+                type="button"
+                onClick={() => toggleSection(section.title)}
+                aria-expanded={sectionOpen}
+                className={`flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-right text-sm font-black transition ${
+                  sectionActive ? "bg-white/10 text-white" : "text-sky-100 hover:bg-white/10"
+                }`}
+              >
+                <span className="truncate">{section.title}</span>
+                <span className={`text-xs transition-transform duration-200 ${sectionOpen ? "rotate-180" : ""}`}>⌄</span>
+              </button>
+
+              <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${sectionOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                <div className="min-h-0 overflow-hidden">
+                  <div className="grid gap-1 px-2 pb-3">
+                    {section.items.map((item) => (
+                      <SidebarItem key={item.href} item={item} pathname={pathname} openGroups={openGroups} onToggleGroup={toggleGroup} level={0} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          );
+        })}
       </nav>
     </aside>
+  );
+}
+
+function SidebarItem({
+  item,
+  pathname,
+  openGroups,
+  onToggleGroup,
+  level,
+}: {
+  item: ModuleItem;
+  pathname: string;
+  openGroups: Set<string>;
+  onToggleGroup: (href: string) => void;
+  level: number;
+}) {
+  const children = item.children ?? [];
+  const hasChildren = children.length > 0;
+  const active = isActivePath(pathname, item.href);
+  const activeInside = itemHasActivePath(item, pathname);
+  const groupOpen = openGroups.has(item.href);
+  const padding = level === 0 ? "pr-3" : level === 1 ? "pr-6" : "pr-9";
+
+  if (!hasChildren) {
+    return (
+      <Link
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        className={`flex min-h-10 items-center justify-between gap-2 rounded-xl px-3 py-2 ${padding} text-sm font-bold transition ${
+          active ? "bg-white text-slate-950 shadow-sm" : "text-slate-100 hover:bg-white/10"
+        }`}
+      >
+        <span className="truncate">{item.label}</span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="grid gap-1">
+      <button
+        type="button"
+        onClick={() => onToggleGroup(item.href)}
+        aria-expanded={groupOpen}
+        className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-xl px-3 py-2 ${padding} text-right text-sm font-bold transition ${
+          activeInside ? "bg-white/10 text-white" : "text-slate-100 hover:bg-white/10"
+        }`}
+      >
+        <span className="truncate">{item.label}</span>
+        <span className={`text-xs transition-transform duration-200 ${groupOpen ? "rotate-180" : ""}`}>⌄</span>
+      </button>
+
+      <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${groupOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="min-h-0 overflow-hidden">
+          <div className="mr-3 grid gap-1 border-r border-white/10 pr-2">
+            <Link
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-9 items-center rounded-lg px-3 py-2 text-xs font-black transition ${
+                active ? "bg-white text-slate-950 shadow-sm" : "text-slate-300 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              فتح {item.label}
+            </Link>
+            {children.map((child) => (
+              <SidebarItem key={child.href} item={child} pathname={pathname} openGroups={openGroups} onToggleGroup={onToggleGroup} level={level + 1} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
