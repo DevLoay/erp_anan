@@ -380,7 +380,7 @@ export function ProjectPayrollView({ data }: { data: OnlineWorkspace }) {
         المسير يتولد من تقارير وفواتير المشروع المعتمدة، السلف، المخالفات، البنزين، إيجار السيارة، البونص والخصومات. رفع مسير قديم يستخدم فقط للمطابقة أو Migration.
       </div>
       <div className="flex flex-wrap gap-2">
-        <Link href={`/payroll?projectId=${data.project.legacyProjectId ?? ""}&month=${data.filters.month}`} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">مراجعة / إنشاء مسير</Link>
+        <Link href={`/projects/${projectRoute}/payroll?month=${encodeURIComponent(data.filters.month)}`} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">مراجعة / إنشاء مسير</Link>
         <Link href={`/payroll/settings?applicationProjectId=${data.project.id}`} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black">إعدادات المسير</Link>
       </div>
       <PayrollTable data={data} />

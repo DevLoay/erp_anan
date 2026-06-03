@@ -4,7 +4,7 @@ import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   const role = roleFromHeaders(request.headers);
-  if (!canWriteResource(role, "settings")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canWriteResource(role, "application-accounts")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await request.json().catch(() => ({}));
   const dryRun = Boolean(body?.dryRun);

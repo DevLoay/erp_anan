@@ -55,7 +55,8 @@ export function hasBadArabicEncoding(value: unknown) {
   const raw = text(value);
   if (!raw) return false;
   const markers = ["ط§", "ط¨", "طھ", "ط±", "ط©", "ظ„", "ظ…", "ظ†", "ظٹ", "ظ‡", "ط¹", "ط³", "طµ"];
-  return markers.filter((marker) => raw.includes(marker)).length >= 2;
+  if (/[ØÙÃÂ�]/.test(raw)) return true;
+  return markers.filter((marker) => raw.includes(marker)).length >= 4;
 }
 
 export async function findOrCreateApplication(db: Db, appName: string) {
@@ -133,7 +134,7 @@ export async function resolveOperationalProject(db: Db, scope: {
   });
 }
 
-export async function findDriverByIdentifiers(db: Db, identifiers: AccountIdentifiers) {
+export async function findDriverByIdentifiers(db: Db, identifiers: AccountIdentifiers, scope: OperationalScope = {}) {
   const driverCode = text(identifiers.driverCode);
   const nationalId = text(identifiers.nationalId);
   const mobile = text(identifiers.mobile);
@@ -144,6 +145,9 @@ export async function findDriverByIdentifiers(db: Db, identifiers: AccountIdenti
   const account = appUserId || appUsername
     ? await db.applicationAccount.findFirst({
         where: {
+          ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
+          ...(scope.applicationProjectId ? { applicationProjectId: scope.applicationProjectId } : {}),
+          ...(scope.cityId ? { cityId: scope.cityId } : {}),
           OR: [
             appUserId ? { appUserId } : undefined,
             appUserId ? { username: appUserId } : undefined,
@@ -187,24 +191,26 @@ export async function findOperationalAccount(db: Db, scope: OperationalScope, id
     appUsername ? { username: appUsername } : undefined,
   ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[];
 
-  const stagedWhere: Prisma.ApplicationAccountWhereInput[] = [
-    {
+  const scoped = Boolean(scope.applicationId || scope.applicationProjectId || scope.cityId);
+  const stagedWhere: Prisma.ApplicationAccountWhereInput[] = [];
+
+  if (scoped) {
+    stagedWhere.push({
       ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
       ...(scope.applicationProjectId ? { applicationProjectId: scope.applicationProjectId } : {}),
       ...(scope.cityId ? { cityId: scope.cityId } : {}),
       OR: identityOr,
-    },
-    {
-      ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
-      ...(scope.cityId ? { cityId: scope.cityId } : {}),
+    });
+  }
+
+  if (scope.applicationId && !scope.applicationProjectId && !scope.cityId) {
+    stagedWhere.push({
+      applicationId: scope.applicationId,
       OR: identityOr,
-    },
-    {
-      ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
-      OR: identityOr,
-    },
-    { OR: identityOr },
-  ];
+    });
+  }
+
+  if (!scoped) stagedWhere.push({ OR: identityOr });
 
   for (const where of stagedWhere) {
     const matches = await db.applicationAccount.findMany({
@@ -303,10 +309,9 @@ export async function cleanupApplicationAccounts(dryRun = false) {
         counts.fixedApplicationId += 1;
       }
 
-      if (!applicationProjectId && applicationId) {
+      if (!applicationProjectId && applicationId && cityId) {
         const project = await resolveOperationalProject(tx, { applicationId, cityId, applicationName: canonical.canonical });
         applicationProjectId = project?.id ?? null;
-        if (!cityId && project?.cityId) cityId = project.cityId;
         if (applicationProjectId) counts.fixedApplicationProjectId += 1;
       }
 

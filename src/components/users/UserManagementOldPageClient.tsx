@@ -355,16 +355,16 @@ export function UserManagementOldPageClient({ data }: Props) {
                   <label className="text-xs font-black text-slate-800">
                     الصلاحية
                     <select value={form.role} onChange={(event) => setForm((old) => ({ ...old, role: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-                      {data.roles.map((role) => (
-                        <option key={role.value} value={role.value}>{role.label}</option>
+                      {data.roles.map((role, index) => (
+                        <option key={`${role.value}:${index}`} value={role.value}>{role.label}</option>
                       ))}
                     </select>
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     الحالة
                     <select value={form.status} onChange={(event) => setForm((old) => ({ ...old, status: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-                      {data.statuses.map((status) => (
-                        <option key={status.value} value={status.value}>{status.label}</option>
+                      {data.statuses.map((status, index) => (
+                        <option key={`${status.value}:${index}`} value={status.value}>{status.label}</option>
                       ))}
                     </select>
                   </label>
@@ -503,8 +503,8 @@ export function UserManagementOldPageClient({ data }: Props) {
               الصلاحية
               <select name="role" defaultValue={data.filters.role} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                 <option value="">كل الصلاحيات</option>
-                {data.roles.map((role) => (
-                  <option key={role.value} value={role.value}>{role.label}</option>
+                {data.roles.map((role, index) => (
+                  <option key={`${role.value}:${index}`} value={role.value}>{role.label}</option>
                 ))}
               </select>
             </label>
@@ -512,8 +512,8 @@ export function UserManagementOldPageClient({ data }: Props) {
               الحالة
               <select name="status" defaultValue={data.filters.status} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                 <option value="">كل الحالات</option>
-                {data.statuses.map((status) => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
+                {data.statuses.map((status, index) => (
+                  <option key={`${status.value}:${index}`} value={status.value}>{status.label}</option>
                 ))}
               </select>
             </label>

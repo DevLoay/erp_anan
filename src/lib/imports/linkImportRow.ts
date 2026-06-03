@@ -22,6 +22,18 @@ function firstText(record: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
+async function uniqueAccountUsername(tx: Prisma.TransactionClient, preferred: string, scopeKey?: string | null, existingId?: string | null) {
+  const base = preferred || `account-${scopeKey || "import"}`;
+  const current = await tx.applicationAccount.findUnique({ where: { username: base }, select: { id: true } });
+  if (!current || current.id === existingId) return base;
+
+  const suffix = (scopeKey || "scoped").replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || "scoped";
+  const scoped = `${base}-${suffix}`;
+  const scopedCurrent = await tx.applicationAccount.findUnique({ where: { username: scoped }, select: { id: true } });
+  if (!scopedCurrent || scopedCurrent.id === existingId) return scoped;
+  return `${base}-${suffix}-${Date.now().toString(36)}`;
+}
+
 function numberValue(value: unknown, fallback = 0) {
   const raw = text(value).replace(/,/g, "").replace("%", "");
   if (!raw) return fallback;
@@ -131,6 +143,7 @@ async function ensureApplicationAccount(args: {
   batch: {
     applicationId: string | null;
     applicationProjectId: string | null;
+    cityId: string | null;
     fileType: string;
     application?: { name: string } | null;
     applicationProject?: { projectId: string | null; cityId: string | null; name: string; application: { name: string } } | null;
@@ -139,9 +152,20 @@ async function ensureApplicationAccount(args: {
 }) {
   const { tx, mapped, driverId, applicationAccountId, batch, driver } = args;
   if (applicationAccountId) {
+    const scopedCityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
     const account = await tx.applicationAccount.update({
       where: { id: applicationAccountId },
-      data: { driverId, isEmpty: false, linkedAt: new Date() },
+      data: {
+        driverId,
+        applicationId: batch.applicationId,
+        applicationProjectId: batch.applicationProjectId,
+        projectId: null,
+        cityId: scopedCityId,
+        isEmpty: false,
+        needsReview: !batch.applicationProjectId || !scopedCityId,
+        unmatchedReason: !batch.applicationProjectId ? "missing_application_project" : !scopedCityId ? "missing_city" : null,
+        linkedAt: new Date(),
+      },
       select: { id: true },
     });
     await tx.driver.update({ where: { id: driverId }, data: { accountId: account.id } }).catch(() => null);
@@ -154,6 +178,9 @@ async function ensureApplicationAccount(args: {
 
   const existing = await tx.applicationAccount.findFirst({
     where: {
+      ...(batch.applicationId ? { applicationId: batch.applicationId } : {}),
+      ...(batch.applicationProjectId ? { applicationProjectId: batch.applicationProjectId } : {}),
+      ...(batch.cityId ? { cityId: batch.cityId } : {}),
       OR: [
         appUserId ? { appUserId } : undefined,
         appUserId ? { username: appUserId } : undefined,
@@ -165,7 +192,14 @@ async function ensureApplicationAccount(args: {
   });
 
   const appName = text(mapped.applicationName) || batch.application?.name || batch.applicationProject?.application.name || appNameFromImportType(batch.fileType);
-  const username = appUsername || appUserId;
+  const username = await uniqueAccountUsername(tx, appUsername || appUserId, batch.applicationProjectId || batch.cityId, existing?.id);
+  const scopedCityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
+  const needsReview = !batch.applicationProjectId || !scopedCityId || !driverId;
+  const unmatchedReason = [
+    !batch.applicationProjectId ? "missing_application_project" : "",
+    !scopedCityId ? "missing_city" : "",
+    !driverId ? "missing_driver" : "",
+  ].filter(Boolean).join(",") || null;
   const accountData = {
     appName,
     username,
@@ -173,10 +207,13 @@ async function ensureApplicationAccount(args: {
     appUsername: appUsername || username,
     applicationId: batch.applicationId,
     applicationProjectId: batch.applicationProjectId,
-    projectId: driver.projectId ?? batch.applicationProject?.projectId ?? null,
-    cityId: driver.cityId ?? batch.applicationProject?.cityId ?? null,
+    projectId: null,
+    cityId: scopedCityId,
     driverId,
     isEmpty: false,
+    needsReview,
+    unmatchedReason,
+    source: "IMPORT",
     status: RecordStatus.ACTIVE,
     linkedAt: new Date(),
   };
@@ -194,6 +231,7 @@ async function saveDailyReportForRow(args: {
   driverId: string;
   batch: {
     fileType: string;
+    cityId?: string | null;
     application?: { name: string } | null;
     applicationProject?: { projectId: string | null; cityId: string | null; name: string; application: { name: string } } | null;
   };
@@ -205,8 +243,8 @@ async function saveDailyReportForRow(args: {
   const reportDate = dateValue(mapped.reportDate || mapped.date, new Date());
   const appName = text(mapped.applicationName) || batch.application?.name || batch.applicationProject?.application.name || appNameFromImportType(batch.fileType);
   const month = monthValue(mapped.month || mapped.reportDate || mapped.date, reportDate);
-  const cityId = driver.cityId ?? batch.applicationProject?.cityId ?? null;
-  const projectId = driver.projectId ?? batch.applicationProject?.projectId ?? null;
+  const cityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
+  const projectId = batch.applicationProject?.projectId ?? null;
 
   const existing = await tx.dailyReport.findFirst({
     where: { driverId, reportDate, appName },

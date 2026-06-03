@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type ReviewRow = {
@@ -45,8 +46,8 @@ export function ApplicationAccountReviewClient({ rows }: { rows: ReviewRow[] }) 
     }
   }
 
-  function todo(action: string) {
-    setMessage(`${action}: استخدم الإصلاح التلقائي الآن، والربط اليدوي التفصيلي سيتم من نفس الشاشة في المرحلة التالية.`);
+  function searchTerm(row: ReviewRow) {
+    return row.appUsername || row.appUserId || row.username || row.appName || "";
   }
 
   return (
@@ -89,9 +90,9 @@ export function ApplicationAccountReviewClient({ rows }: { rows: ReviewRow[] }) 
                   <td className="whitespace-nowrap px-3 py-3">{row.needsReview ? "تحتاج مراجعة" : row.status}</td>
                   <td className="whitespace-nowrap px-3 py-3">
                     <div className="flex gap-2">
-                      <button onClick={() => todo("ربط بمندوب")} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمندوب</button>
-                      <button onClick={() => todo("ربط بمشروع")} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمشروع</button>
-                      <button onClick={() => todo("ربط بمدينة")} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمدينة</button>
+                      <Link href={`/drivers?q=${encodeURIComponent(searchTerm(row))}`} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمندوب</Link>
+                      <Link href={`/projects?q=${encodeURIComponent(row.appName || row.applicationName || "")}`} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمشروع</Link>
+                      <Link href={`/cities?q=${encodeURIComponent(row.cityName || row.appName || "")}`} className="rounded-lg border border-slate-200 px-3 py-1 font-bold">ربط بمدينة</Link>
                     </div>
                   </td>
                 </tr>

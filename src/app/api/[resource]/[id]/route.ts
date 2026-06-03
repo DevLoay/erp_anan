@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getResource } from "@/lib/resources";
 import { canReadResource, canWriteResource, roleFromHeaders } from "@/lib/permissions";
+import { getAccessScope, type AccessScope } from "@/lib/auth/accessScope";
 
 type Delegate = {
   findUnique(args: unknown): Promise<unknown>;
@@ -138,6 +139,26 @@ function safeSelect(resource: string, fields: string[]) {
   return Object.fromEntries(selectedFields.map((field) => [field, true]));
 }
 
+function recordAllowed(resource: string, record: unknown, scope: AccessScope) {
+  if (scope.isGlobal) return true;
+  const row = (record ?? {}) as Record<string, unknown>;
+  const id = String(row.id ?? "");
+  const driverId = String(row.driverId ?? "");
+  const currentDriverId = String(row.currentDriverId ?? "");
+  const supervisorId = String(row.supervisorId ?? "");
+  const cityId = String(row.cityId ?? "");
+  const projectId = String(row.projectId ?? "");
+
+  if (resource === "drivers" && scope.driverId && id === scope.driverId) return true;
+  if (resource === "supervisors" && scope.supervisorId && id === scope.supervisorId) return true;
+  if (scope.driverId && (driverId === scope.driverId || currentDriverId === scope.driverId)) return true;
+  if (scope.supervisorId && supervisorId === scope.supervisorId) return true;
+  if (cityId && scope.cityIds.includes(cityId)) return true;
+  if (projectId && scope.projectIds.includes(projectId)) return true;
+
+  return false;
+}
+
 export async function GET(request: Request, context: { params: Promise<{ resource: string; id: string }> }) {
   const { resource, id } = await context.params;
   const config = getResource(resource);
@@ -145,10 +166,12 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
 
   const role = roleFromHeaders(request.headers);
   if (!canReadResource(role, config.key)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const scope = await getAccessScope(request.headers);
 
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const data = await delegate(config.delegate).findUnique({ where: { id }, select });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!recordAllowed(config.key, data, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json({ data });
 }
 
@@ -159,10 +182,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ resou
 
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, config.key)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const scope = await getAccessScope(request.headers);
 
   const body = normalizePayload((await request.json()) as Record<string, unknown>);
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const before = await delegate(config.delegate).findUnique({ where: { id }, select });
+  if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!recordAllowed(config.key, before, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let data: unknown;
   try {
     data = config.key === "vehicles" ? await updateVehicleWithDriverSync(id, body, select) : await delegate(config.delegate).update({ where: { id }, data: body, select });
@@ -181,9 +207,12 @@ export async function DELETE(request: Request, context: { params: Promise<{ reso
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, config.key)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (role !== "ADMIN") return NextResponse.json({ error: "Delete requires Admin permission" }, { status: 403 });
+  const scope = await getAccessScope(request.headers);
 
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const before = await delegate(config.delegate).findUnique({ where: { id }, select });
+  if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!recordAllowed(config.key, before, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let data: unknown;
   if (config.key === "drivers") {
     data = await delegate(config.delegate).update({ where: { id }, data: { status: "INACTIVE" }, select });

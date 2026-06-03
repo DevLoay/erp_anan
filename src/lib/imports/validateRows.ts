@@ -486,9 +486,7 @@ export async function validateImportRows(args: {
     if (driverMatch.status === "duplicate_match") errors.push({ type: "duplicate_match", message: driverMatch.message ?? "نتائج ربط متعددة." });
 
     const vehicleMatch = ["vehicles", "violations", "fuel"].includes(args.fileType) ? await matchVehicleFromMappedData(mappedData) : { status: "not_required" as const };
-    if (vehicleMatch.status === "missing_vehicle" && args.fileType === "vehicles") {
-      errors.push({ type: "new_vehicle", message: "سيتم اعتبار السيارة كسجل جديد عند اكتمال معالجة هذا النوع." });
-    } else if (vehicleMatch.status === "missing_vehicle" && ["violations", "fuel"].includes(args.fileType) && valueOf(mappedData, "vehiclePlate")) {
+    if (vehicleMatch.status === "missing_vehicle" && ["violations", "fuel"].includes(args.fileType) && valueOf(mappedData, "vehiclePlate")) {
       errors.push({ type: "missing_vehicle", message: vehicleMatch.message ?? "لم يتم العثور على السيارة." });
     }
     if (vehicleMatch.status === "duplicate_match") errors.push({ type: "duplicate_match", message: vehicleMatch.message ?? "نتائج ربط سيارة متعددة." });
@@ -500,16 +498,24 @@ export async function validateImportRows(args: {
         ? driverMatch.status === "matched"
           ? "update_existing_record"
           : "new_record"
+        : args.fileType === "vehicles" && severity === "ready"
+          ? vehicleMatch.status === "matched"
+            ? "update_existing_record"
+            : "new_vehicle"
         : severity === "ready"
           ? "ready"
           : severity === "warning"
             ? "warning"
             : errors[0]?.type ?? "invalid";
     const rowMessage =
-      isDriverImport(args.fileType) && severity === "ready" && driverMatch.status !== "matched"
+      args.fileType === "vehicles" && severity === "ready" && vehicleMatch.status !== "matched"
+        ? "سيارة جديدة جاهزة للحفظ عند الاعتماد."
+        : args.fileType === "vehicles" && severity === "ready" && vehicleMatch.status === "matched"
+          ? "سيارة موجودة وسيتم تحديث بياناتها عند الاعتماد."
+          : isDriverImport(args.fileType) && severity === "ready" && driverMatch.status !== "matched"
         ? "سجل مندوب جديد جاهز للحفظ عند الاعتماد."
         : isDriverImport(args.fileType) && severity === "ready" && driverMatch.status === "matched"
-          ? "ظ…ظ†ط¯ظˆط¨ ظ…ظˆط¬ظˆط¯ ظˆط³ظٹطھظ… طھط­ط¯ظٹط« ط¨ظٹط§ظ†ط§طھظ‡ ط¹ظ†ط¯ ط§ظ„ط§ط¹طھظ…ط§ط¯."
+          ? "مندوب موجود وسيتم تحديث بياناته عند الاعتماد."
           : errors.map((error) => error.message).join(" | ");
 
     rows.push({

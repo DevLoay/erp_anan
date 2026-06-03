@@ -357,7 +357,11 @@ async function findDriverForRow(tx: Prisma.TransactionClient, row: ImportPreview
     if (driver) return driver;
   }
 
-  return findDriverByIdentifiers(tx, { driverCode, nationalId, mobile, appUserId, appUsername, name }) as Promise<{ id: string; cityId: string | null; projectId: string | null; vehicleId?: string | null; accountId?: string | null } | null>;
+  return findDriverByIdentifiers(tx, { driverCode, nationalId, mobile, appUserId, appUsername, name }, {
+    applicationId: preview?.summary.applicationId || null,
+    applicationProjectId: preview?.summary.applicationProjectId || null,
+    cityId: preview?.summary.cityId || null,
+  }) as Promise<{ id: string; cityId: string | null; projectId: string | null; vehicleId?: string | null; accountId?: string | null } | null>;
 }
 
 async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPreviewRow[], preview?: ImportPreviewPayload) {
@@ -393,7 +397,7 @@ async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPrevie
       cityId,
     });
     const applicationProjectId = preview?.summary.applicationProjectId || operationalProject?.id || null;
-    const projectId = operationalProject?.projectId || selectedProject?.projectId || null;
+    const projectId = null;
 
     const existingDriver = await tx.driver.findFirst({
       where: {
@@ -511,7 +515,7 @@ async function commitApplicationAccountRows(tx: Prisma.TransactionClient, rows: 
       cityId,
     });
     const applicationProjectId = preview.summary.applicationProjectId || operationalProject?.id || null;
-    const projectId = operationalProject?.projectId || selectedProject?.projectId || null;
+    const projectId = null;
     const preferredUsername = appUsername || appUserId;
 
     const existing = await tx.applicationAccount.findFirst({
@@ -607,13 +611,15 @@ function removeUndefinedValues<T extends Record<string, unknown>>(data: T) {
 }
 
 
-async function commitVehicleRows(tx: Prisma.TransactionClient, rows: ImportPreviewRow[]) {
+async function commitVehicleRows(tx: Prisma.TransactionClient, rows: ImportPreviewRow[], preview?: ImportPreviewPayload) {
   let createdVehicles = 0;
   let updatedVehicles = 0;
   let assignments = 0;
   let movements = 0;
   let linkedDrivers = 0;
   let unmatchedDrivers = 0;
+  const selectedProject = preview ? await findProjectFromApplicationProject(tx, preview.summary.applicationProjectId) : null;
+  const scopedCityId = preview?.summary.cityId || selectedProject?.cityId || null;
 
   for (const row of rows) {
     const mapped = row.mappedData;
@@ -626,8 +632,8 @@ async function commitVehicleRows(tx: Prisma.TransactionClient, rows: ImportPrevi
     const { vehicle: existing, plateMatch, codeMatch } = await findVehicleForVehicleImport(tx, vehicleCode, plateEnglish, plateArabic);
     const hasCodePlateConflict = Boolean(plateMatch && codeMatch && plateMatch.id !== codeMatch.id);
 
-    const cityId = text(mapped.city) ? await findOrCreateCity(tx, text(mapped.city)) : null;
-    const driver = await findDriverForRow(tx, row);
+    const cityId = scopedCityId ?? (text(mapped.city) ? await findOrCreateCity(tx, text(mapped.city)) : null);
+    const driver = await findDriverForRow(tx, row, preview);
     if (!driver?.id) unmatchedDrivers += 1;
 
     const monthlyRent = numberValue(mapped.monthlyRent);
@@ -661,6 +667,19 @@ async function commitVehicleRows(tx: Prisma.TransactionClient, rows: ImportPrevi
     else createdVehicles += 1;
 
     if (driver?.id) {
+      await tx.vehicleAssignment.updateMany({
+        where: {
+          OR: [
+            { vehicleId: vehicle.id, driverId: { not: driver.id }, status: RecordStatus.ACTIVE, endDate: null },
+            { driverId: driver.id, vehicleId: { not: vehicle.id }, status: RecordStatus.ACTIVE, endDate: null },
+          ],
+        },
+        data: {
+          endDate: receivedDate,
+          status: RecordStatus.INACTIVE,
+        },
+      }).catch(() => null);
+
       await tx.driver.update({
         where: { id: driver.id },
         data: {
@@ -745,7 +764,7 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
     const appName = text(mapped.applicationName) || selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview.summary.importType);
     const month = monthValue(mapped.month || mapped.reportDate || mapped.date, reportDate);
     const cityId = (preview.summary.cityId || selectedProject?.cityId) ?? driver.cityId ?? null;
-    const projectId = (preview.summary.projectId || selectedProject?.projectId) ?? driver.projectId ?? null;
+    const projectId = preview.summary.projectId || null;
     const applicationProjectId = preview.summary.applicationProjectId || selectedProject?.id || null;
     const appUserId = text(mapped.appUserId);
     const appUsername = firstText(mapped, ["appUsername", "username"]);
@@ -766,10 +785,11 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
         },
         select: { id: true, driverId: true },
       });
+      const accountUsername = await uniqueAccountUsername(tx, username, applicationProjectId || cityId, existingAccount?.id);
 
       const accountData = {
         appName,
-        username,
+        username: accountUsername,
         appUserId: appUserId || null,
         appUsername: appUsername || username,
         applicationId: applicationId || null,
@@ -947,7 +967,7 @@ async function commitPayrollRows(tx: Prisma.TransactionClient, rows: ImportPrevi
     });
     const payrollData = {
       driverId: driver.id,
-      projectId: driver.projectId,
+      projectId: null,
       month: payrollMonth,
       basicSalary: numberValue(mapped.basicSalary),
       bonus: numberValue(mapped.bonus),
@@ -1182,7 +1202,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
     }).catch(() => null);
 
     const drivers = isDriverImport(preview.summary.importType) ? await commitDriverRows(tx, validRows, preview) : null;
-    const vehicles = preview.summary.importType === "vehicles" ? await commitVehicleRows(tx, validRows) : null;
+    const vehicles = preview.summary.importType === "vehicles" ? await commitVehicleRows(tx, validRows, preview) : null;
     const accounts = isApplicationAccountImport(preview.summary.importType) ? await commitApplicationAccountRows(tx, validRows, preview) : null;
     const keetaRecords = isKeetaOperationalImport(preview.summary.importType)
       ? await commitKeetaRecords({
@@ -1208,7 +1228,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
 
   const processedMessage = (() => {
     if (preview.summary.importType === "drivers") return "تم اعتماد ملف المناديب وتحديث قاعدة البيانات.";
-    if (preview.summary.importType === "vehicles") return "تم اعتماد ملف السيارات وتحديث سجلات السيارات والحركة.";
+    if (preview.summary.importType === "vehicles") return "تم اعتماد ملف السيارات وتحديث سجلات السيارات والحركة وربطها بالمناديب المتطابقين.";
     if (preview.summary.importType === "application_accounts") return "تم اعتماد ملف حسابات التطبيقات وتحديث الربط مع المناديب.";
     if (isKeetaOperationalImport(preview.summary.importType)) return "تم اعتماد ملف Keeta وحفظ سجلاته المتخصصة وربطها بالمسير والتقارير حسب نوع القالب.";
     if (["keeta_invoice", "keeta_rank", "hungerstation_invoice", "hungerstation_performance", "talabat_invoice"].includes(preview.summary.importType)) {
@@ -1314,7 +1334,7 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
 
   const result = await prisma.$transaction(async (tx) => {
     const drivers = isDriverImport(stored.fileType) ? await commitDriverRows(tx, validRows, preview) : null;
-    const vehicles = stored.fileType === "vehicles" ? await commitVehicleRows(tx, validRows) : null;
+    const vehicles = stored.fileType === "vehicles" ? await commitVehicleRows(tx, validRows, preview) : null;
     const accounts = isApplicationAccountImport(stored.fileType) ? await commitApplicationAccountRows(tx, validRows, preview) : null;
     const reports = [KEETA_PERIOD_REPORT_TEMPLATE, "keeta_invoice", "keeta_rank", "hungerstation_invoice", "hungerstation_performance", "talabat_invoice"].includes(stored.fileType)
       ? await commitDailyReportRows(tx, validRows, preview)

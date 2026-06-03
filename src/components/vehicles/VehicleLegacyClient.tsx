@@ -238,7 +238,7 @@ function VehicleOnlineClient({ data, openCreate }: { data: OnlineData; openCreat
             <button type="button" onClick={() => selected ? openEdit(selected) : setNotice("اختر سجلًا من الجدول أولًا ثم اضغط تعديل.")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-900 shadow-sm">
               تعديل
             </button>
-            <Link href="/imports?type=vehicles" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm">
+            <Link href="/imports/preview?importType=vehicles" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm">
               استيراد Excel / PDF
             </Link>
             <button type="button" onClick={openAdd} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm">

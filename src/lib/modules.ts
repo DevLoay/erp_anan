@@ -39,6 +39,7 @@ export const moduleSections: ModuleSection[] = [
       },
       { href: "/notifications", label: "الإشعارات والتنبيهات", oldKey: "notifications", status: migration, resource: "notifications", description: "تنبيهات تشغيلية ومالية مرتبطة بالمشاكل الفعلية." },
       { href: "/users", label: "المستخدمين والصلاحيات", oldKey: "userManagement", status: migration, resource: "users", description: "إدارة المستخدمين والأدوار ونطاق المدن والمشرفين." },
+      { href: "/permissions", label: "إدارة الصلاحيات", oldKey: "permissionsMatrix", status: connected, resource: "users", description: "مصفوفة الأدوار والصلاحيات وحماية الموارد الحساسة على الواجهة والـ API." },
       { href: "/audit-log", label: "سجل العمليات", oldKey: "auditLog", status: migration, resource: "audit-logs", description: "تتبع العمليات الحساسة والتغييرات." },
       {
         href: "/settings",
@@ -66,6 +67,7 @@ export const moduleSections: ModuleSection[] = [
         children: [
           { href: "/applications/templates", label: "قوالب التطبيقات", oldKey: "applicationTemplates", status: migration, resource: "import-templates", description: "قوالب الاستيراد الخاصة بالتطبيقات." },
           { href: "/applications/imports", label: "استيراد التطبيقات", oldKey: "applicationImports", status: migration, resource: "import-batches", description: "عمليات استيراد ملفات التطبيقات." },
+          { href: "/settings/application-account-review", label: "مراجعة ربط الحسابات", oldKey: "applicationAccountReview", status: connected, resource: "application-accounts", description: "مراجعة حسابات التطبيقات غير المرتبطة بمشروع تشغيل أو مدينة أو مندوب." },
           { href: "/applications/invoice-settings", label: "إعدادات الفواتير", oldKey: "invoiceSettings", status: migration, resource: "applications", description: "قواعد قراءة فواتير التطبيقات." },
           { href: "/applications/rank-settings", label: "إعدادات الرانك", oldKey: "rankSettings", status: migration, resource: "applications", description: "قواعد الرانك والتقييم حسب التطبيق." },
           { href: "/applications/keeta/rank", label: "Keeta Rank", oldKey: "keetaRank", status: migration, resource: "applications", description: "استيراد وتحليل Rank Keeta." },

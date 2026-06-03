@@ -93,60 +93,60 @@ export function resolveImportTemplateFilters(params: SearchParams): ImportTempla
 const baseDriverColumns: ImportColumn[] = [
   {
     key: "driverCode",
-    displayName: "Driver Code",
+    displayName: "كود المندوب",
     required: true,
     dataType: "string",
-    aliases: ["driver_code", "internalCode", "ظƒظˆط¯", "ظƒظˆط¯ ط§ظ„ظ…ظ†ط¯ظˆط¨", "Driver Code"],
+    aliases: ["driver_code", "internalCode", "كود", "كود المندوب", "Driver Code"],
   },
   {
     key: "nationalId",
-    displayName: "Iqama ID",
+    displayName: "رقم الإقامة",
     required: false,
     dataType: "string",
-    aliases: ["national_id", "id", "iqama", "ط±ظ‚ظ… ط§ظ„ظ‡ظˆظٹط©", "ط±ظ‚ظ… ط§ظ„ط¥ظ‚ط§ظ…ط©", "Iqama ID"],
+    aliases: ["national_id", "id", "iqama", "رقم الهوية", "رقم الإقامة", "Iqama ID"],
   },
   {
     key: "actualName",
-    displayName: "Arabic Driver Name (HR Approved)",
+    displayName: "اسم المندوب",
     required: true,
     dataType: "string",
-    aliases: ["name", "driverName", "ط§ط³ظ…", "ط§ط³ظ… ط§ظ„ظ…ظ†ط¯ظˆط¨", "Arabic Driver Name (HR Approved)"],
+    aliases: ["name", "driverName", "اسم", "اسم المندوب", "Arabic Driver Name (HR Approved)"],
   },
 ];
 
 const driverMasterTemplateOptionalColumns: ImportColumn[] = [
-  { key: "city", displayName: "City", dataType: "string", aliases: ["city", "ط§ظ„ظ…ط¯ظٹظ†ط©", "City"] },
-  { key: "project", displayName: "Current Project", dataType: "string", aliases: ["project", "ط§ظ„ظ…ط´ط±ظˆط¹", "Current Project"] },
-  { key: "applicationName", displayName: "Primary App Name", dataType: "string", aliases: ["application", "appName", "ط§ظ„طھط·ط¨ظٹظ‚", "Primary App Name"] },
-  { key: "contractType", displayName: "Relationship Type", dataType: "string", aliases: ["contract", "ظ†ظˆط¹ ط§ظ„ط¹ظ‚ط¯", "Relationship Type"] },
-  { key: "nationality", displayName: "Nationality", dataType: "string", aliases: ["ط§ظ„ط¬ظ†ط³ظٹط©", "Nationality"] },
-  { key: "profession", displayName: "Profession", dataType: "string", aliases: ["ط§ظ„ظ…ظ‡ظ†ط©", "Profession"] },
-  { key: "passportNumber", displayName: "Passport Number", dataType: "string", aliases: ["ط±ظ‚ظ… ط§ظ„ط¬ظˆط§ط²", "Passport Number"] },
-  { key: "passportExpiry", displayName: "Passport Expiry", dataType: "date", aliases: ["ط§ظ†طھظ‡ط§ط، ط§ظ„ط¬ظˆط§ط²", "Passport Expiry"] },
-  { key: "iqamaExpiry", displayName: "Iqama Expiry", dataType: "date", aliases: ["ط§ظ†طھظ‡ط§ط، ط§ظ„ط¥ظ‚ط§ظ…ط©", "Iqama Expiry"] },
-  { key: "birthDate", displayName: "Birth Date", dataType: "date", aliases: ["طھط§ط±ظٹط® ط§ظ„ظ…ظٹظ„ط§ط¯", "Birth Date"] },
-  { key: "employerId", displayName: "Employer ID", dataType: "string", aliases: ["ط±ظ‚ظ… طµط§ط­ط¨ ط§ظ„ط¹ظ…ظ„", "Employer ID"] },
-  { key: "accommodationType", displayName: "Housing Type", dataType: "string", aliases: ["ط§ظ„ط³ظƒظ†", "ظ†ظˆط¹ ط§ظ„ط³ظƒظ†", "Housing Type"] },
-  { key: "vehicleOwnership", displayName: "Vehicle Ownership", dataType: "string", aliases: ["ظ…ظ„ظƒظٹط© ط§ظ„ط³ظٹط§ط±ط©", "Vehicle Ownership"] },
+  { key: "city", displayName: "المدينة", dataType: "string", aliases: ["city", "المدينة", "City"] },
+  { key: "project", displayName: "المشروع الحالي", dataType: "string", aliases: ["project", "المشروع", "Current Project"] },
+  { key: "applicationName", displayName: "اسم التطبيق", dataType: "string", aliases: ["application", "appName", "التطبيق", "Primary App Name"] },
+  { key: "contractType", displayName: "نوع العلاقة", dataType: "string", aliases: ["contract", "نوع العقد", "Relationship Type"] },
+  { key: "nationality", displayName: "الجنسية", dataType: "string", aliases: ["الجنسية", "Nationality"] },
+  { key: "profession", displayName: "المهنة", dataType: "string", aliases: ["المهنة", "Profession"] },
+  { key: "passportNumber", displayName: "رقم الجواز", dataType: "string", aliases: ["رقم الجواز", "Passport Number"] },
+  { key: "passportExpiry", displayName: "انتهاء الجواز", dataType: "date", aliases: ["انتهاء الجواز", "Passport Expiry"] },
+  { key: "iqamaExpiry", displayName: "انتهاء الإقامة", dataType: "date", aliases: ["انتهاء الإقامة", "Iqama Expiry"] },
+  { key: "birthDate", displayName: "تاريخ الميلاد", dataType: "date", aliases: ["تاريخ الميلاد", "Birth Date"] },
+  { key: "employerId", displayName: "رقم صاحب العمل", dataType: "string", aliases: ["رقم صاحب العمل", "Employer ID"] },
+  { key: "accommodationType", displayName: "نوع السكن", dataType: "string", aliases: ["السكن", "نوع السكن", "Housing Type"] },
+  { key: "vehicleOwnership", displayName: "ملكية السيارة", dataType: "string", aliases: ["ملكية السيارة", "Vehicle Ownership"] },
   { key: "appUserId", displayName: "App Courier ID", dataType: "string", aliases: ["App Courier ID", "appUserId", "courierId"] },
   { key: "appUsername", displayName: "app Account Name English", dataType: "string", aliases: ["app Account Name English", "appUsername", "username"] },
   { key: "appStatus", displayName: "Driver App Status", dataType: "string", aliases: ["Driver App Status", "appStatus", "status"] },
-  { key: "mobile", displayName: "Login Phone", dataType: "string", aliases: ["phone", "mobile", "ط§ظ„ط¬ظˆط§ظ„", "Login Phone"] },
-  { key: "notes", displayName: "Notes", dataType: "string", aliases: ["ظ…ظ„ط§ط­ط¸ط§طھ", "Notes"] },
+  { key: "mobile", displayName: "رقم الجوال", dataType: "string", aliases: ["phone", "mobile", "الجوال", "Login Phone"] },
+  { key: "notes", displayName: "ملاحظات", dataType: "string", aliases: ["ملاحظات", "Notes"] },
   { key: "inHrResources", displayName: "In HR Resources", dataType: "boolean", aliases: ["In HR Resources", "inHrResources"] },
 ];
 
 const commonPerformanceColumns: ImportColumn[] = [
-  { key: "orders", displayName: "ط§ظ„ط·ظ„ط¨ط§طھ", required: true, dataType: "number", aliases: ["orders", "completed_orders", "ط·ظ„ط¨ط§طھ"] },
-  { key: "workingHours", displayName: "ط³ط§ط¹ط§طھ ط§ظ„ط¹ظ…ظ„", required: false, dataType: "number", aliases: ["working_hours", "hours", "ط³ط§ط¹ط§طھ ط§ظ„ط¹ظ…ظ„"] },
+  { key: "orders", displayName: "الطلبات", required: true, dataType: "number", aliases: ["orders", "completed_orders", "طلبات"] },
+  { key: "workingHours", displayName: "ساعات العمل", required: false, dataType: "number", aliases: ["working_hours", "hours", "ساعات العمل"] },
   { key: "onTimeRate", displayName: "On Time %", required: false, dataType: "number", aliases: ["on_time", "ontime", "onTime"] },
   { key: "cancellationRate", displayName: "Cancellation %", required: false, dataType: "number", aliases: ["cancellation", "cancel"] },
   { key: "rejectionRate", displayName: "Rejection %", required: false, dataType: "number", aliases: ["rejection", "reject"] },
 ];
 
 const moneyColumns: ImportColumn[] = [
-  { key: "amount", displayName: "ط§ظ„ظ…ط¨ظ„ط؛", required: true, dataType: "number", aliases: ["amount", "value", "ظ…ط¨ظ„ط؛"] },
-  { key: "date", displayName: "ط§ظ„طھط§ط±ظٹط®", required: true, dataType: "date", aliases: ["date", "createdAt", "طھط§ط±ظٹط®"] },
+  { key: "amount", displayName: "المبلغ", required: true, dataType: "number", aliases: ["amount", "value", "مبلغ"] },
+  { key: "date", displayName: "التاريخ", required: true, dataType: "date", aliases: ["date", "createdAt", "تاريخ"] },
 ];
 
 const keetaDailyReportRequiredColumns: ImportColumn[] = [
@@ -199,7 +199,7 @@ const keetaRankOptionalColumns: ImportColumn[] = [
   { key: "currentEstimatedRewardAmount", displayName: "Current estimated reward amount", dataType: "number", aliases: ["Current estimated reward amount", "rewardAmount"] },
   { key: "onTimeRate", displayName: "On-time rate", dataType: "number", aliases: ["On-time rate", "On Time", "onTimeRate"] },
   { key: "orderCompletionRate", displayName: "Order completion % (non-delivery related)", dataType: "number", aliases: ["Order completion % (non-delivery related)", "orderCompletionRate"] },
-  { key: "dropOffNotEarlyRate", displayName: "Didnâ€™t tap â€œdrop-offâ€‌ too early (%)", dataType: "number", aliases: ["Didnâ€™t tap â€œdrop-offâ€‌ too early (%)", "Didn't tap \"drop-off\" too early (%)", "dropOffNotEarlyRate"] },
+  { key: "dropOffNotEarlyRate", displayName: "Didn't tap drop-off too early (%)", dataType: "number", aliases: ["Didn't tap drop-off too early (%)", "Didn't tap \"drop-off\" too early (%)", "dropOffNotEarlyRate"] },
   { key: "orderVolume", displayName: "Order volume", dataType: "number", aliases: ["Order volume", "orders"] },
   { key: "driverCode", displayName: "Driver Code", dataType: "string", aliases: ["Driver Code", "internalCode"] },
   { key: "nationalId", displayName: "National ID", dataType: "string", aliases: ["National ID", "nationalId"] },
@@ -240,7 +240,7 @@ const keetaPeriodReportOptionalColumns: ImportColumn[] = [
 
 const keetaDriverInvoiceRequiredColumns: ImportColumn[] = [
   { key: "courierId", displayName: "Courier ID", required: true, dataType: "string", aliases: ["Courier ID", "courierId", "appUserId"] },
-  { key: "totalPayableAmount", displayName: "ظ…ط³طھط­ظ‚ ط§ظ„ط´ط±ظƒط© ظ…ظ† ظƒظٹطھط§", required: true, dataType: "number", aliases: ["Total payable amount", "Keeta Payable to Company", "Company Revenue from Keeta", "totalPayableAmount"] },
+  { key: "totalPayableAmount", displayName: "مستحق الشركة من كيتا", required: true, dataType: "number", aliases: ["Total payable amount", "Keeta Payable to Company", "Company Revenue from Keeta", "totalPayableAmount"] },
 ];
 
 const keetaDriverInvoiceOptionalColumns: ImportColumn[] = [
@@ -333,22 +333,34 @@ export const importTemplateDefinitions: ImportTemplateDefinition[] = [
     uniqueKeys: ["driverCode", "nationalId"],
   }),
   definition("vehicles", "Vehicles Template", "vehicles", [
-    { key: "plateEnglish", displayName: "ط§ظ„ظ„ظˆط­ط© ط¥ظ†ط¬ظ„ظٹط²ظٹ", required: true, dataType: "string", aliases: ["plateEn", "plate_english"] },
+    { key: "plateEnglish", displayName: "اللوحة إنجليزي", required: true, dataType: "string", aliases: ["Plate English", "Plate En", "Plate EN", "plateEn", "plate_english", "اللوحة إنجليزي", "اللوحة الانجليزية"] },
   ], [
-    { key: "vehicleCode", displayName: "ظƒظˆط¯ ط§ظ„ط³ظٹط§ط±ط©", dataType: "string", aliases: ["vehicleCode", "vehicle_code"] },
-    { key: "plateArabic", displayName: "ط§ظ„ظ„ظˆط­ط© ط¹ط±ط¨ظٹ", dataType: "string", aliases: ["plateAr", "plate_arabic"] },
-    { key: "brand", displayName: "ط§ظ„ظ…ط§ط±ظƒط©", dataType: "string", aliases: ["brand"] },
-    { key: "model", displayName: "ط§ظ„ظ…ظˆط¯ظٹظ„", dataType: "string", aliases: ["model"] },
-    { key: "monthlyRent", displayName: "ط§ظ„ط¥ظٹط¬ط§ط± ط§ظ„ط´ظ‡ط±ظٹ", dataType: "number", aliases: ["monthlyRent", "rent"] },
-    { key: "assignedDriverCode", displayName: "ظƒظˆط¯ ط§ظ„ظ…ظ†ط¯ظˆط¨ ط§ظ„ط­ط§ظ„ظٹ", dataType: "string", aliases: ["driverCode"] },
-  ], { matchingFields: ["vehicleCode", "plateArabic", "plateEnglish"], uniqueKeys: ["plateEnglish"] }),
+    { key: "vehicleCode", displayName: "كود السيارة", dataType: "string", aliases: ["Vehicle Code", "VehicleCode", "vehicleCode", "vehicle_code", "كود السيارة"] },
+    { key: "plateArabic", displayName: "اللوحة عربي", dataType: "string", aliases: ["Plate Arabic", "Plate Ar", "Plate AR", "plateAr", "plate_arabic", "اللوحة عربي", "اللوحة العربية"] },
+    { key: "vehicleType", displayName: "نوع السيارة", dataType: "string", aliases: ["Vehicle Type", "Type", "نوع السيارة"] },
+    { key: "brand", displayName: "الماركة", dataType: "string", aliases: ["brand", "Brand", "Vehicle Type", "نوع السيارة"] },
+    { key: "model", displayName: "الموديل", dataType: "string", aliases: ["Model", "model", "الموديل"] },
+    { key: "rentalCompany", displayName: "شركة التأجير", dataType: "string", aliases: ["Rental Company", "شركة التأجير"] },
+    { key: "ownerCompany", displayName: "الشركة المالكة", dataType: "string", aliases: ["Owner Company", "الشركة المالكة"] },
+    { key: "city", displayName: "المدينة", dataType: "string", aliases: ["City", "المدينة"] },
+    { key: "project", displayName: "المشروع / التطبيق", dataType: "string", aliases: ["Project", "Application", "المشروع", "التطبيق"] },
+    { key: "status", displayName: "الحالة", dataType: "string", aliases: ["Status", "الحالة"] },
+    { key: "assignedDriverCode", displayName: "كود المندوب الحالي", dataType: "string", aliases: ["Current Driver Code", "Assigned Driver Code", "Driver Code", "كود المندوب الحالي", "كود المندوب"] },
+    { key: "assignedDriverIqama", displayName: "إقامة المندوب الحالي", dataType: "string", aliases: ["Current Driver Iqama", "Current Driver Iqaama", "Driver Iqama", "Iqama", "National ID", "إقامة المندوب الحالي", "رقم الإقامة", "الهوية"] },
+    { key: "assignedDriverName", displayName: "اسم المندوب الحالي", dataType: "string", aliases: ["Current Driver Name", "Assigned Driver Name", "Driver Name", "اسم المندوب الحالي", "اسم المندوب"] },
+    { key: "monthlyRent", displayName: "الإيجار الشهري", dataType: "number", aliases: ["Monthly Rent", "MonthlyRent", "monthlyRent", "rent", "الإيجار الشهري", "ايجار شهري"] },
+    { key: "dailyRent", displayName: "الإيجار اليومي", dataType: "number", aliases: ["Daily Rent", "DailyRent", "dailyRent", "الإيجار اليومي", "ايجار يومي"] },
+    { key: "receivedDate", displayName: "تاريخ التسليم", dataType: "date", aliases: ["Received Date", "Handover Date", "Start Date", "تاريخ التسليم", "تاريخ الاستلام"] },
+    { key: "authorizationEnd", displayName: "تاريخ انتهاء التفويض", dataType: "date", aliases: ["Authorization End", "Authorization End Date", "Auth End Date", "تاريخ انتهاء التفويض", "نهاية التفويض"] },
+    { key: "notes", displayName: "ملاحظات", dataType: "string", aliases: ["Notes", "ملاحظات"] },
+  ], { matchingFields: ["vehicleCode", "plateArabic", "plateEnglish", "assignedDriverCode", "assignedDriverIqama", "assignedDriverName"], uniqueKeys: ["plateEnglish"] }),
   definition("application_accounts", "Application Accounts Template", "applications", [
-    { key: "appUserId", displayName: "ظ…ط¹ط±ظپ ط§ظ„ط­ط³ط§ط¨", required: true, dataType: "string", aliases: ["appUserId", "accountId", "user_id"] },
+    { key: "appUserId", displayName: "معرف الحساب", required: true, dataType: "string", aliases: ["appUserId", "accountId", "user_id"] },
   ], [
-    { key: "appUsername", displayName: "ط§ط³ظ… ظ…ط³طھط®ط¯ظ… ط§ظ„طھط·ط¨ظٹظ‚", dataType: "string", aliases: ["username", "appUsername"] },
-    { key: "applicationName", displayName: "ط§ظ„طھط·ط¨ظٹظ‚", dataType: "string", aliases: ["application", "appName"] },
-    { key: "driverCode", displayName: "ظƒظˆط¯ ط§ظ„ظ…ظ†ط¯ظˆط¨", dataType: "string", aliases: ["driverCode"] },
-    { key: "nationalId", displayName: "ط±ظ‚ظ… ط§ظ„ظ‡ظˆظٹط©", dataType: "string", aliases: ["nationalId"] },
+    { key: "appUsername", displayName: "اسم مستخدم التطبيق", dataType: "string", aliases: ["username", "appUsername"] },
+    { key: "applicationName", displayName: "التطبيق", dataType: "string", aliases: ["application", "appName"] },
+    { key: "driverCode", displayName: "كود المندوب", dataType: "string", aliases: ["driverCode"] },
+    { key: "nationalId", displayName: "رقم الهوية", dataType: "string", aliases: ["nationalId"] },
   ], { uniqueKeys: ["appUserId"], matchingFields: ["appUserId", "appUsername", "driverCode", "nationalId"] }),
   definition(KEETA_RANK_TEMPLATE, "Keeta Rank Template", "applications", keetaRankRequiredColumns, keetaRankOptionalColumns, {
     applicationCode: "KEETA",
@@ -372,56 +384,56 @@ export const importTemplateDefinitions: ImportTemplateDefinition[] = [
   }),
   definition("hungerstation_performance", "HungerStation Performance Template", "applications", [...baseDriverColumns.slice(0, 1), ...commonPerformanceColumns], [
     { key: "acceptanceRate", displayName: "Acceptance %", dataType: "number", aliases: ["acceptance"] },
-    { key: "reportDate", displayName: "طھط§ط±ظٹط® ط§ظ„طھظ‚ط±ظٹط±", dataType: "date", aliases: ["date"] },
+    { key: "reportDate", displayName: "تاريخ التقرير", dataType: "date", aliases: ["date"] },
   ], { applicationCode: "HUNGERSTATION" }),
   definition("talabat_invoice", "Talabat Invoice Template", "applications", [...baseDriverColumns.slice(0, 1), ...commonPerformanceColumns.slice(0, 1)], [
     ...commonPerformanceColumns.slice(1),
-    { key: "collectionAmount", displayName: "ط§ظ„طھط­طµظٹظ„", dataType: "number", aliases: ["collection"] },
-    { key: "appUserId", displayName: "ظ…ط¹ط±ظپ ط­ط³ط§ط¨ Talabat", dataType: "string", aliases: ["appUserId"] },
+    { key: "collectionAmount", displayName: "التحصيل", dataType: "number", aliases: ["collection"] },
+    { key: "appUserId", displayName: "معرف حساب Talabat", dataType: "string", aliases: ["appUserId"] },
   ], { applicationCode: "TALABAT" }),
   definition("advances", "Advances Template", "finance", [...baseDriverColumns.slice(0, 2), ...moneyColumns], [
-    { key: "reason", displayName: "ط§ظ„ط³ط¨ط¨", dataType: "string", aliases: ["reason"] },
-    { key: "deductionMonth", displayName: "ط´ظ‡ط± ط§ظ„ط®طµظ…", dataType: "string", aliases: ["deductionMonth"] },
+    { key: "reason", displayName: "السبب", dataType: "string", aliases: ["reason"] },
+    { key: "deductionMonth", displayName: "شهر الخصم", dataType: "string", aliases: ["deductionMonth"] },
   ]),
   definition("deductions", "Deductions Template", "finance", [...baseDriverColumns.slice(0, 2), ...moneyColumns], [
-    { key: "type", displayName: "ظ†ظˆط¹ ط§ظ„ط®طµظ…", dataType: "string", aliases: ["type"] },
-    { key: "notes", displayName: "ظ…ظ„ط§ط­ط¸ط§طھ", dataType: "string", aliases: ["notes"] },
+    { key: "type", displayName: "نوع الخصم", dataType: "string", aliases: ["type"] },
+    { key: "notes", displayName: "ملاحظات", dataType: "string", aliases: ["notes"] },
   ]),
   definition("violations", "Violations Template", "operations", [...baseDriverColumns.slice(0, 2), ...moneyColumns], [
-    { key: "type", displayName: "ظ†ظˆط¹ ط§ظ„ظ…ط®ط§ظ„ظپط©", dataType: "string", aliases: ["type"] },
-    { key: "vehiclePlate", displayName: "ظ„ظˆط­ط© ط§ظ„ط³ظٹط§ط±ط©", dataType: "string", aliases: ["plate", "vehiclePlate"] },
+    { key: "type", displayName: "نوع المخالفة", dataType: "string", aliases: ["type"] },
+    { key: "vehiclePlate", displayName: "لوحة السيارة", dataType: "string", aliases: ["plate", "vehiclePlate"] },
   ]),
   definition("fuel", "Fuel Template", "finance", [...baseDriverColumns.slice(0, 2), ...moneyColumns], [
-    { key: "liters", displayName: "ط§ظ„ظ„طھط±ط§طھ", dataType: "number", aliases: ["liters"] },
-    { key: "vehiclePlate", displayName: "ظ„ظˆط­ط© ط§ظ„ط³ظٹط§ط±ط©", dataType: "string", aliases: ["plate"] },
+    { key: "liters", displayName: "اللترات", dataType: "number", aliases: ["liters"] },
+    { key: "vehiclePlate", displayName: "لوحة السيارة", dataType: "string", aliases: ["plate"] },
   ]),
   definition("hr_documents", "HR Documents Template", "hr", [...baseDriverColumns.slice(0, 2), {
     key: "documentType",
-    displayName: "ظ†ظˆط¹ ط§ظ„ظ…ط³طھظ†ط¯",
+    displayName: "نوع المستند",
     required: true,
     dataType: "string",
     aliases: ["documentType"],
   }], [
-    { key: "documentNumber", displayName: "ط±ظ‚ظ… ط§ظ„ظ…ط³طھظ†ط¯", dataType: "string", aliases: ["documentNumber"] },
-    { key: "expiryDate", displayName: "طھط§ط±ظٹط® ط§ظ„ط§ظ†طھظ‡ط§ط،", dataType: "date", aliases: ["expiryDate"] },
+    { key: "documentNumber", displayName: "رقم المستند", dataType: "string", aliases: ["documentNumber"] },
+    { key: "expiryDate", displayName: "تاريخ الانتهاء", dataType: "date", aliases: ["expiryDate"] },
   ]),
   definition("payroll", "Payroll Template", "payroll", [...baseDriverColumns.slice(0, 2), {
     key: "month",
-    displayName: "ط§ظ„ط´ظ‡ط±",
+    displayName: "الشهر",
     required: true,
     dataType: "string",
     aliases: ["month"],
   }, {
     key: "year",
-    displayName: "ط§ظ„ط³ظ†ط©",
+    displayName: "السنة",
     required: true,
     dataType: "number",
     aliases: ["year"],
   }], [
-    { key: "basicSalary", displayName: "ط§ظ„ط±ط§طھط¨ ط§ظ„ط£ط³ط§ط³ظٹ", dataType: "number", aliases: ["basicSalary"] },
-    { key: "bonus", displayName: "ط§ظ„ط¨ظˆظ†طµ", dataType: "number", aliases: ["bonus"] },
-    { key: "deductions", displayName: "ط§ظ„ط®طµظˆظ…ط§طھ", dataType: "number", aliases: ["deductions"] },
-    { key: "netSalary", displayName: "طµط§ظپظٹ ط§ظ„ط±ط§طھط¨", dataType: "number", aliases: ["netSalary"] },
+    { key: "basicSalary", displayName: "الراتب الأساسي", dataType: "number", aliases: ["basicSalary"] },
+    { key: "bonus", displayName: "البونص", dataType: "number", aliases: ["bonus"] },
+    { key: "deductions", displayName: "الخصومات", dataType: "number", aliases: ["deductions"] },
+    { key: "netSalary", displayName: "صافي الراتب", dataType: "number", aliases: ["netSalary"] },
   ]),
 ];
 
@@ -456,16 +468,16 @@ export function countJson(value: unknown) {
 
 export function statusText(status: unknown) {
   const value = String(status ?? "").toUpperCase();
-  if (value === "ACTIVE") return "ظ†ط´ط·";
-  if (value === "INACTIVE") return "ط؛ظٹط± ظ†ط´ط·";
-  if (value === "PENDING") return "ظ‚ظٹط¯ ط§ظ„ظ…ط±ط§ط¬ط¹ط©";
-  if (value === "APPROVED") return "ظ…ط¹طھظ…ط¯";
-  if (value === "REJECTED") return "ظ…ط±ظپظˆط¶";
-  if (value === "LOCKED") return "ظ…ط؛ظ„ظ‚";
-  if (value === "PREVIEW") return "ظ…ط¹ط§ظٹظ†ط©";
-  if (value === "COMMITTED") return "ظ…ط­ظپظˆط¸";
-  if (value === "COMMITTED_PENDING_PROCESSING") return "ظ…ط­ظپظˆط¸ ط¨ط§ظ†طھط¸ط§ط± ط§ظ„ظ…ط¹ط§ظ„ط¬ط©";
-  if (value === "CANCELLED" || value === "CANCELED") return "ظ…ظ„ط؛ظٹ";
+  if (value === "ACTIVE") return "نشط";
+  if (value === "INACTIVE") return "غير نشط";
+  if (value === "PENDING") return "قيد المراجعة";
+  if (value === "APPROVED") return "معتمد";
+  if (value === "REJECTED") return "مرفوض";
+  if (value === "LOCKED") return "مغلق";
+  if (value === "PREVIEW") return "معاينة";
+  if (value === "COMMITTED") return "محفوظ";
+  if (value === "COMMITTED_PENDING_PROCESSING") return "محفوظ بانتظار المعالجة";
+  if (value === "CANCELLED" || value === "CANCELED") return "ملغي";
   return String(status ?? "-");
 }
 
@@ -511,7 +523,7 @@ export function databaseOfflineMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: string }).code) : "";
   if (code === "P1001" || code === "P1002" || message.includes("Can't reach database server") || message.includes("ECONNREFUSED")) {
-    return "ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ ط؛ظٹط± ظ…طھطµظ„ط©. ظٹط±ط¬ظ‰ طھط´ط؛ظٹظ„ PostgreSQL ط«ظ… طھط­ط¯ظٹط« ط§ظ„طµظپط­ط©.";
+    return "قاعدة البيانات غير متصلة. يرجى تشغيل PostgreSQL ثم تحديث الصفحة.";
   }
   return "";
 }
@@ -526,12 +538,12 @@ export function templateFromDefinition(definitionItem: ImportTemplateDefinition)
     applicationId: "",
     applicationName: definitionItem.applicationCode ?? "-",
     applicationProjectId: "",
-    projectName: "ظƒظ„ ط§ظ„ظ…ط´ط§ط±ظٹط¹",
+    projectName: "كل المشاريع",
     requiredColumnsCount: definitionItem.requiredColumns.length,
     optionalColumnsCount: definitionItem.optionalColumns.length,
-    mappingStatus: "ط¬ط§ظ‡ط²",
+    mappingStatus: "جاهز",
     lastUsedAt: "-",
-    status: "ظ†ط´ط·",
+    status: "نشط",
     requiredColumns: definitionItem.requiredColumns,
     optionalColumns: definitionItem.optionalColumns,
     columnMapping: definitionItem.columnMapping,
@@ -566,10 +578,10 @@ function rowFromDatabaseTemplate(template: {
     applicationId: template.applicationId ?? "",
     applicationName: template.application?.name ?? definitionItem?.applicationCode ?? "-",
     applicationProjectId: template.applicationProjectId ?? "",
-    projectName: template.applicationProject?.name ?? "ظƒظ„ ط§ظ„ظ…ط´ط§ط±ظٹط¹",
+    projectName: template.applicationProject?.name ?? "كل المشاريع",
     requiredColumnsCount: requiredColumns.length,
     optionalColumnsCount: optionalColumns.length,
-    mappingStatus: columnMapping.length ? "ظ…ظƒطھظ…ظ„" : "ظٹط­طھط§ط¬ Mapping",
+    mappingStatus: columnMapping.length ? "مكتمل" : "يحتاج Mapping",
     lastUsedAt: formatDate(template.lastUsedAt),
     status: statusText(template.status),
     requiredColumns,
@@ -636,12 +648,12 @@ export async function getImportTemplatesData(filters: ImportTemplatesData["filte
       rows,
       summary: {
         total: rows.length,
-        active: rows.filter((row) => row.status === "ظ†ط´ط·").length,
+        active: rows.filter((row) => row.status === "نشط").length,
         applicationTemplates: rows.filter((row) => row.category === "applications").length,
         driverTemplates: rows.filter((row) => row.category === "drivers").length,
         vehicleTemplates: rows.filter((row) => row.category === "vehicles").length,
         financeTemplates: rows.filter((row) => row.category === "finance" || row.category === "payroll").length,
-        needsMapping: rows.filter((row) => row.mappingStatus !== "ظ…ظƒطھظ…ظ„" && row.mappingStatus !== "ط¬ط§ظ‡ط²").length,
+        needsMapping: rows.filter((row) => row.mappingStatus !== "مكتمل" && row.mappingStatus !== "جاهز").length,
         lastUsed: lastUsedDates.length ? formatDate(new Date(Math.max(...lastUsedDates))) : "-",
       },
     };
@@ -656,7 +668,7 @@ export async function resolveTemplateForUse(templateId: string | null, fileType:
   if (templateId?.startsWith("builtin:")) {
     const type = templateId.replace("builtin:", "");
     const definitionItem = getBuiltinTemplate(type);
-    if (!definitionItem) throw new Error("ط§ظ„ظ‚ط§ظ„ط¨ ط؛ظٹط± ظ…ظˆط¬ظˆط¯.");
+    if (!definitionItem) throw new Error("القالب غير موجود.");
     return {
       id: templateId,
       source: "builtin" as const,
@@ -691,7 +703,7 @@ export async function resolveTemplateForUse(templateId: string | null, fileType:
   }
 
   const definitionItem = getBuiltinTemplate(fileType);
-  if (!definitionItem) throw new Error("ظ†ظˆط¹ ط§ظ„ط§ط³طھظٹط±ط§ط¯ ط؛ظٹط± ظ…ط¯ط¹ظˆظ….");
+  if (!definitionItem) throw new Error("نوع الاستيراد غير مدعوم.");
   return {
     id: `builtin:${definitionItem.fileType}`,
     source: "builtin" as const,

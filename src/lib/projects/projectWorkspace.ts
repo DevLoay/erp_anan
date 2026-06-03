@@ -146,19 +146,20 @@ async function resolveApplicationProject(projectId: string) {
     update: { name: applicationName },
     create: { code: applicationCode, name: applicationName, status: RecordStatus.ACTIVE },
   });
-  const bridgeCode = `${applicationCode}-${legacy.id.slice(-8).toUpperCase()}`;
+  const cityCode = legacy.city?.nameEn || legacy.city?.nameAr || legacy.cityId || "GLOBAL";
+  const bridgeCode = `${applicationCode}-${codeFrom(cityCode)}`;
   return prisma.applicationProject.upsert({
     where: { code: bridgeCode },
     update: {
       applicationId: application.id,
-      projectId: legacy.id,
+      projectId: null,
       cityId: legacy.cityId,
       name: legacy.name,
       status: legacy.status,
     },
     create: {
       applicationId: application.id,
-      projectId: legacy.id,
+      projectId: null,
       cityId: legacy.cityId,
       code: bridgeCode,
       name: legacy.name,

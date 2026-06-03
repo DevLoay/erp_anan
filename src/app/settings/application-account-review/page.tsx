@@ -1,10 +1,16 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ApplicationAccountReviewClient } from "@/components/application-accounts/ApplicationAccountReviewClient";
+import { canReadResource, roleFromHeaders } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ApplicationAccountReviewPage() {
-  const rows = await prisma.applicationAccount.findMany({
+  const requestHeaders = await headers();
+  if (!canReadResource(roleFromHeaders(requestHeaders), "application-accounts")) redirect("/access-denied");
+
+  const result = await prisma.applicationAccount.findMany({
     where: {
       OR: [
         { needsReview: true },
@@ -21,12 +27,22 @@ export default async function ApplicationAccountReviewPage() {
     },
     orderBy: [{ needsReview: "desc" }, { updatedAt: "desc" }],
     take: 300,
-  });
+  })
+    .then((rows) => ({ rows, offline: "" }))
+    .catch((error: unknown) => ({
+      rows: [],
+      offline: error instanceof Error ? error.message : "تعذر الاتصال بقاعدة البيانات.",
+    }));
 
   return (
     <main className="min-h-screen bg-slate-50 p-6">
+      {result.offline ? (
+        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-800" dir="rtl">
+          قاعدة البيانات غير متصلة. يرجى تشغيل PostgreSQL ثم تحديث الصفحة.
+        </div>
+      ) : null}
       <ApplicationAccountReviewClient
-        rows={rows.map((row) => ({
+        rows={result.rows.map((row) => ({
           id: row.id,
           appName: row.appName,
           appUserId: row.appUserId,

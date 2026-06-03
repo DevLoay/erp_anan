@@ -3,7 +3,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/permissions";
 
 const publicPrefixes = ["/login", "/logout", "/forgot-password", "/reset-password", "/access-denied", "/api/auth", "/_next", "/favicon.ico", "/robots.txt", "/sitemap.xml"];
-const adminOnlyPrefixes = ["/users", "/user-management", "/audit-log", "/settings/templates", "/settings/payroll", "/payroll/settings"];
+const adminOnlyPrefixes = ["/users", "/user-management", "/permissions", "/audit-log", "/settings/templates", "/settings/payroll", "/payroll/settings"];
 const financePrefixes = ["/finance", "/payroll", "/invoices", "/receivables", "/payments", "/expenses", "/revenues", "/deductions", "/financial"];
 const operationsPrefixes = ["/dashboard", "/projects", "/applications", "/imports", "/daily-reports", "/rider", "/cities", "/city", "/supervisors", "/notifications", "/attendance", "/vehicles", "/vehicle", "/violations", "/advances", "/management-reports", "/reports", "/performance-analysis"];
 

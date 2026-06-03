@@ -229,8 +229,8 @@ export function ImportStepper({
               }}
               className="rounded-xl border border-slate-300 px-3 py-2"
             >
-              {availableImportTypes.map(([value, label]) => (
-                <option key={value} value={value}>
+              {availableImportTypes.map(([value, label], index) => (
+                <option key={`${value}:${index}`} value={value}>
                   {label}
                 </option>
               ))}

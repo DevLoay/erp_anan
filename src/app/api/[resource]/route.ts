@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getResource } from "@/lib/resources";
 import { canReadResource, canWriteResource, roleFromHeaders } from "@/lib/permissions";
+import { getAccessScope, type AccessScope } from "@/lib/auth/accessScope";
 
 type Delegate = {
   findMany(args?: unknown): Promise<unknown[]>;
@@ -33,15 +34,84 @@ function safeSelect(resource: string, fields: string[]) {
   return Object.fromEntries(selectedFields.map((field) => [field, true]));
 }
 
-async function findRows(source: Delegate, take: number, select?: Record<string, boolean>) {
+async function findRows(source: Delegate, take: number, select?: Record<string, boolean>, where?: Record<string, unknown>) {
   try {
-    return await source.findMany({ take, orderBy: { updatedAt: "desc" }, ...(select ? { select } : {}) });
+    return await source.findMany({ take, where, orderBy: { updatedAt: "desc" }, ...(select ? { select } : {}) });
   } catch {
     try {
-      return await source.findMany({ take, orderBy: { createdAt: "desc" }, ...(select ? { select } : {}) });
+      return await source.findMany({ take, where, orderBy: { createdAt: "desc" }, ...(select ? { select } : {}) });
     } catch {
-      return source.findMany({ take, ...(select ? { select } : {}) });
+      return source.findMany({ take, where, ...(select ? { select } : {}) });
     }
+  }
+}
+
+function scopedOr(scope: AccessScope, clauses: Array<Record<string, unknown>>) {
+  if (scope.isGlobal) return {};
+  const active = clauses.filter((clause) => Object.keys(clause).length > 0);
+  return active.length ? { OR: active } : { id: "__NO_ACCESS_SCOPE__" };
+}
+
+function scopedWhere(resource: string, scope: AccessScope): Record<string, unknown> {
+  if (scope.isGlobal) return {};
+  const cityClause = scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {};
+  const projectClause = scope.projectIds.length ? { projectId: { in: scope.projectIds } } : {};
+  const driverClause = scope.driverId ? { driverId: scope.driverId } : {};
+  const supervisorClause = scope.supervisorId ? { supervisorId: scope.supervisorId } : {};
+
+  switch (resource) {
+    case "drivers":
+      return scopedOr(scope, [
+        scope.driverId ? { id: scope.driverId } : {},
+        supervisorClause,
+        cityClause,
+        projectClause,
+      ]);
+    case "supervisors":
+      return scopedOr(scope, [
+        scope.supervisorId ? { id: scope.supervisorId } : {},
+        cityClause,
+      ]);
+    case "vehicles":
+      return scopedOr(scope, [
+        scope.driverId ? { currentDriverId: scope.driverId } : {},
+        cityClause,
+      ]);
+    case "application-accounts":
+      return scopedOr(scope, [
+        driverClause,
+        cityClause,
+        scope.driverId ? { driverId: scope.driverId } : {},
+      ]);
+    case "daily-reports":
+    case "advances":
+    case "deductions":
+    case "violations":
+    case "attendance":
+    case "tasks":
+    case "notifications":
+      return scopedOr(scope, [driverClause, supervisorClause, cityClause, projectClause]);
+    case "vehicle-movements":
+    case "vehicle-cleaning":
+    case "vehicle-maintenance":
+    case "vehicle-authorizations":
+    case "vehicle-accidents":
+    case "vehicle-damages":
+    case "vehicle-costs":
+      return scopedOr(scope, [driverClause, cityClause]);
+    case "payroll":
+    case "invoices":
+    case "revenues":
+    case "expenses":
+    case "receivables":
+    case "payments":
+    case "cashbox-entries":
+    case "bank-accounts":
+    case "profit-loss":
+    case "vat-records":
+      return scopedOr(scope, [driverClause, cityClause, projectClause]);
+    default:
+      return {};
   }
 }
 
@@ -258,6 +328,7 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
 
   const role = roleFromHeaders(request.headers);
   if (!canReadResource(role, config.key)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const scope = await getAccessScope(request.headers);
 
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
@@ -265,7 +336,8 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
 
   const source = delegate(config.delegate);
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
-  const [rows, total] = await Promise.all([findRows(source, take, select), source.count()]);
+  const where = scopedWhere(config.key, scope);
+  const [rows, total] = await Promise.all([findRows(source, take, select, where), source.count({ where })]);
 
   const filterableFields = new Set([...config.searchFields, ...config.columns.map((column) => column.key)]);
   const fieldFilters = Array.from(url.searchParams.entries()).filter(

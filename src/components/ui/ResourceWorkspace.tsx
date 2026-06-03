@@ -547,8 +547,8 @@ export function ResourceWorkspace({ resource, compact = false }: { resource: Res
                         ) : options ? (
                           <select id={fieldId} name={field} defaultValue={value || (required ? options[0]?.value : "")} required={required} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100">
                             {!required ? <option value="">بدون اختيار</option> : null}
-                            {options.map((option) => (
-                              <option key={option.value} value={option.value}>
+                            {options.map((option, optionIndex) => (
+                              <option key={`${option.value}:${optionIndex}`} value={option.value}>
                                 {option.label}
                               </option>
                             ))}

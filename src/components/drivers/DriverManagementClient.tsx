@@ -306,8 +306,8 @@ export function DriverManagementClient({ data }: Props) {
             الحالة
           </label>
           <select id="drivers-status" name="status" defaultValue={data.filters.status} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+            {statusOptions.map((option, index) => (
+              <option key={`${option.value}:${index}`} value={option.value}>
                 {option.label}
               </option>
             ))}
