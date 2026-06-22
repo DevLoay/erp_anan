@@ -11,7 +11,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:push": "prisma db push",
-    "migrate:legacy": "node scripts/migrate-legacy-db.mjs"
+    "migrate:legacy": "node scripts/migrate-legacy-db.mjs",
+    "ensure:city-projects": "node scripts/ensure-city-application-projects.mjs --apply",
+    "ensure:admin": "node scripts/ensure-admin-user.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
