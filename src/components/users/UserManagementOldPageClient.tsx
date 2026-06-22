@@ -34,6 +34,50 @@ const emptyForm: FormState = {
   password: "",
 };
 
+
+const roleGuides: Record<string, { title: string; tone: string; summary: string; rules: string[] }> = {
+  ADMIN: {
+    title: "مدير نظام كامل",
+    tone: "border-red-200 bg-red-50 text-red-900",
+    summary: "صلاحية كاملة على كل النظام وكل المدن والمشاريع. لا يحتاج نطاق مدينة أو مشروع.",
+    rules: ["قراءة وتعديل وحذف", "إدارة المستخدمين والصلاحيات", "الإعدادات وسجل العمليات"],
+  },
+  OPERATION_MANAGER: {
+    title: "مدير تشغيل",
+    tone: "border-blue-200 bg-blue-50 text-blue-900",
+    summary: "صلاحيات تشغيل واسعة بدون حذف أو إعدادات حساسة. يفضل ترك النطاق عام أو اختيار المدن المطلوبة.",
+    rules: ["إدارة التشغيل والسيارات والمناديب", "تقارير ومتابعة", "لا يدير مستخدمين إلا لو Admin"],
+  },
+  SUPERVISOR: {
+    title: "مشرف",
+    tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    summary: "يرى مناديبه ومهامه ونطاق المدينة المرتبط به. لازم تربطه بمشرف أو مدينة.",
+    rules: ["مهام المشرف", "الحضور والتنبيهات", "نطاق محدود حسب المشرف/المدينة"],
+  },
+  ACCOUNTANT: {
+    title: "محاسب / مالية",
+    tone: "border-amber-200 bg-amber-50 text-amber-900",
+    summary: "إدارة الماليات والمسير والفواتير والسلف والخصومات. يفضل تحديد المدن أو المشاريع المالية.",
+    rules: ["فواتير ومدفوعات ومصروفات", "مسير الرواتب", "بدون إدارة مستخدمين"],
+  },
+  HR: {
+    title: "موارد بشرية",
+    tone: "border-purple-200 bg-purple-50 text-purple-900",
+    summary: "إدارة المناديب والملفات والعقود والسكن. يفضل تحديد نطاق مدينة.",
+    rules: ["ملفات المناديب", "العقود والسكن", "نطاق مدينة أو مشروع"],
+  },
+  VIEWER: {
+    title: "مشاهدة فقط",
+    tone: "border-slate-200 bg-slate-50 text-slate-800",
+    summary: "قراءة فقط بدون تعديل. مناسب للمتابعة أو المراجعة.",
+    rules: ["عرض فقط", "بدون إنشاء أو تعديل", "لا يملك صلاحيات حساسة"],
+  },
+};
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
 function fmt(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -152,6 +196,86 @@ function MultiSelect({
   );
 }
 
+
+function PermissionAssignmentPreview({
+  form,
+  data,
+}: {
+  form: FormState;
+  data: UserManagementData;
+}) {
+  const guide = roleGuides[form.role] ?? roleGuides.VIEWER;
+  const selectedSupervisor = data.supervisors.find((item) => item.id === form.supervisorId);
+  const selectedDriver = data.drivers.find((item) => item.id === form.driverId);
+  const selectedCities = data.cities.filter((item) => form.cityScope.includes(item.id));
+  const selectedProjects = data.projects.filter((item) => form.projectScope.includes(item.id));
+  const isGlobalRole = form.role === "ADMIN" || form.role === "OPERATION_MANAGER";
+  const warnings: string[] = [];
+
+  if (form.role === "SUPERVISOR" && !form.supervisorId && !form.cityId && !form.cityScope.length) {
+    warnings.push("صلاحية المشرف تحتاج ربط مشرف أو مدينة حتى لا يظهر له نطاق غير واضح.");
+  }
+  if ((form.role === "ACCOUNTANT" || form.role === "HR") && !form.cityId && !form.cityScope.length && !form.projectScope.length) {
+    warnings.push("يفضل تحديد نطاق مدينة أو مشروع لهذا الدور لتجنب الوصول العام غير المقصود.");
+  }
+  if (form.role === "VIEWER" && (form.cityScope.length || form.projectScope.length)) {
+    warnings.push("هذا المستخدم مشاهدة فقط؛ النطاق يحدد ما يراه فقط ولا يسمح بالتعديل.");
+  }
+
+  return (
+    <section className={`rounded-2xl border p-4 ${guide.tone}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black opacity-70">معاينة الصلاحيات قبل الحفظ</p>
+          <h3 className="mt-1 text-xl font-black">{guide.title}</h3>
+          <p className="mt-1 text-sm font-bold leading-6">{guide.summary}</p>
+        </div>
+        <div className="rounded-xl bg-white/70 px-3 py-2 text-xs font-black">
+          {isGlobalRole ? "نطاق عام" : "نطاق مخصص"}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-[11px] font-black opacity-70">المدينة الأساسية</p>
+          <strong className="mt-1 block text-sm font-black">{data.cities.find((item) => item.id === form.cityId)?.name || "غير محدد"}</strong>
+        </div>
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-[11px] font-black opacity-70">المشرف</p>
+          <strong className="mt-1 block text-sm font-black">{selectedSupervisor ? `${selectedSupervisor.name} - ${selectedSupervisor.cityName}` : "غير محدد"}</strong>
+        </div>
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-[11px] font-black opacity-70">حساب مندوب</p>
+          <strong className="mt-1 block text-sm font-black">{selectedDriver ? `${selectedDriver.code} - ${selectedDriver.name}` : "غير محدد"}</strong>
+        </div>
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-[11px] font-black opacity-70">نطاق المدن / المشاريع</p>
+          <strong className="mt-1 block text-sm font-black">{isGlobalRole ? "كل البيانات" : `${selectedCities.length || 0} مدينة / ${selectedProjects.length || 0} مشروع`}</strong>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-xs font-black opacity-70">ما يسمح به الدور</p>
+          <ul className="mt-2 space-y-1 text-xs font-bold leading-5">
+            {guide.rules.map((rule) => <li key={rule}>✓ {rule}</li>)}
+          </ul>
+        </div>
+        <div className="rounded-xl bg-white/70 p-3">
+          <p className="text-xs font-black opacity-70">تنبيهات الربط</p>
+          {warnings.length ? (
+            <ul className="mt-2 space-y-1 text-xs font-bold leading-5 text-red-700">
+              {warnings.map((warning) => <li key={warning}>⚠ {warning}</li>)}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs font-black text-emerald-700">✓ إعداد الصلاحية واضح ويمكن حفظه.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function UserManagementOldPageClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -195,6 +319,47 @@ export function UserManagementOldPageClient({ data }: Props) {
     setTemporaryPassword(null);
     setFormError(null);
     setModalMode("details");
+  };
+
+
+  const applyRolePreset = (role: string) => {
+    setForm((old) => ({
+      ...old,
+      role,
+      cityScope: role === "ADMIN" || role === "OPERATION_MANAGER" ? [] : old.cityScope,
+      projectScope: role === "ADMIN" || role === "OPERATION_MANAGER" ? [] : old.projectScope,
+      supervisorId: role === "ADMIN" || role === "OPERATION_MANAGER" ? "" : old.supervisorId,
+      driverId: role === "ADMIN" || role === "OPERATION_MANAGER" ? "" : old.driverId,
+    }));
+  };
+
+  const updateCity = (cityId: string) => {
+    setForm((old) => ({
+      ...old,
+      cityId,
+      cityScope: cityId ? uniqueValues([cityId, ...old.cityScope]) : old.cityScope,
+    }));
+  };
+
+  const updateSupervisor = (supervisorId: string) => {
+    const supervisor = data.supervisors.find((item) => item.id === supervisorId);
+    setForm((old) => ({
+      ...old,
+      supervisorId,
+      cityId: supervisor?.cityId || old.cityId,
+      cityScope: supervisor?.cityId ? uniqueValues([supervisor.cityId, ...old.cityScope]) : old.cityScope,
+    }));
+  };
+
+  const updateDriver = (driverId: string) => {
+    const driver = data.drivers.find((item) => item.id === driverId);
+    setForm((old) => ({
+      ...old,
+      driverId,
+      cityId: driver?.cityId || old.cityId,
+      supervisorId: driver?.supervisorId || old.supervisorId,
+      cityScope: driver?.cityId ? uniqueValues([driver.cityId, ...old.cityScope]) : old.cityScope,
+    }));
   };
 
   const closeModal = () => {
@@ -339,6 +504,26 @@ export function UserManagementOldPageClient({ data }: Props) {
             ) : (
               <form onSubmit={submitUser} className="mt-5 space-y-4">
                 {formError ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">{formError}</div> : null}
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-black text-slate-900">اختيار سريع لنوع الصلاحية</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {data.roles.map((role) => (
+                      <button
+                        key={`preset-${role.value}`}
+                        type="button"
+                        onClick={() => applyRolePreset(role.value)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-black shadow-sm ${form.role === role.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"}`}
+                      >
+                        {role.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-slate-500">اختار الدور أولًا، ثم اربطه بمدينة/مشرف/مندوب حسب نوع الصلاحية.</p>
+                </div>
+
+                <PermissionAssignmentPreview form={form} data={data} />
+
                 <div className="grid gap-3 md:grid-cols-3">
                   <label className="text-xs font-black text-slate-800">
                     الاسم
@@ -354,7 +539,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     الصلاحية
-                    <select value={form.role} onChange={(event) => setForm((old) => ({ ...old, role: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+                    <select value={form.role} onChange={(event) => applyRolePreset(event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                       {data.roles.map((role, index) => (
                         <option key={`${role.value}:${index}`} value={role.value}>{role.label}</option>
                       ))}
@@ -370,7 +555,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     المدينة الأساسية
-                    <select value={form.cityId} onChange={(event) => setForm((old) => ({ ...old, cityId: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+                    <select value={form.cityId} onChange={(event) => updateCity(event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                       <option value="">بدون مدينة</option>
                       {data.cities.map((city) => (
                         <option key={city.id} value={city.id}>{city.name}</option>
@@ -379,7 +564,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     المشرف المرتبط
-                    <select value={form.supervisorId} onChange={(event) => setForm((old) => ({ ...old, supervisorId: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+                    <select value={form.supervisorId} onChange={(event) => updateSupervisor(event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                       <option value="">بدون مشرف</option>
                       {data.supervisors.map((supervisor) => (
                         <option key={supervisor.id} value={supervisor.id}>{supervisor.name} - {supervisor.cityName}</option>
@@ -388,7 +573,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     حساب مندوب مرتبط
-                    <select value={form.driverId} onChange={(event) => setForm((old) => ({ ...old, driverId: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+                    <select value={form.driverId} onChange={(event) => updateDriver(event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
                       <option value="">بدون مندوب</option>
                       {data.drivers.map((driver) => (
                         <option key={driver.id} value={driver.id}>{driver.code} - {driver.name}</option>

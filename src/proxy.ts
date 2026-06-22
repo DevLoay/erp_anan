@@ -1,62 +1,88 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
-import type { AppRole } from "@/lib/permissions";
+import { canReadResource, canWriteResource, resourceFromPath } from "@/lib/permissions";
 
-const publicPrefixes = ["/login", "/logout", "/forgot-password", "/reset-password", "/access-denied", "/api/auth", "/api/rider/login", "/rider-app/login", "/_next", "/favicon.ico", "/robots.txt", "/sitemap.xml"];
-const adminOnlyPrefixes = ["/users", "/user-management", "/permissions", "/audit-log", "/settings/templates", "/settings/payroll", "/payroll/settings"];
-const financePrefixes = ["/finance", "/payroll", "/invoices", "/receivables", "/payments", "/expenses", "/revenues", "/deductions", "/financial"];
-const operationsPrefixes = ["/dashboard", "/projects", "/applications", "/imports", "/daily-reports", "/rider", "/cities", "/city", "/supervisors", "/notifications", "/attendance", "/vehicles", "/vehicle", "/violations", "/advances", "/management-reports", "/reports", "/performance-analysis"];
+const publicPrefixes = [
+  "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/rider/login",
+];
 
-function isPublic(pathname: string) {
+function isPublicPath(pathname: string) {
   return publicPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-function canAccessPath(role: AppRole, pathname: string) {
-  if (pathname === "/rider-app" || pathname.startsWith("/rider-app/") || pathname === "/api/rider" || pathname.startsWith("/api/rider/")) return true;
-  if (role === "ADMIN") return true;
-  if (adminOnlyPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return false;
-  if (role === "OPERATION_MANAGER") return operationsPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-  if (role === "ACCOUNTANT") return financePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) || pathname === "/dashboard";
-  if (role === "HR") return ["/dashboard", "/drivers", "/hr", "/human-resources", "/cities", "/projects", "/attendance"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-  if (role === "SUPERVISOR") return ["/dashboard", "/drivers", "/supervisors", "/daily-reports", "/rider-reports", "/rider-kpi", "/attendance", "/notifications", "/violations"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-  return ["/dashboard", "/reports", "/management-reports"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+function isAssetPath(pathname: string) {
+  return (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/images") ||
+    pathname.startsWith("/uploads") ||
+    /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|json)$/.test(pathname)
+  );
 }
 
-function safeHeaderValue(value?: string | null) {
-  return encodeURIComponent(String(value || ""));
+function isApiPath(pathname: string) {
+  return pathname.startsWith("/api/");
+}
+
+function isWriteMethod(method: string) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function unauthorizedResponse(request: NextRequest) {
+  if (isApiPath(request.nextUrl.pathname)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/login";
+  loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  return NextResponse.redirect(loginUrl);
+}
+
+function forbiddenResponse(request: NextRequest) {
+  if (isApiPath(request.nextUrl.pathname)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return new NextResponse("ليس لديك صلاحية لدخول هذه الصفحة.", {
+    status: 403,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 export async function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
-  if (isPublic(pathname)) return NextResponse.next();
+  const pathname = request.nextUrl.pathname;
 
-  const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
-  if (!session) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = pathname === "/rider-app" || pathname.startsWith("/rider-app/") ? "/rider-app/login" : "/login";
-    loginUrl.searchParams.set("next", `${pathname}${search}`);
-    return NextResponse.redirect(loginUrl);
+  if (isAssetPath(pathname) || isPublicPath(pathname)) {
+    return NextResponse.next();
   }
 
-  if (!canAccessPath(session.role, pathname)) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    const denied = request.nextUrl.clone();
-    denied.pathname = "/access-denied";
-    denied.search = "";
-    return NextResponse.rewrite(denied);
+  const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value).catch(() => null);
+  if (!session) return unauthorizedResponse(request);
+
+  const resource = resourceFromPath(pathname);
+  if (resource) {
+    const allowed = isWriteMethod(request.method) ? canWriteResource(session.role, resource) : canReadResource(session.role, resource);
+    if (!allowed) return forbiddenResponse(request);
   }
 
-  const headers = new Headers(request.headers);
-  headers.set("x-user-id", session.userId);
-  headers.set("x-user-email", session.email);
-  headers.set("x-user-role", session.role);
-  headers.set("x-user-name", safeHeaderValue(session.name));
-  if (session.driverId) headers.set("x-driver-id", session.driverId);
-  if (session.cityId) headers.set("x-city-id", session.cityId);
-  return NextResponse.next({ request: { headers } });
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-user-id", session.userId);
+  requestHeaders.set("x-user-email", session.email);
+  requestHeaders.set("x-user-role", session.role);
+
+  return NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
 }
 
 export const config = {
-  matcher: ["/((?!.*\\.).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

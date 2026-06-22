@@ -19,6 +19,7 @@ export const roleLabels: Record<AppRole, string> = {
 
 export const permissionModules = [
   { section: "الإدارة العامة", resource: "users", label: "المستخدمون والصلاحيات", route: "/users" },
+  { section: "الإدارة العامة", resource: "permissions", label: "مصفوفة الصلاحيات", route: "/permissions" },
   { section: "الإدارة العامة", resource: "audit-logs", label: "سجل العمليات", route: "/audit-log" },
   { section: "الإدارة العامة", resource: "system-settings", label: "إعدادات النظام", route: "/settings" },
   { section: "المدن والمشاريع", resource: "applications", label: "مركز التطبيقات", route: "/applications" },
@@ -35,18 +36,41 @@ export const permissionModules = [
   { section: "المناديب والموارد البشرية", resource: "driver-contracts", label: "العقود والكفالة", route: "/contracts-sponsorship" },
   { section: "السيارات والحركة", resource: "vehicles", label: "السيارات", route: "/vehicles" },
   { section: "السيارات والحركة", resource: "vehicle-movements", label: "حركة السيارات", route: "/vehicle-movements" },
+  { section: "السيارات والحركة", resource: "vehicle-maintenance", label: "الصيانة", route: "/vehicle-maintenance" },
+  { section: "السيارات والحركة", resource: "vehicle-authorizations", label: "التفويضات", route: "/authorizations" },
+  { section: "السيارات والحركة", resource: "vehicle-accidents", label: "الحوادث", route: "/vehicle-accidents" },
+  { section: "السيارات والحركة", resource: "vehicle-damages", label: "التلفيات", route: "/vehicle-damages" },
+  { section: "السيارات والحركة", resource: "vehicle-cleaning", label: "نظافة السيارات", route: "/vehicle-cleaning" },
   { section: "السيارات والحركة", resource: "vehicle-costs", label: "تكلفة السيارات", route: "/vehicle-cost" },
   { section: "السيارات والحركة", resource: "violations", label: "المخالفات", route: "/violations" },
+  { section: "الماليات", resource: "finance", label: "مركز الماليات", route: "/finance" },
   { section: "الماليات", resource: "payroll", label: "مسير الرواتب", route: "/payroll" },
   { section: "الماليات", resource: "payroll-settings", label: "إعدادات المسير", route: "/payroll/settings" },
   { section: "الماليات", resource: "advances", label: "السلف", route: "/advances" },
   { section: "الماليات", resource: "deductions", label: "الخصومات", route: "/deductions" },
   { section: "الماليات", resource: "invoices", label: "الفواتير", route: "/invoices" },
+  { section: "الماليات", resource: "receivables", label: "المستحقات", route: "/receivables" },
+  { section: "الماليات", resource: "payments", label: "المدفوعات", route: "/payments" },
+  { section: "الماليات", resource: "expenses", label: "المصروفات", route: "/expenses" },
+  { section: "الماليات", resource: "revenues", label: "الإيرادات", route: "/revenues" },
+  { section: "الماليات", resource: "supplier-accounts", label: "حسابات الموردين", route: "/supplier-accounts" },
+  { section: "الماليات", resource: "cashbox-entries", label: "العهدة والصندوق", route: "/custody-cashbox" },
+  { section: "الماليات", resource: "bank-accounts", label: "الحسابات البنكية", route: "/bank-accounts" },
+  { section: "الماليات", resource: "vat-records", label: "ضريبة القيمة المضافة", route: "/vat" },
+  { section: "الماليات", resource: "profit-loss", label: "الأرباح والخسائر", route: "/profit-loss" },
+  { section: "الماليات", resource: "financial-reports", label: "التقارير المالية", route: "/financial-reports" },
   { section: "التقارير", resource: "notifications", label: "الإشعارات والتنبيهات", route: "/notifications" },
   { section: "التقارير", resource: "report-templates", label: "قوالب التقارير", route: "/report-templates" },
 ] as const;
 
-const adminOnlyResources = new Set(["users", "audit-logs", "system-settings", "import-templates", "payroll-settings"]);
+const adminOnlyResources = new Set([
+  "users",
+  "permissions",
+  "audit-logs",
+  "system-settings",
+  "import-templates",
+  "payroll-settings",
+]);
 
 const financeResources = new Set([
   "finance",
@@ -78,7 +102,18 @@ const hrResources = new Set([
   "advances",
 ]);
 
-const supervisorResources = new Set(["drivers", "daily-reports", "tasks", "notifications", "violations", "driver-warnings", "attendance", "shifts"]);
+const supervisorResources = new Set([
+  "drivers",
+  "daily-reports",
+  "tasks",
+  "notifications",
+  "violations",
+  "driver-warnings",
+  "attendance",
+  "shifts",
+]);
+
+const viewerResources = new Set(["home", "notifications"]);
 
 export function roleFromHeaders(headers: Headers): AppRole {
   const cookieRole = headers
@@ -87,7 +122,7 @@ export function roleFromHeaders(headers: Headers): AppRole {
     .map((part) => part.trim())
     .find((part) => part.startsWith("erp-user-role="))
     ?.split("=")[1];
-  const raw = (headers.get("x-user-role") || cookieRole || "").toUpperCase().replace(/\s+/g, "_");
+  const raw = decodeURIComponent(headers.get("x-user-role") || cookieRole || "").toUpperCase().replace(/\s+/g, "_");
   if (
     raw === "ADMIN" ||
     raw === "OPERATION_MANAGER" ||
@@ -107,10 +142,8 @@ export function canReadResource(role: AppRole, resource: string) {
   if (role === "OPERATION_MANAGER") return true;
   if (role === "ACCOUNTANT") return financeResources.has(resource) || resource === "daily-reports";
   if (role === "HR") return hrResources.has(resource) || resource === "cities" || resource === "projects";
-  if (role === "SUPERVISOR") {
-    return supervisorResources.has(resource);
-  }
-  return !financeResources.has(resource);
+  if (role === "SUPERVISOR") return supervisorResources.has(resource);
+  return viewerResources.has(resource);
 }
 
 export function canWriteResource(role: AppRole, resource: string) {
@@ -133,4 +166,94 @@ export function permissionState(role: AppRole, resource: string) {
     delete: role === "ADMIN",
     adminOnly: adminOnlyResources.has(resource),
   };
+}
+
+const routeResourceMap: Array<[string, string]> = [
+  ["/settings/application-account-review", "application-accounts"],
+  ["/settings/payroll", "payroll-settings"],
+  ["/settings/templates", "system-settings"],
+  ["/settings", "system-settings"],
+  ["/user-management", "users"],
+  ["/users", "users"],
+  ["/permissions", "permissions"],
+  ["/audit-log", "audit-logs"],
+  ["/finance", "finance"],
+  ["/financial-reports", "financial-reports"],
+  ["/profit-loss", "profit-loss"],
+  ["/supplier-accounts", "supplier-accounts"],
+  ["/custody-cashbox", "cashbox-entries"],
+  ["/bank-accounts", "bank-accounts"],
+  ["/receivables", "receivables"],
+  ["/payments", "payments"],
+  ["/expenses", "expenses"],
+  ["/revenues", "revenues"],
+  ["/invoices", "invoices"],
+  ["/advances", "advances"],
+  ["/deductions", "deductions"],
+  ["/vat", "vat-records"],
+  ["/payroll/settings", "payroll-settings"],
+  ["/payroll", "payroll"],
+  ["/vehicle-cost", "vehicle-costs"],
+  ["/vehicle-finance", "vehicle-costs"],
+  ["/vehicle-movements", "vehicle-movements"],
+  ["/vehicle-maintenance", "vehicle-maintenance"],
+  ["/vehicle-accidents", "vehicle-accidents"],
+  ["/vehicle-damages", "vehicle-damages"],
+  ["/vehicle-cleaning", "vehicle-cleaning"],
+  ["/authorizations", "vehicle-authorizations"],
+  ["/vehicles", "vehicles"],
+  ["/drivers", "drivers"],
+  ["/supervisors", "supervisors"],
+  ["/attendance", "attendance"],
+  ["/supervisor-tasks", "tasks"],
+  ["/violations", "violations"],
+  ["/notifications", "notifications"],
+];
+
+const apiResourceAliases: Record<string, string> = {
+  "user-management": "users",
+  "users": "users",
+  "settings": "system-settings",
+  "audit-log": "audit-logs",
+  "invoices": "invoices",
+  "receivables": "receivables",
+  "payments": "payments",
+  "expenses": "expenses",
+  "revenues": "revenues",
+  "advances": "advances",
+  "deductions": "deductions",
+  "supplier-accounts": "supplier-accounts",
+  "cashbox-entries": "cashbox-entries",
+  "bank-accounts": "bank-accounts",
+  "vat-records": "vat-records",
+  "profit-loss": "profit-loss",
+  "vehicle-costs": "vehicle-costs",
+  "vehicles": "vehicles",
+  "vehicle-movements": "vehicle-movements",
+  "vehicle-maintenance": "vehicle-maintenance",
+  "vehicle-authorizations": "vehicle-authorizations",
+  "vehicle-accidents": "vehicle-accidents",
+  "vehicle-damages": "vehicle-damages",
+  "vehicle-cleaning": "vehicle-cleaning",
+  "violations": "violations",
+  "drivers": "drivers",
+  "supervisors": "supervisors",
+  "attendance": "attendance",
+  "supervisor-tasks": "tasks",
+};
+
+export function resourceFromPath(pathname: string): string | null {
+  if (pathname === "/") return "home";
+
+  if (pathname.startsWith("/api/")) {
+    const [, , rawResource] = pathname.split("/");
+    return apiResourceAliases[rawResource] ?? null;
+  }
+
+  const normalized = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
+  const match = [...routeResourceMap]
+    .sort((a, b) => b[0].length - a[0].length)
+    .find(([route]) => normalized === route || normalized.startsWith(`${route}/`));
+
+  return match?.[1] ?? null;
 }

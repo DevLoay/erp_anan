@@ -51,8 +51,8 @@ export type UserManagementData = {
   roles: { value: string; label: string }[];
   statuses: { value: string; label: string }[];
   cities: { id: string; name: string }[];
-  supervisors: { id: string; name: string; cityName: string }[];
-  drivers: { id: string; name: string; code: string }[];
+  supervisors: { id: string; name: string; cityName: string; cityId: string }[];
+  drivers: { id: string; name: string; code: string; cityId: string; supervisorId: string }[];
   projects: { id: string; name: string }[];
   summary: {
     users: number;
@@ -247,8 +247,8 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
         { value: "inactive", label: "موقوف" },
       ],
       cities: cities.map((city) => ({ id: city.id, name: city.nameAr || city.nameEn || city.id })),
-      supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name, cityName: supervisor.city?.nameAr || "-" })),
-      drivers: drivers.map((driver) => ({ id: driver.id, name: driver.name, code: driver.internalCode })),
+      supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name, cityName: supervisor.city?.nameAr || "-", cityId: supervisor.cityId || "" })),
+      drivers: drivers.map((driver) => ({ id: driver.id, name: driver.name, code: driver.internalCode, cityId: driver.cityId || "", supervisorId: driver.supervisorId || "" })),
       projects: projects.map((project) => ({ id: project.id, name: project.name })),
       summary: {
         users: rows.length,

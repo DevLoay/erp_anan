@@ -75,6 +75,7 @@ export function SmartAssistant() {
         onClick={() => setOpen((value) => !value)}
         className="grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-sky-600 to-blue-700 text-sm font-black text-white shadow-2xl ring-4 ring-white"
         aria-label="فتح المساعد الذكي"
+            suppressHydrationWarning
       >
         AI
       </button>
