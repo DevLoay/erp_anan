@@ -109,7 +109,7 @@ function scopeReportWhere(scope?: AccessScope): Prisma.DailyReportWhereInput {
   if (scope.driverId) and.push({ driverId: scope.driverId });
   if (scope.supervisorId) and.push({ driver: { is: { supervisorId: scope.supervisorId } } });
   if (scope.cityIds.length) and.push({ OR: [{ cityId: { in: scope.cityIds } }, { driver: { is: { cityId: { in: scope.cityIds } } } }] });
-  if (scope.projectIds.length) and.push({ OR: [{ projectId: { in: scope.projectIds } }, { driver: { is: { projectId: { in: scope.projectIds } } } }] });
+  if (scope.projectIds.length) and.push({ applicationProjectId: { in: scope.projectIds } });
   return and.length ? { AND: and } : { id: "__NO_ACCESS__" };
 }
 
@@ -118,11 +118,11 @@ function scopedCityWhere(scope?: AccessScope): Prisma.CityWhereInput {
   return { id: { in: scope.cityIds } };
 }
 
-function scopedProjectWhere(scope?: AccessScope): Prisma.ProjectWhereInput {
+function scopedApplicationProjectWhere(scope?: AccessScope): Prisma.ApplicationProjectWhereInput {
   if (!scope || scope.isGlobal) return {};
-  const and: Prisma.ProjectWhereInput[] = [];
+  const and: Prisma.ApplicationProjectWhereInput[] = [];
   if (scope.projectIds.length) and.push({ id: { in: scope.projectIds } });
-  if (scope.cityIds.length) and.push({ OR: [{ cityId: { in: scope.cityIds } }, { reports: { some: { cityId: { in: scope.cityIds } } } }] });
+  if (scope.cityIds.length) and.push({ cityId: { in: scope.cityIds } });
   return and.length ? { AND: and } : {};
 }
 
@@ -139,7 +139,7 @@ function scopedDriverWhere(scope?: AccessScope): Prisma.DriverWhereInput {
   if (scope.driverId) and.push({ id: scope.driverId });
   if (scope.supervisorId) and.push({ supervisorId: scope.supervisorId });
   if (scope.cityIds.length) and.push({ cityId: { in: scope.cityIds } });
-  if (scope.projectIds.length) and.push({ projectId: { in: scope.projectIds } });
+  if (scope.projectIds.length) and.push({ applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } });
   return and.length ? { AND: and } : { id: "__NO_ACCESS__" };
 }
 
@@ -205,6 +205,8 @@ export type DailyReportsOldData = {
     id: string;
     reportDate: string;
     driverId: string;
+    cityId: string;
+    supervisorId: string;
     driverName: string;
     driverCode: string;
     nationalId: string;
@@ -344,7 +346,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
           },
         },
         filters.cityId ? { cityId: filters.cityId } : {},
-        filters.projectId ? { projectId: filters.projectId } : {},
+        filters.projectId ? { applicationProjectId: filters.projectId } : {},
         filters.appName ? { appName: appWhere(filters.appName) } : {},
         filters.riderId ? { driverId: filters.riderId } : {},
         Object.keys(driverWhere).length ? { driver: driverWhere } : {},
@@ -356,7 +358,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         scopeReportWhere(filters.accessScope),
         { month: filters.month },
         filters.cityId ? { cityId: filters.cityId } : {},
-        filters.projectId ? { projectId: filters.projectId } : {},
+        filters.projectId ? { applicationProjectId: filters.projectId } : {},
         filters.appName ? { appName: appWhere(filters.appName) } : {},
       ].filter((item) => Object.keys(item).length),
     };
@@ -367,6 +369,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         include: {
           city: { select: { nameAr: true, nameEn: true } },
           project: { select: { name: true, appName: true } },
+          applicationProject: { select: { id: true, name: true, application: { select: { name: true } } } },
           driver: {
             select: {
               id: true,
@@ -377,7 +380,9 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
               nationalId: true,
               phone: true,
               mobile: true,
-              supervisor: { select: { name: true } },
+              cityId: true,
+              supervisorId: true,
+              supervisor: { select: { id: true, name: true } },
               account: { select: { username: true, appUserId: true, appUsername: true } },
               applicationAccounts: { select: { username: true, appUserId: true, appUsername: true }, take: 1 },
             },
@@ -405,10 +410,10 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         },
       }),
       prisma.city.findMany({ where: scopedCityWhere(filters.accessScope), select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameAr: "asc" } }),
-      prisma.project.findMany({
-        where: { AND: [{ reports: { some: scopeReportWhere(filters.accessScope) } }, scopedProjectWhere(filters.accessScope)] },
-        select: { id: true, name: true, appName: true },
-        orderBy: { name: "asc" },
+      prisma.applicationProject.findMany({
+        where: scopedApplicationProjectWhere(filters.accessScope),
+        select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } },
+        orderBy: [{ application: { name: "asc" } }, { name: "asc" }],
       }),
       prisma.supervisor.findMany({ where: scopedSupervisorWhere(filters.accessScope), select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.driver.findMany({ where: scopedDriverWhere(filters.accessScope), select: { id: true, name: true, actualName: true, internalCode: true, driverCode: true }, orderBy: { name: "asc" }, take: 500 }),
@@ -431,13 +436,15 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         id: report.id,
         reportDate: isoDate(report.reportDate),
         driverId: driver?.id ?? "",
+        cityId: report.cityId || driver?.cityId || "",
+        supervisorId: driver?.supervisorId || driver?.supervisor?.id || "",
         driverName: driverName(driver),
         driverCode: driver?.internalCode || driver?.driverCode || "-",
         nationalId: driver?.nationalId || "-",
         phone: driver?.phone || driver?.mobile || "-",
         city: cityName(report.city),
-        project: projectName(report.project, report.appName),
-        appName: appDisplayName(report.appName || report.project?.appName),
+        project: report.applicationProject?.name || projectName(report.project, report.appName),
+        appName: appDisplayName(report.applicationProject?.application.name || report.appName || report.project?.appName),
         account: account?.appUserId || account?.appUsername || account?.username || "-",
         supervisor: driver?.supervisor?.name || "بدون مشرف",
         orders: normalized.orders,
@@ -467,11 +474,10 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
     const uniqueProjects = Array.from(
       new Map(
         projects
-          .filter((project) => isKnownOperationalProject(project.name) || isKnownOperationalProject(project.appName))
           .map((project) => ({
             id: project.id,
-            name: isKnownOperationalProject(project.appName) ? appDisplayName(project.appName) : appDisplayName(project.name),
-            appName: isKnownOperationalProject(project.appName) ? appDisplayName(project.appName) : "",
+            name: project.name || `${project.application.name} - ${project.city?.nameAr || project.city?.nameEn || ""}`.trim(),
+            appName: appDisplayName(project.application.name),
           }))
           .map((project) => [`${project.name}:${project.appName}`, project] as const),
       ).values(),

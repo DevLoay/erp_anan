@@ -60,7 +60,14 @@ function scopedDriverWhere(scope?: AccessScope): Prisma.DriverWhereInput {
   if (scope.driverId) and.push({ id: scope.driverId });
   if (scope.supervisorId) and.push({ supervisorId: scope.supervisorId });
   if (scope.cityIds.length) and.push({ cityId: { in: scope.cityIds } });
-  if (scope.projectIds.length) and.push({ projectId: { in: scope.projectIds } });
+  if (scope.projectIds.length) {
+    and.push({
+      OR: [
+        { projectId: { in: scope.projectIds } },
+        { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } },
+      ],
+    });
+  }
   return and.length ? { AND: and } : { id: "__NO_ACCESS__" };
 }
 
@@ -85,6 +92,9 @@ function scopedAttendanceWhere(scope?: AccessScope): Prisma.AttendanceRecordWher
   if (scope.cityIds.length) {
     or.push({ driver: { is: { cityId: { in: scope.cityIds } } } });
     or.push({ supervisor: { is: { cityId: { in: scope.cityIds } } } });
+  }
+  if (scope.projectIds.length) {
+    or.push({ driver: { is: { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } } } });
   }
   return or.length ? { OR: or } : { id: "__NO_ACCESS__" };
 }

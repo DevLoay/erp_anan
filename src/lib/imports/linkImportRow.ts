@@ -1,5 +1,6 @@
 import { Prisma, RecordStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { upsertOperationalApplicationAccount } from "@/lib/application-accounts/accountLinking";
 
 function json(value: unknown) {
   if (value === undefined || value === null) return Prisma.JsonNull;
@@ -20,18 +21,6 @@ function firstText(record: Record<string, unknown>, keys: string[]) {
     if (value) return value;
   }
   return "";
-}
-
-async function uniqueAccountUsername(tx: Prisma.TransactionClient, preferred: string, scopeKey?: string | null, existingId?: string | null) {
-  const base = preferred || `account-${scopeKey || "import"}`;
-  const current = await tx.applicationAccount.findUnique({ where: { username: base }, select: { id: true } });
-  if (!current || current.id === existingId) return base;
-
-  const suffix = (scopeKey || "scoped").replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || "scoped";
-  const scoped = `${base}-${suffix}`;
-  const scopedCurrent = await tx.applicationAccount.findUnique({ where: { username: scoped }, select: { id: true } });
-  if (!scopedCurrent || scopedCurrent.id === existingId) return scoped;
-  return `${base}-${suffix}-${Date.now().toString(36)}`;
 }
 
 function numberValue(value: unknown, fallback = 0) {
@@ -90,6 +79,14 @@ function dateValue(value: unknown, fallback = new Date()) {
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   return fallback;
+}
+
+function startOfUtcDay(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function endOfUtcDay(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 23, 59, 59, 999));
 }
 
 function monthValue(value: unknown, fallbackDate = new Date()) {
@@ -153,22 +150,17 @@ async function ensureApplicationAccount(args: {
   const { tx, mapped, driverId, applicationAccountId, batch, driver } = args;
   if (applicationAccountId) {
     const scopedCityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
-    const account = await tx.applicationAccount.update({
-      where: { id: applicationAccountId },
-      data: {
-        driverId,
-        applicationId: batch.applicationId,
-        applicationProjectId: batch.applicationProjectId,
-        projectId: null,
-        cityId: scopedCityId,
-        isEmpty: false,
-        needsReview: !batch.applicationProjectId || !scopedCityId,
-        unmatchedReason: !batch.applicationProjectId ? "missing_application_project" : !scopedCityId ? "missing_city" : null,
-        linkedAt: new Date(),
-      },
-      select: { id: true },
+    const account = await upsertOperationalApplicationAccount(tx, {
+      appName: text(mapped.applicationName) || batch.application?.name || batch.applicationProject?.application.name || appNameFromImportType(batch.fileType),
+      applicationId: batch.applicationId,
+      applicationProjectId: batch.applicationProjectId,
+      cityId: scopedCityId,
+      driverId,
+      appUserId: text(mapped.appUserId),
+      appUsername: firstText(mapped, ["appUsername", "username"]),
+      existingId: applicationAccountId,
+      source: "MANUAL_LINK",
     });
-    await tx.driver.update({ where: { id: driverId }, data: { accountId: account.id } }).catch(() => null);
     return account.id;
   }
 
@@ -176,52 +168,20 @@ async function ensureApplicationAccount(args: {
   const appUsername = firstText(mapped, ["appUsername", "username"]);
   if (!appUserId && !appUsername) return null;
 
-  const existing = await tx.applicationAccount.findFirst({
-    where: {
-      ...(batch.applicationId ? { applicationId: batch.applicationId } : {}),
-      ...(batch.applicationProjectId ? { applicationProjectId: batch.applicationProjectId } : {}),
-      ...(batch.cityId ? { cityId: batch.cityId } : {}),
-      OR: [
-        appUserId ? { appUserId } : undefined,
-        appUserId ? { username: appUserId } : undefined,
-        appUsername ? { appUsername } : undefined,
-        appUsername ? { username: appUsername } : undefined,
-      ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[],
-    },
-    select: { id: true },
-  });
-
   const appName = text(mapped.applicationName) || batch.application?.name || batch.applicationProject?.application.name || appNameFromImportType(batch.fileType);
-  const username = await uniqueAccountUsername(tx, appUsername || appUserId, batch.applicationProjectId || batch.cityId, existing?.id);
   const scopedCityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
-  const needsReview = !batch.applicationProjectId || !scopedCityId || !driverId;
-  const unmatchedReason = [
-    !batch.applicationProjectId ? "missing_application_project" : "",
-    !scopedCityId ? "missing_city" : "",
-    !driverId ? "missing_driver" : "",
-  ].filter(Boolean).join(",") || null;
-  const accountData = {
+  const account = await upsertOperationalApplicationAccount(tx, {
     appName,
-    username,
     appUserId: appUserId || null,
-    appUsername: appUsername || username,
+    appUsername,
+    username: appUsername || appUserId,
     applicationId: batch.applicationId,
     applicationProjectId: batch.applicationProjectId,
-    projectId: null,
     cityId: scopedCityId,
     driverId,
-    isEmpty: false,
-    needsReview,
-    unmatchedReason,
-    source: "IMPORT",
     status: RecordStatus.ACTIVE,
-    linkedAt: new Date(),
-  };
-
-  const account = existing
-    ? await tx.applicationAccount.update({ where: { id: existing.id }, data: accountData, select: { id: true } })
-    : await tx.applicationAccount.create({ data: accountData, select: { id: true } });
-  await tx.driver.update({ where: { id: driverId }, data: { accountId: account.id } }).catch(() => null);
+    source: "MANUAL_LINK",
+  });
   return account.id;
 }
 
@@ -231,6 +191,8 @@ async function saveDailyReportForRow(args: {
   driverId: string;
   batch: {
     fileType: string;
+    applicationId?: string | null;
+    applicationProjectId?: string | null;
     cityId?: string | null;
     application?: { name: string } | null;
     applicationProject?: { projectId: string | null; cityId: string | null; name: string; application: { name: string } } | null;
@@ -240,16 +202,24 @@ async function saveDailyReportForRow(args: {
   const { tx, mapped, driverId, batch, driver } = args;
   if (!isDailyReportImportType(batch.fileType)) return { created: false, updated: false };
 
-  const reportDate = dateValue(mapped.reportDate || mapped.date, new Date());
+  const reportDate = startOfUtcDay(dateValue(mapped.reportDate || mapped.date, new Date()));
   const appName = text(mapped.applicationName) || batch.application?.name || batch.applicationProject?.application.name || appNameFromImportType(batch.fileType);
   const month = monthValue(mapped.month || mapped.reportDate || mapped.date, reportDate);
   const cityId = batch.cityId ?? batch.applicationProject?.cityId ?? driver.cityId ?? null;
   const projectId = batch.applicationProject?.projectId ?? null;
 
-  const existing = await tx.dailyReport.findFirst({
-    where: { driverId, reportDate, appName },
+  const existingReports = await tx.dailyReport.findMany({
+    where: {
+      driverId,
+      reportDate: { gte: reportDate, lte: endOfUtcDay(reportDate) },
+      appName,
+      ...(batch.applicationProjectId ? { applicationProjectId: batch.applicationProjectId } : {}),
+      ...(cityId ? { cityId } : {}),
+    },
     select: { id: true },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
+  const existing = existingReports[0];
 
   const data = {
     reportDate,
@@ -257,6 +227,8 @@ async function saveDailyReportForRow(args: {
     driverId,
     cityId,
     projectId,
+    applicationId: batch.applicationId ?? null,
+    applicationProjectId: batch.applicationProjectId ?? null,
     appName,
     orders: intValue(mapped.orders),
     workingHours: hoursValue(mapped.workingHours),
@@ -267,6 +239,8 @@ async function saveDailyReportForRow(args: {
 
   if (existing) {
     await tx.dailyReport.update({ where: { id: existing.id }, data });
+    const duplicateIds = existingReports.slice(1).map((report) => report.id);
+    if (duplicateIds.length) await tx.dailyReport.deleteMany({ where: { id: { in: duplicateIds } } });
     return { created: false, updated: true };
   }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { findModuleByPath } from "@/lib/modules";
 
 type HeaderTitle = {
@@ -43,11 +43,66 @@ function routeTitle(pathname: string): HeaderTitle {
   return prefixed ?? fallbackTitle;
 }
 
+function playHeaderTaskSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audio = new AudioContextClass();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.frequency.setValueAtTime(780, audio.currentTime);
+    gain.gain.setValueAtTime(0.0001, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.06, audio.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.25);
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start();
+    oscillator.stop(audio.currentTime + 0.28);
+    window.setTimeout(() => void audio.close(), 500);
+  } catch {
+    // Audio can be blocked until the user interacts with the page.
+  }
+}
+
 export function Header() {
   const pathname = usePathname();
   const [toast, setToast] = useState("");
+  const [pendingTasks, setPendingTasks] = useState(0);
+  const knownPendingTaskIds = useRef<Set<string>>(new Set());
+  const didLoadPendingTasks = useRef(false);
   const current = routeTitle(pathname);
   const breadcrumb = ["الرئيسية", current.section, current.parent, current.title].filter(Boolean);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadPendingTasks() {
+      try {
+        const response = await fetch("/api/supervisor-tasks?status=PENDING", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { data?: Array<{ id: string; priority?: string }> };
+        const rows = payload.data ?? [];
+        const nextIds = new Set(rows.map((row) => row.id));
+        const fresh = rows.filter((row) => !knownPendingTaskIds.current.has(row.id));
+        if (!alive) return;
+        setPendingTasks(rows.length);
+        if (didLoadPendingTasks.current && fresh.length) {
+          const urgent = fresh.some((row) => row.priority === "CRITICAL");
+          setToast(urgent ? "وصلت مهمة عاجلة جديدة للمشرفين." : "وصلت مهمة جديدة للمشرفين.");
+          playHeaderTaskSound();
+        }
+        knownPendingTaskIds.current = nextIds;
+        didLoadPendingTasks.current = true;
+      } catch {
+        // Keep navigation responsive when the API is temporarily unavailable.
+      }
+    }
+    void loadPendingTasks();
+    const timer = window.setInterval(loadPendingTasks, 30000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   function keepArabic() {
     document.documentElement.lang = "ar";
@@ -89,6 +144,14 @@ export function Header() {
           >
             هادئ
           </button>
+          <Link href="/supervisor-tasks" className="relative rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
+            المهام
+            {pendingTasks ? (
+              <span className="absolute -left-2 -top-2 grid h-6 min-w-6 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white">
+                {pendingTasks > 99 ? "99+" : pendingTasks}
+              </span>
+            ) : null}
+          </Link>
           <Link href="/notifications" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
             التنبيهات
           </Link>

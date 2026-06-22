@@ -53,8 +53,11 @@ export type DriverManagementFilters = {
   q: string;
   cityId: string;
   projectId: string;
+  supervisorId: string;
   status: string;
   nationality: string;
+  vehicleOwnershipType: string;
+  newDriver: string;
   fromDate: string;
   toDate: string;
 };
@@ -71,11 +74,14 @@ export type DriverManagementRow = {
   project: string;
   projectId: string;
   application: string;
+  supervisorId: string;
   appUserId: string;
   appUsername: string;
   supervisor: string;
+  vehicleId: string;
   vehiclePlate: string;
   vehicleType: string;
+  vehicleOwnershipType: string;
   rentalDays: number;
   status: string;
   statusLabel: string;
@@ -97,6 +103,9 @@ export type DriverManagementData = {
   filters: DriverManagementFilters;
   cities: { id: string; name: string }[];
   projects: { id: string; name: string }[];
+  supervisors: { id: string; name: string; cityId: string }[];
+  vehicles: { id: string; label: string; cityId: string; currentDriverId: string }[];
+  accounts: { id: string; label: string; cityId: string; applicationProjectId: string; driverId: string }[];
   nationalities: string[];
   summary: {
     totalDrivers: number;
@@ -120,8 +129,11 @@ export function resolveDriverManagementFilters(params: SearchParams): DriverMana
     q: one(params, "q").trim(),
     cityId: one(params, "cityId"),
     projectId: one(params, "projectId"),
+    supervisorId: one(params, "supervisorId"),
     status: one(params, "status"),
     nationality: one(params, "nationality"),
+    vehicleOwnershipType: one(params, "vehicleOwnershipType"),
+    newDriver: one(params, "newDriver") || one(params, "new"),
     fromDate: one(params, "fromDate") || formatDateInput(defaultFrom),
     toDate: one(params, "toDate") || formatDateInput(now),
   };
@@ -149,16 +161,15 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         ? {
             applicationAccounts: {
               some: {
-                OR: [
-                  { applicationProjectId: filters.projectId },
-                  { applicationProject: { projectId: filters.projectId } },
-                ],
+                applicationProjectId: filters.projectId,
               },
             },
           }
         : {}),
       ...(filters.status ? { status: filters.status as Prisma.EnumDriverStatusFilter["equals"] } : {}),
       ...(filters.nationality ? { nationality: filters.nationality } : {}),
+      ...(filters.supervisorId ? { supervisorId: filters.supervisorId } : {}),
+      ...(filters.vehicleOwnershipType ? { vehicleOwnershipType: filters.vehicleOwnershipType } : {}),
       ...(filters.q
         ? {
             OR: [
@@ -169,12 +180,15 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
               { nationalId: { contains: filters.q, mode: "insensitive" } },
               { phone: { contains: filters.q, mode: "insensitive" } },
               { mobile: { contains: filters.q, mode: "insensitive" } },
+              { applicationAccounts: { some: { appUserId: { contains: filters.q, mode: "insensitive" } } } },
+              { applicationAccounts: { some: { appUsername: { contains: filters.q, mode: "insensitive" } } } },
+              { applicationAccounts: { some: { username: { contains: filters.q, mode: "insensitive" } } } },
             ],
           }
         : {}),
     };
 
-    const [drivers, cities, projects, allNationalities, totalDrivers, activeDrivers, suspendedDrivers] = await Promise.all([
+    const [drivers, cities, projects, supervisors, vehicles, accounts, allNationalities, totalDrivers, activeDrivers, suspendedDrivers] = await Promise.all([
       prisma.driver.findMany({
         where,
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
@@ -234,6 +248,29 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
       }),
       prisma.city.findMany({ orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
       prisma.applicationProject.findMany({ orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
+      prisma.supervisor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, cityId: true } }),
+      prisma.vehicle.findMany({
+        where: { OR: [{ currentDriverId: null }, { status: "AVAILABLE" }] },
+        orderBy: [{ plateAr: "asc" }, { plateEn: "asc" }],
+        select: { id: true, plateAr: true, plateArabic: true, plateEn: true, plateEnglish: true, model: true, cityId: true, currentDriverId: true },
+        take: 500,
+      }),
+      prisma.applicationAccount.findMany({
+        where: { OR: [{ driverId: null }, { isEmpty: true }] },
+        orderBy: [{ appName: "asc" }, { username: "asc" }],
+        select: {
+          id: true,
+          appName: true,
+          username: true,
+          appUserId: true,
+          appUsername: true,
+          cityId: true,
+          applicationProjectId: true,
+          driverId: true,
+          applicationProject: { select: { name: true } },
+        },
+        take: 500,
+      }),
       prisma.driver.findMany({ distinct: ["nationality"], where: { nationality: { not: null } }, select: { nationality: true }, take: 200 }),
       prisma.driver.count(),
       prisma.driver.count({ where: { status: "ACTIVE" } }),
@@ -264,13 +301,16 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         city: driver.city?.nameAr || driver.city?.nameEn || "-",
         cityId: driver.cityId || "",
         project: account?.applicationProject?.name || driver.project?.name || "-",
-        projectId: account?.applicationProjectId || driver.projectId || "",
+        projectId: account?.applicationProjectId || "",
         application: account?.application?.name || account?.appName || driver.project?.appName || "-",
+        supervisorId: driver.supervisorId || "",
         appUserId: account?.appUserId || account?.username || "-",
         appUsername: account?.appUsername || account?.username || "-",
         supervisor: driver.supervisor?.name || "-",
+        vehicleId: driver.vehicleId || "",
         vehiclePlate: vehicle?.plateArabic || vehicle?.plateAr || vehicle?.plateEnglish || vehicle?.plateEn || "-",
         vehicleType: vehicle?.model || driver.accommodationType || "-",
+        vehicleOwnershipType: driver.vehicleOwnershipType || "no_vehicle",
         rentalDays: assignment?.rentalDays ?? 0,
         status,
         statusLabel: statusLabel(status),
@@ -304,6 +344,18 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
       filters,
       cities: cities.map((city) => ({ id: city.id, name: city.nameAr || city.nameEn || "مدينة بدون اسم" })),
       projects: projects.map((project) => ({ id: project.id, name: project.name || `${project.application.name} - ${project.city?.nameAr || project.city?.nameEn || ""}`.trim() || "مشروع بدون اسم" })),
+      supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name, cityId: supervisor.cityId || "" })),
+      vehicles: vehicles.map((vehicle) => {
+        const plate = vehicle.plateArabic || vehicle.plateAr || vehicle.plateEnglish || vehicle.plateEn || vehicle.id;
+        return { id: vehicle.id, label: [plate, vehicle.model].filter(Boolean).join(" - "), cityId: vehicle.cityId || "", currentDriverId: vehicle.currentDriverId || "" };
+      }),
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        label: [account.appName, account.applicationProject?.name, account.appUserId || account.username, account.appUsername].filter(Boolean).join(" - "),
+        cityId: account.cityId || "",
+        applicationProjectId: account.applicationProjectId || "",
+        driverId: account.driverId || "",
+      })),
       nationalities: allNationalities.map((row) => row.nationality).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b, "ar")),
       summary,
       insight: buildInsight(summary),
@@ -317,6 +369,9 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
       filters,
       cities: [],
       projects: [],
+      supervisors: [],
+      vehicles: [],
+      accounts: [],
       nationalities: [],
       summary: {
         totalDrivers: 0,

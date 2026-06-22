@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ImportStepper } from "@/components/imports/ImportStepper";
+import { PayrollGenerateButton } from "@/components/payroll/PayrollGenerateButton";
 import type { ProjectWorkspace } from "@/lib/projects/projectWorkspace";
 import type { ImportTemplateRow } from "@/lib/imports/templates";
 
@@ -115,6 +116,8 @@ function SummaryGrid({ data }: { data: OnlineWorkspace }) {
       <StatCard title="المناديب" value={summary.driversCount} />
       <StatCard title="حسابات التطبيق" value={summary.accountsCount} />
       <StatCard title="حسابات غير مربوطة" value={summary.unlinkedAccounts} tone={summary.unlinkedAccounts ? "amber" : "emerald"} />
+      <StatCard title="KPI المناديب" value={`${summary.driverKpiScore}%`} tone={summary.driverKpiScore >= 90 ? "emerald" : summary.driverKpiScore >= 75 ? "blue" : summary.driverKpiScore > 0 ? "amber" : "slate"} />
+      <StatCard title="تحقيق التارجت" value={`${summary.targetAchievement}%`} tone={summary.targetAchievement >= 100 ? "emerald" : summary.targetAchievement >= 80 ? "amber" : "red"} />
       <StatCard title="إيراد المشروع المعتمد" value={summary.approvedInvoiceTotal} tone="emerald" />
       <StatCard title="تكلفة رواتب المناديب" value={summary.approvedPayrollNet} tone="red" />
     </div>
@@ -331,6 +334,7 @@ export function ProjectImportsView({
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
       <Header data={data} active="imports" />
       <SummaryGrid data={data} />
+      <ProjectToolLinks data={data} active="imports" />
       <ImportStepper
         templates={templates}
         applications={applications}
@@ -341,6 +345,7 @@ export function ProjectImportsView({
         lockedProjectId={data.project.id}
         lockedLegacyProjectId={data.project.legacyProjectId ?? undefined}
         lockedCityId={data.filters.cityId || data.project.cityId || undefined}
+        lockedMonth={data.filters.month}
         scopeLabel={`${data.project.applicationName} / ${data.project.name}`}
       />
       <section className="space-y-3">
@@ -353,6 +358,10 @@ export function ProjectImportsView({
 
 export function ProjectInvoicesView({ data }: { data: OnlineWorkspace }) {
   const projectRoute = data.project.routeId || data.project.id;
+  const isKeetaProject = `${data.project.applicationCode} ${data.project.applicationName}`.toLowerCase().includes("keeta");
+  const invoiceUploadHref = isKeetaProject
+    ? `/projects/${projectRoute}/imports?type=keeta_driver_invoice_template&month=${encodeURIComponent(data.filters.month)}`
+    : `/projects/${projectRoute}/imports?month=${encodeURIComponent(data.filters.month)}`;
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
       <Header data={data} active="invoices" />
@@ -361,7 +370,7 @@ export function ProjectInvoicesView({ data }: { data: OnlineWorkspace }) {
         الفواتير لا تدخل في حسابات المشروع إلا بعد الاعتماد. حالات التشغيل: Draft، Uploaded، Reviewed، Approved، Locked، Paid.
       </div>
       <div className="flex flex-wrap gap-2">
-        <Link href={`/projects/${projectRoute}/imports`} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white">رفع فاتورة المشروع</Link>
+        <Link href={invoiceUploadHref} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white">رفع فاتورة المشروع</Link>
         <Link href={`/projects/${projectRoute}/reports`} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black">تقرير المشروع</Link>
       </div>
       <InvoicesTable data={data} />
@@ -371,6 +380,19 @@ export function ProjectInvoicesView({ data }: { data: OnlineWorkspace }) {
 
 export function ProjectPayrollView({ data }: { data: OnlineWorkspace }) {
   const projectRoute = data.project.routeId || data.project.id;
+  const payrollFilters = {
+    month: data.filters.month,
+    dateFrom: data.filters.dateFrom || `${data.filters.month}-01`,
+    dateTo: data.filters.dateTo || "",
+    appName: data.project.applicationName,
+    cityId: data.filters.cityId || data.project.cityId || "",
+    projectId: data.project.id,
+    applicationProjectId: data.project.id,
+    supervisorId: data.filters.supervisorId,
+    driverId: "",
+    q: "",
+    status: "",
+  };
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
       <Header data={data} active="payroll" />
@@ -383,6 +405,7 @@ export function ProjectPayrollView({ data }: { data: OnlineWorkspace }) {
         <Link href={`/projects/${projectRoute}/payroll?month=${encodeURIComponent(data.filters.month)}`} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">مراجعة / إنشاء مسير</Link>
         <Link href={`/payroll/settings?applicationProjectId=${data.project.id}`} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black">إعدادات المسير</Link>
       </div>
+      <PayrollGenerateButton filters={payrollFilters} />
       <PayrollTable data={data} />
     </main>
   );
@@ -395,11 +418,48 @@ export function ProjectReportsView({ data }: { data: OnlineWorkspace }) {
       <Header data={data} active="reports" />
       <SummaryGrid data={data} />
       <Filters data={data} target={`/projects/${projectRoute}/reports`} />
+      <ProjectToolLinks data={data} active="reports" />
       <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">
         هذه الصفحة تقرأ بيانات المشروع فقط. التقارير العامة في /management-reports تجمع البيانات المعتمدة بدون قبول أي رفع ملفات.
       </div>
       <ReportsTable data={data} />
     </main>
+  );
+}
+
+function ProjectToolLinks({ data, active }: { data: OnlineWorkspace; active: "imports" | "reports" }) {
+  const query = new URLSearchParams({
+    projectId: data.project.id,
+    applicationProjectId: data.project.id,
+    applicationId: data.project.applicationId,
+  });
+  if (data.project.cityId) query.set("cityId", data.project.cityId);
+  if (data.filters.month) query.set("month", data.filters.month);
+  if (data.filters.dateFrom) query.set("dateFrom", data.filters.dateFrom);
+  if (data.filters.dateTo) query.set("dateTo", data.filters.dateTo);
+  const suffix = query.toString();
+  const items = active === "imports"
+    ? [
+        { href: `/imports/history?${suffix}`, label: "تاريخ رفع المشروع" },
+        { href: `/uploaded-reports?${suffix}`, label: "تقارير مرفوعة" },
+        { href: `/excel-column-mapping?${suffix}`, label: "ربط أعمدة Excel" },
+        { href: `/account-movement?${suffix}`, label: "حركة الحسابات" },
+      ]
+    : [
+        { href: `/daily-reports?${suffix}`, label: "التقارير اليومية" },
+        { href: `/rider-kpi?${suffix}`, label: "KPI المناديب" },
+        { href: `/rider-reports?${suffix}`, label: "تقارير المناديب" },
+        { href: `/operations-alerts?${suffix}`, label: "تنبيهات المشروع" },
+      ];
+
+  return (
+    <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      {items.map((item) => (
+        <Link key={item.href} href={item.href} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-800 hover:bg-white">
+          {item.label}
+        </Link>
+      ))}
+    </div>
   );
 }
 
@@ -415,15 +475,15 @@ export function ProjectSettingsView({ data }: { data: OnlineWorkspace }) {
         <StatCard title="إعدادات المسير" value={data.summary.payrollSettingsCount} />
       </div>
       <div className="grid gap-4 md:grid-cols-3">
-        <Link href={`/applications/${appId}/projects/${projectId}/invoice-settings`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
+        <Link href={`/applications/invoice-settings?applicationId=${encodeURIComponent(appId)}&applicationProjectId=${encodeURIComponent(projectId)}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
           <h2 className="text-lg font-black text-slate-950">إعدادات الفاتورة</h2>
           <p className="mt-2 text-sm font-bold text-slate-500">أعمدة الفاتورة، المطابقة، وقواعد الحساب الخاصة بالمشروع.</p>
         </Link>
-        <Link href={`/applications/${appId}/projects/${projectId}/rank-settings`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
+        <Link href={`/applications/rank-settings?applicationId=${encodeURIComponent(appId)}&applicationProjectId=${encodeURIComponent(projectId)}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
           <h2 className="text-lg font-black text-slate-950">إعدادات الرانك</h2>
           <p className="mt-2 text-sm font-bold text-slate-500">قواعد Keeta Rank أو أي رانك خاص بالتطبيق.</p>
         </Link>
-        <Link href={`/applications/${appId}/projects/${projectId}/payroll-settings`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
+        <Link href={`/payroll/settings?applicationId=${encodeURIComponent(appId)}&applicationProjectId=${encodeURIComponent(projectId)}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:bg-slate-50">
           <h2 className="text-lg font-black text-slate-950">إعدادات المسير</h2>
           <p className="mt-2 text-sm font-bold text-slate-500">الراتب، التارجت، البونص، الخصومات، إيجار السيارة والمستويات.</p>
         </Link>

@@ -222,13 +222,15 @@ function TaskModal({ row, onClose }: { row: SupervisorPerformanceRow; onClose: (
     const payload = {
       title: String(form.get("title") ?? ""),
       description: String(form.get("description") ?? ""),
+      cityId: row.cityId,
       supervisorId: row.id,
       priority: String(form.get("priority") ?? "INFO"),
+      category: "متابعة مشرف",
       status: "PENDING",
       dueDate: String(form.get("dueDate") ?? ""),
     };
     try {
-      const res = await fetch("/api/tasks", {
+      const res = await fetch("/api/supervisor-tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -193,15 +193,26 @@ export function DailyReportsOldPageClient({ data }: Props) {
   const visibleRows = rows.slice(0, pageSize);
 
   async function createSupervisorTask(row: ReportRow) {
-    const response = await fetch("/api/tasks", {
+    if (!row.cityId || !row.supervisorId) {
+      setToast("لا يمكن إنشاء مهمة لهذا التقرير لأنه غير مربوط بمدينة ومشرف.");
+      return;
+    }
+    const dueDate = new Date(row.reportDate);
+    dueDate.setDate(dueDate.getDate() + 1);
+    const response = await fetch("/api/supervisor-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: `متابعة تقرير ${row.driverName}`,
         description: `تنبيهات الأداء: ${row.warnings.join("، ")}. التاريخ: ${row.reportDate}. التطبيق: ${row.appName}.`,
+        cityId: row.cityId,
+        supervisorId: row.supervisorId,
         driverId: row.driverId || undefined,
         priority: row.statusTone === "red" ? "CRITICAL" : "INFO",
+        category: "متابعة تقرير يومي",
         status: "PENDING",
+        dueDate: dueDate.toISOString().slice(0, 10),
+        notes: `تم إنشاؤها من تقرير يومي بتاريخ ${row.reportDate}`,
       }),
     });
     if (!response.ok) {
@@ -246,9 +257,9 @@ export function DailyReportsOldPageClient({ data }: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <HeaderAction onClick={() => window.print()}>طباعة / PDF</HeaderAction>
           <HeaderAction tone="amber" onClick={() => downloadCsv(rows)}>تصدير إكسل</HeaderAction>
-          <HeaderAction tone="blue" onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template")}>استيراد Excel / PDF</HeaderAction>
-          <HeaderAction tone="green" onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template&mode=manual")}>+ إضافة تقرير</HeaderAction>
-          <Link href="/projects/keeta/imports?type=keeta_period_report_template" className="grid h-10 place-items-center rounded-xl border border-blue-600 bg-blue-600 px-4 text-sm font-black text-white shadow-sm">
+          <HeaderAction tone="blue" onClick={() => router.push("/projects?application=keeta&type=keeta_period_report_template")}>استيراد Excel / PDF</HeaderAction>
+          <HeaderAction tone="green" onClick={() => router.push("/projects?application=keeta&type=keeta_period_report_template&mode=manual")}>+ إضافة تقرير</HeaderAction>
+          <Link href="/projects?application=keeta&type=keeta_period_report_template" className="grid h-10 place-items-center rounded-xl border border-blue-600 bg-blue-600 px-4 text-sm font-black text-white shadow-sm">
             رفع تقرير Keeta
           </Link>
           <Link href="/imports/history" className="grid h-10 place-items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-900 shadow-sm">

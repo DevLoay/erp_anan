@@ -17,6 +17,7 @@ type Props = {
   lockedProjectId?: string;
   lockedLegacyProjectId?: string;
   lockedCityId?: string;
+  lockedMonth?: string;
   scopeLabel?: string;
 };
 
@@ -94,6 +95,7 @@ export function ImportStepper({
   lockedProjectId,
   lockedLegacyProjectId,
   lockedCityId,
+  lockedMonth,
   scopeLabel,
 }: Props) {
   const router = useRouter();
@@ -131,6 +133,8 @@ export function ImportStepper({
       if (lockedProjectId) form.set("applicationProjectId", lockedProjectId);
       if (lockedLegacyProjectId) form.set("projectId", lockedLegacyProjectId);
       if (lockedCityId) form.set("cityId", lockedCityId);
+      const requestedMonth = lockedMonth || searchParams.get("month") || "";
+      if (requestedMonth) form.set("month", requestedMonth);
       const res = await fetch("/api/imports/preview", { method: "POST", body: form });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error ?? "تعذر إنشاء المعاينة.");
@@ -163,13 +167,7 @@ export function ImportStepper({
       const committedType = preview.summary.importType;
       const committedDate = reportDateFromPreview(preview);
       const committedProjectId = preview.summary.applicationProjectId;
-      const committedProjectRoute = committedType.startsWith("keeta")
-        ? "keeta"
-        : committedType.startsWith("hungerstation")
-          ? "hungerstation"
-          : committedType.startsWith("talabat")
-            ? "talabat"
-            : committedProjectId;
+      const committedProjectRoute = committedProjectId;
       setPreview(null);
       router.refresh();
       if (dailyReportCommitTypes.has(committedType) && (committedDate || payload.data?.reports || payload.data?.keetaRecords?.createdDailyReports || payload.data?.keetaRecords?.updatedDailyReports)) {

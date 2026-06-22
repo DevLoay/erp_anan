@@ -49,6 +49,7 @@ export const permissionModules = [
 const adminOnlyResources = new Set(["users", "audit-logs", "system-settings", "import-templates", "payroll-settings"]);
 
 const financeResources = new Set([
+  "finance",
   "payroll",
   "advances",
   "deductions",
@@ -62,6 +63,7 @@ const financeResources = new Set([
   "bank-accounts",
   "vat-records",
   "profit-loss",
+  "financial-reports",
   "vehicle-costs",
 ]);
 
@@ -76,7 +78,7 @@ const hrResources = new Set([
   "advances",
 ]);
 
-const supervisorResources = new Set(["drivers", "daily-reports", "tasks", "notifications", "violations", "attendance", "shifts"]);
+const supervisorResources = new Set(["drivers", "daily-reports", "tasks", "notifications", "violations", "driver-warnings", "attendance", "shifts"]);
 
 export function roleFromHeaders(headers: Headers): AppRole {
   const cookieRole = headers
@@ -117,7 +119,7 @@ export function canWriteResource(role: AppRole, resource: string) {
   if (role === "OPERATION_MANAGER") return true;
   if (role === "ACCOUNTANT") return financeResources.has(resource);
   if (role === "HR") return hrResources.has(resource);
-  if (role === "SUPERVISOR") return resource === "tasks" || resource === "attendance";
+  if (role === "SUPERVISOR") return resource === "tasks" || resource === "attendance" || resource === "violations" || resource === "driver-warnings";
   return false;
 }
 

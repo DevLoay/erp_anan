@@ -18,7 +18,7 @@ const KEETA_TEMPLATE_KEYS = [
     importType: KEETA_RANK_TEMPLATE,
     nameAr: "قالب Keeta Rank",
     nameEn: "Keeta Rank Template",
-    route: "/projects/keeta/imports?type=keeta_rank_template",
+    route: "/projects?application=keeta&type=keeta_rank_template",
     sortOrder: 10,
     showInInvoices: false,
     affectsRank: true,
@@ -29,7 +29,7 @@ const KEETA_TEMPLATE_KEYS = [
     importType: KEETA_PERIOD_REPORT_TEMPLATE,
     nameAr: "قالب تقرير Keeta حسب الفترة",
     nameEn: "Keeta Period Report Template",
-    route: "/projects/keeta/imports?type=keeta_period_report_template",
+    route: "/projects?application=keeta&type=keeta_period_report_template",
     sortOrder: 20,
     showInInvoices: false,
     affectsRank: false,
@@ -40,7 +40,7 @@ const KEETA_TEMPLATE_KEYS = [
     importType: KEETA_DRIVER_INVOICE_TEMPLATE,
     nameAr: "قالب فاتورة مناديب Keeta",
     nameEn: "Keeta Driver Invoice Template",
-    route: "/projects/keeta/invoices?type=keeta_driver_invoice_template",
+    route: "/projects?application=keeta&type=keeta_driver_invoice_template",
     sortOrder: 30,
     showInInvoices: true,
     affectsRank: false,
@@ -118,62 +118,43 @@ export async function ensureDefaultTemplateConfigs() {
 
   for (const item of KEETA_TEMPLATE_KEYS) {
     const definition = getBuiltinTemplate(item.importType);
+    const commonData = {
+      nameAr: item.nameAr,
+      nameEn: item.nameEn,
+      projectId: "keeta",
+      applicationId: keetaProject.applicationId,
+      // Important: Keeta templates are application-level, not city/project-level.
+      // The selected import page/project must supply the target applicationProjectId and cityId at preview/commit time.
+      // Keeping this tied to the first Keeta project caused Dammam imports to validate against Al Ahsa accounts.
+      applicationProjectId: null,
+      scope: "application",
+      importType: item.importType,
+      enabled: true,
+      showInGlobalImports: false,
+      showInProjectImports: true,
+      showInInvoices: item.showInInvoices,
+      showInPayroll: true,
+      showInReports: true,
+      showInManagementReports: true,
+      showInApplicationCenter: true,
+      affectsPayroll: true,
+      affectsInvoices: item.affectsInvoices,
+      affectsReports: true,
+      affectsRank: item.affectsRank,
+      allowedRoles: jsonInput(["Admin", "Operation Manager", "Supervisor"]),
+      requiredColumns: jsonInput(definition?.requiredColumns ?? []),
+      optionalColumns: jsonInput(definition?.optionalColumns ?? []),
+      matchingKeys: jsonInput(["courierId", "appUserId", "applicationAccountId", "driverCode", "nationalId"]),
+      route: item.route,
+      sortOrder: item.sortOrder,
+    };
+
     const row = await prisma.templateConfig.upsert({
       where: { key: item.key },
-      update: {
-        nameAr: item.nameAr,
-        nameEn: item.nameEn,
-        projectId: "keeta",
-        applicationId: keetaProject.applicationId,
-        applicationProjectId: keetaProject.id,
-        scope: "project",
-        importType: item.importType,
-        enabled: true,
-        showInGlobalImports: false,
-        showInProjectImports: true,
-        showInInvoices: item.showInInvoices,
-        showInPayroll: true,
-        showInReports: true,
-        showInManagementReports: true,
-        showInApplicationCenter: true,
-        affectsPayroll: true,
-        affectsInvoices: item.affectsInvoices,
-        affectsReports: true,
-        affectsRank: item.affectsRank,
-        allowedRoles: jsonInput(["Admin", "Operation Manager", "Supervisor"]),
-        requiredColumns: jsonInput(definition?.requiredColumns ?? []),
-        optionalColumns: jsonInput(definition?.optionalColumns ?? []),
-        matchingKeys: jsonInput(["courierId", "appUserId", "applicationAccountId", "driverCode", "nationalId"]),
-        route: item.route,
-        sortOrder: item.sortOrder,
-      },
+      update: commonData,
       create: {
         key: item.key,
-        nameAr: item.nameAr,
-        nameEn: item.nameEn,
-        projectId: "keeta",
-        applicationId: keetaProject.applicationId,
-        applicationProjectId: keetaProject.id,
-        scope: "project",
-        importType: item.importType,
-        enabled: true,
-        showInGlobalImports: false,
-        showInProjectImports: true,
-        showInInvoices: item.showInInvoices,
-        showInPayroll: true,
-        showInReports: true,
-        showInManagementReports: true,
-        showInApplicationCenter: true,
-        affectsPayroll: true,
-        affectsInvoices: item.affectsInvoices,
-        affectsReports: true,
-        affectsRank: item.affectsRank,
-        allowedRoles: jsonInput(["Admin", "Operation Manager", "Supervisor"]),
-        requiredColumns: jsonInput(definition?.requiredColumns ?? []),
-        optionalColumns: jsonInput(definition?.optionalColumns ?? []),
-        matchingKeys: jsonInput(["courierId", "appUserId", "applicationAccountId", "driverCode", "nationalId"]),
-        route: item.route,
-        sortOrder: item.sortOrder,
+        ...commonData,
       },
     });
     rows.push(row);
@@ -189,6 +170,13 @@ export async function getTemplateConfigs(filters: {
   includeDisabled?: boolean;
 } = {}) {
   await ensureDefaultTemplateConfigs();
+
+  const selectedApplicationProject = filters.applicationProjectId
+    ? await prisma.applicationProject.findUnique({
+        where: { id: filters.applicationProjectId },
+        include: { application: { select: { id: true, code: true, name: true } } },
+      })
+    : null;
 
   const visibilityWhere: Prisma.TemplateConfigWhereInput = (() => {
     switch (filters.visibility) {
@@ -211,8 +199,20 @@ export async function getTemplateConfigs(filters: {
   })();
 
   const projectWhere: Prisma.TemplateConfigWhereInput[] = [];
-  if (filters.applicationProjectId) projectWhere.push({ applicationProjectId: filters.applicationProjectId });
-  if (filters.applicationName && isKeetaApplication(filters.applicationName)) projectWhere.push({ projectId: "keeta" });
+  if (filters.applicationProjectId) {
+    // Project-specific templates for this exact project, if any.
+    projectWhere.push({ applicationProjectId: filters.applicationProjectId });
+
+    // Application-level templates for the selected project's application.
+    // This is what allows Keeta Dammam, Keeta Ahsa, etc. to share the same template safely.
+    if (selectedApplicationProject?.applicationId) {
+      projectWhere.push({ applicationProjectId: null, applicationId: selectedApplicationProject.applicationId });
+    }
+  }
+
+  if (filters.applicationName && isKeetaApplication(filters.applicationName)) {
+    projectWhere.push({ projectId: "keeta" });
+  }
 
   return prisma.templateConfig.findMany({
     where: {

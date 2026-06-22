@@ -183,7 +183,7 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
 
     const { month, from, to } = resolvePeriod(filters);
     const projectReportWhere: Prisma.DailyReportWhereInput = {
-      appName: { equals: applicationProject.application.name, mode: "insensitive" },
+      applicationProjectId: applicationProject.id,
       ...(filters.cityId ? { cityId: filters.cityId } : applicationProject.cityId ? { cityId: applicationProject.cityId } : {}),
       ...(from && to ? { reportDate: { gte: from, lte: to } } : { month }),
       ...(filters.supervisorId ? { driver: { supervisorId: filters.supervisorId } } : {}),
@@ -191,15 +191,21 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
     const invoiceWhere: Prisma.InvoiceWhereInput = {
       applicationProjectId: applicationProject.id,
       ...(month ? { month } : {}),
+      status: { not: RecordStatus.INACTIVE },
     };
     const payrollWhere: Prisma.PayrollRunWhereInput = {
       applicationProjectId: applicationProject.id,
       ...(filters.cityId ? { cityId: filters.cityId } : applicationProject.cityId ? { cityId: applicationProject.cityId } : {}),
       ...(month ? { year: Number(month.slice(0, 4)), month: Number(month.slice(5, 7)) } : {}),
     };
+    const importPeriodFilters: Prisma.ApplicationImportBatchWhereInput[] = [];
+    if (month) importPeriodFilters.push({ month });
+    if (from && to) {
+      importPeriodFilters.push({ periodStart: { gte: from, lte: to } }, { periodEnd: { gte: from, lte: to } }, { createdAt: { gte: from, lte: to } });
+    }
     const importWhere: Prisma.ApplicationImportBatchWhereInput = {
       applicationProjectId: applicationProject.id,
-      ...(from && to ? { OR: [{ periodStart: { gte: from, lte: to } }, { createdAt: { gte: from, lte: to } }] } : {}),
+      ...(importPeriodFilters.length ? { OR: importPeriodFilters } : {}),
     };
     const financeWhere: Prisma.FinanceEntryWhereInput = {
       applicationProjectId: applicationProject.id,
@@ -216,7 +222,7 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       imports,
       invoices,
       approvedInvoices,
-      approvedKeetaRevenue,
+      keetaInvoiceRecords,
       payrollRuns,
       approvedPayrollRuns,
       financeAggregate,
@@ -254,7 +260,21 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       prisma.applicationAccount.count({ where: { applicationProjectId: applicationProject.id, OR: [{ driverId: null }, { isEmpty: true }] } }),
       prisma.applicationImportBatch.findMany({
         where: importWhere,
-        include: { template: { select: { name: true } }, createdBy: { select: { name: true } } },
+        select: {
+          id: true,
+          fileName: true,
+          sourceFileName: true,
+          fileType: true,
+          totalRows: true,
+          validRows: true,
+          invalidRows: true,
+          missingDrivers: true,
+          status: true,
+          uploadedBy: true,
+          createdAt: true,
+          template: { select: { name: true } },
+          createdBy: { select: { name: true } },
+        },
         orderBy: { createdAt: "desc" },
         take: 60,
       }),
@@ -264,14 +284,15 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
         _sum: { amount: true, vatAmount: true },
         _count: { _all: true },
       }),
-      prisma.keetaInvoiceRecord.aggregate({
+      prisma.keetaInvoiceRecord.findMany({
         where: {
           applicationProjectId: applicationProject.id,
           ...(month ? { month } : {}),
           status: { in: ["Approved", "APPROVED", "Locked", "LOCKED", "Paid", "PAID"] },
         },
-        _sum: { totalPayableAmount: true },
-        _count: { _all: true },
+        include: { invoiceBatch: { select: { id: true, fileName: true, sourceFileName: true, createdAt: true, approvedAt: true } } },
+        orderBy: [{ approvedAt: "desc" }, { updatedAt: "desc" }],
+        take: 1000,
       }),
       prisma.payrollRun.findMany({
         where: payrollWhere,
@@ -298,7 +319,48 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
 
     const totalOrders = reportsAggregate._sum.orders ?? 0;
     const totalHours = decimalNumber(reportsAggregate._sum.workingHours);
-    const approvedInvoiceTotal = decimalNumber(approvedInvoices._sum.amount) + decimalNumber(approvedInvoices._sum.vatAmount) + decimalNumber(approvedKeetaRevenue._sum.totalPayableAmount);
+    const reportsCount = reportsAggregate._count._all;
+    const averageOnTime = Math.round(decimalNumber(reportsAggregate._avg.onTimeRate) * 10) / 10;
+    const averageCancellation = Math.round(decimalNumber(reportsAggregate._avg.cancellationRate) * 10) / 10;
+    const averageRejection = Math.round(decimalNumber(reportsAggregate._avg.rejectionRate) * 10) / 10;
+    const targetAchievement = applicationProject.monthlyTarget ? Math.min((totalOrders / applicationProject.monthlyTarget) * 100, 120) : 0;
+    const driverKpiScore = reportsCount
+      ? Math.round(
+          Math.min(
+            100,
+            averageOnTime * 0.4 +
+              Math.max(0, 100 - averageCancellation) * 0.2 +
+              Math.max(0, 100 - averageRejection) * 0.15 +
+              Math.min(targetAchievement, 100) * 0.25,
+          ) * 10,
+        ) / 10
+      : 0;
+    const invoiceBatchIds = new Set(invoices.map((invoice) => invoice.importBatchId).filter((id): id is string => Boolean(id)));
+    const keetaFallbackInvoices = Array.from(
+      keetaInvoiceRecords.reduce((groups, record) => {
+        const key = record.invoiceBatchId || `keeta-${record.month || month}-${record.createdAt.toISOString()}`;
+        if (invoiceBatchIds.has(key)) return groups;
+        const current = groups.get(key) ?? {
+          id: key,
+          number: `KEETA-${key.slice(-8).toUpperCase()}`,
+          client: "Keeta",
+          month: record.month || month || "-",
+          amount: 0,
+          vatAmount: 0,
+          status: statusText(record.status),
+          issuedAt: (record.approvedAt || record.invoiceBatch?.approvedAt || record.createdAt).toISOString(),
+          fileName: record.invoiceBatch?.sourceFileName || record.invoiceBatch?.fileName || "",
+        };
+        current.amount += decimalNumber(record.totalPayableAmount);
+        groups.set(key, current);
+        return groups;
+      }, new Map<string, { id: string; number: string; client: string; month: string; amount: number; vatAmount: number; status: string; issuedAt: string; fileName: string }>())
+        .values(),
+    );
+    const approvedInvoiceTotal =
+      decimalNumber(approvedInvoices._sum.amount) +
+      decimalNumber(approvedInvoices._sum.vatAmount) +
+      keetaFallbackInvoices.reduce((sum, invoice) => sum + invoice.amount + invoice.vatAmount, 0);
     const approvedPayrollNet = decimalNumber(approvedPayrollRuns._sum.netTotal);
     const netProfit = decimalNumber(approvedPayrollRuns._sum.estimatedCompanyProfit) || approvedInvoiceTotal - approvedPayrollNet;
     const lastImport = imports[0];
@@ -307,17 +369,7 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       status: "online" as const,
       project: {
         id: applicationProject.id,
-        routeId: applicationProject.application.code.toLowerCase().includes("keeta") || applicationProject.application.name.toLowerCase().includes("keeta")
-          ? "keeta"
-          : applicationProject.application.code.toLowerCase().includes("hungerstation") || applicationProject.application.name.toLowerCase().includes("hungerstation")
-            ? "hungerstation"
-            : applicationProject.application.code.toLowerCase().includes("talabat") || applicationProject.application.name.toLowerCase().includes("talabat")
-              ? "talabat"
-              : applicationProject.application.code.toLowerCase().includes("ninja") || applicationProject.application.name.toLowerCase().includes("ninja")
-                ? "ninja"
-                : applicationProject.application.code.toLowerCase().includes("toyou") || applicationProject.application.name.toLowerCase().includes("toyou")
-                  ? "toyou"
-                  : applicationProject.id,
+        routeId: applicationProject.id,
         name: applicationProject.name,
         code: applicationProject.code,
         applicationId: applicationProject.applicationId,
@@ -337,21 +389,23 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       summary: {
         totalOrders,
         totalOrdersText: numberFormat(totalOrders),
-        reportsCount: reportsAggregate._count._all,
+        reportsCount,
         driversCount,
         accountsCount,
         unlinkedAccounts,
         importsCount: imports.length,
         lastImportFile: lastImport?.sourceFileName || lastImport?.fileName || "-",
-        approvedInvoicesCount: approvedInvoices._count._all,
+        approvedInvoicesCount: approvedInvoices._count._all + keetaFallbackInvoices.length,
         approvedInvoiceTotal: money(approvedInvoiceTotal),
         payrollRunsCount: payrollRuns.length,
         approvedPayrollRunsCount: approvedPayrollRuns._count._all,
         approvedPayrollNet: money(approvedPayrollNet),
         netProfit: money(netProfit),
-        averageOnTime: Math.round(decimalNumber(reportsAggregate._avg.onTimeRate) * 10) / 10,
-        averageCancellation: Math.round(decimalNumber(reportsAggregate._avg.cancellationRate) * 10) / 10,
-        averageRejection: Math.round(decimalNumber(reportsAggregate._avg.rejectionRate) * 10) / 10,
+        averageOnTime,
+        averageCancellation,
+        averageRejection,
+        driverKpiScore,
+        targetAchievement: Math.round(targetAchievement * 10) / 10,
         totalHours: Math.round(totalHours * 10) / 10,
         financeEntries: financeAggregate._count._all,
         financeTotal: money(financeAggregate._sum.amount),
@@ -372,16 +426,24 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
         createdBy: item.createdBy?.name || item.uploadedBy || "-",
         createdAt: item.createdAt.toISOString(),
       })),
-      invoices: invoices.map((item) => ({
-        id: item.id,
-        number: item.number,
-        client: item.client || applicationProject.application.name,
-        month: item.month || "-",
-        amount: money(item.amount),
-        vatAmount: money(item.vatAmount),
-        status: item.invoiceStatus || statusText(item.status),
-        issuedAt: item.issuedAt.toISOString(),
-      })),
+      invoices: [
+        ...invoices.map((item) => ({
+          id: item.id,
+          number: item.number,
+          client: item.client || applicationProject.application.name,
+          month: item.month || "-",
+          amount: money(item.amount),
+          vatAmount: money(item.vatAmount),
+          status: item.invoiceStatus || statusText(item.status),
+          issuedAt: item.issuedAt.toISOString(),
+        })),
+        ...keetaFallbackInvoices.map((item) => ({
+          ...item,
+          number: item.fileName || item.number,
+          amount: money(item.amount),
+          vatAmount: money(item.vatAmount),
+        })),
+      ],
       payrollRuns: payrollRuns.map((item) => ({
         id: item.id,
         month: `${item.year}-${String(item.month).padStart(2, "0")}`,
@@ -421,8 +483,8 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
   }
 }
 
-export async function getProjectImportTemplates(projectId: string) {
-  const workspace = await getProjectWorkspace(projectId);
+export async function getProjectImportTemplates(projectId: string, filters: ProjectWorkspaceFilters = {}) {
+  const workspace = await getProjectWorkspace(projectId, filters);
   if (workspace.status !== "online") return { workspace, templates: [], applications: [], projects: [] };
 
   const templateData = await getImportTemplatesData(resolveImportTemplateFilters({}));

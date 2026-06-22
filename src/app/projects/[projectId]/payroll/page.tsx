@@ -1,4 +1,7 @@
-import { ProjectPayrollView, ProjectStateCard } from "@/components/projects/ProjectWorkspaceViews";
+import { PayrollOldPageClient } from "@/components/payroll/PayrollOldPageClient";
+import { ProjectStateCard } from "@/components/projects/ProjectWorkspaceViews";
+import { getPayrollOldPageData, resolvePayrollOldFilters } from "@/lib/payroll/getPayrollOldPageData";
+import { redirectLegacyProjectSlug } from "@/lib/projects/legacyProjectRedirect";
 import { getProjectWorkspace, type ProjectWorkspaceFilters } from "@/lib/projects/projectWorkspace";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +21,17 @@ function filtersFromParams(params: Record<string, string | string[] | undefined>
 
 export default async function ProjectPayrollPage({ params, searchParams }: PageProps) {
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  redirectLegacyProjectSlug(projectId, query);
   const data = await getProjectWorkspace(projectId, filtersFromParams(query));
   if (data.status !== "online") return <ProjectStateCard data={data} />;
-  return <ProjectPayrollView data={data} />;
+
+  const payrollFilters = resolvePayrollOldFilters({
+    ...query,
+    projectId: data.project.id,
+    cityId: query.cityId ?? data.project.cityId ?? "",
+    month: query.month ?? data.filters.month,
+  });
+  const payrollData = await getPayrollOldPageData(payrollFilters);
+
+  return <PayrollOldPageClient data={payrollData} />;
 }

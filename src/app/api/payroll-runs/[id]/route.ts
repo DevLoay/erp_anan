@@ -75,12 +75,39 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
   }
 
-  const updated = await prisma.payrollRun.update({
-    where: { id },
-    data: {
-      status,
-      approvedAt: status === PayrollStatus.APPROVED ? new Date() : run.approvedAt,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const payrollRun = await tx.payrollRun.update({
+      where: { id },
+      data: {
+        status,
+        approvedAt: status === PayrollStatus.APPROVED ? new Date() : run.approvedAt,
+      },
+    });
+
+    if (status === PayrollStatus.APPROVED) {
+      const deductionMonth = `${run.year}-${String(run.month).padStart(2, "0")}`;
+      for (const item of run.items) {
+        if (!item.driverId) continue;
+        await tx.advance.updateMany({
+          where: {
+            driverId: item.driverId,
+            deductionMonth,
+            status: "APPROVED",
+            isDeducted: false,
+            payrollItemId: null,
+            deductedPayrollRunId: null,
+          },
+          data: {
+            status: "DEDUCTED",
+            isDeducted: true,
+            payrollItemId: item.id,
+            deductedPayrollRunId: run.id,
+          },
+        });
+      }
+    }
+
+    return payrollRun;
   });
 
   await prisma.auditLog.create({

@@ -145,6 +145,10 @@ function summaryCount(object: Record<string, unknown>) {
 }
 
 function levelSummary(levelRules: unknown) {
+  const raw = levelRules && typeof levelRules === "object" ? (levelRules as Record<string, unknown>) : {};
+  const meta = raw.meta && typeof raw.meta === "object" ? (raw.meta as Record<string, unknown>) : {};
+  const salarySlabs = Array.isArray(meta.salarySlabs) ? meta.salarySlabs : [];
+  if (salarySlabs.length) return `شرائح كيتا ${salarySlabs.length} / Experience ${moneyValue(meta.expectedExperienceIncentiveAmount ?? 2000)}`;
   const rules = normalizeLevelRules(levelRules);
   return `A ${rules.A.minimumOrders}+ / B ${rules.B.minimumOrders}+ / C`;
 }
@@ -168,10 +172,16 @@ function carRentSummary(carRentRule: unknown) {
 }
 
 function contractType(levelRules: unknown) {
-  return normalizeLevelRules(levelRules).meta?.contractType ?? "";
+  const raw = levelRules && typeof levelRules === "object" ? (levelRules as Record<string, unknown>) : {};
+  const meta = raw.meta && typeof raw.meta === "object" ? (raw.meta as Record<string, unknown>) : {};
+  return String(meta.contractType ?? normalizeLevelRules(levelRules).meta?.contractType ?? "");
 }
 
 function isNeedsReview(row: { levelRules: unknown; bonusRules: unknown; deductionRules: unknown; carRentRule: unknown; targetOrders: number | null; basicSalary: unknown }) {
+  const raw = row.levelRules && typeof row.levelRules === "object" ? (row.levelRules as Record<string, unknown>) : {};
+  const meta = raw.meta && typeof raw.meta === "object" ? (raw.meta as Record<string, unknown>) : {};
+  const hasKeetaSlabs = Array.isArray(meta.salarySlabs) && meta.salarySlabs.length > 0;
+  if (hasKeetaSlabs) return !row.levelRules || !row.deductionRules;
   return !row.targetOrders || numberValue(row.basicSalary) <= 0 || !row.levelRules || !row.bonusRules || !row.deductionRules || !row.carRentRule;
 }
 
@@ -239,53 +249,64 @@ function rowFromSetting(setting: {
   };
 }
 
-type KeetaPayrollPolicy = {
-  name: string;
-  targetOrders: number;
-  baseSalary: number;
-  fuelAllowance: number;
-  levelBonuses: { A: number; B: number; C: number };
+type KeetaSalaryMode = "PER_ORDER" | "FIXED_PRORATED_BY_PAID_DAYS";
+
+type KeetaSalarySlab = {
+  minOrders: number;
+  maxOrders: number | null;
+  salaryMode: KeetaSalaryMode;
+  fixedSalary: number;
+  bonus: number;
+  perOrderRate: number;
+  extraOrderThreshold: number | null;
+  extraOrderRate: number;
 };
 
-const keetaImagePolicies: KeetaPayrollPolicy[] = [
-  { name: "Keeta Target 560 - سياسة الصورة المعتمدة", targetOrders: 560, baseSalary: 2000, fuelAllowance: 1100, levelBonuses: { A: 1800, B: 1300, C: 800 } },
-  { name: "Keeta Target 460 - سياسة الصورة المعتمدة", targetOrders: 460, baseSalary: 1500, fuelAllowance: 900, levelBonuses: { A: 1200, B: 700, C: 200 } },
+const DEFAULT_KEETA_SALARY_SLABS: KeetaSalarySlab[] = [
+  { minOrders: 0, maxOrders: 349, salaryMode: "PER_ORDER", fixedSalary: 0, bonus: 0, perOrderRate: 8, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 350, maxOrders: 409, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 4500, bonus: 0, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 410, maxOrders: 459, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 800, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 460, maxOrders: 509, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1100, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 510, maxOrders: null, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1800, perOrderRate: 0, extraOrderThreshold: 510, extraOrderRate: 8 },
 ];
 
-function keetaLevelRules(policy: KeetaPayrollPolicy) {
+function defaultKeetaLevelRules() {
   return {
-    A: { minimumOrders: policy.targetOrders, minimumOnTime: 99, maxCancellation: 0, maxRejection: 0, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.A },
-    B: { minimumOrders: Math.max(460, policy.targetOrders - 100), minimumOnTime: 95, maxCancellation: 5, maxRejection: 5, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.B },
-    C: { minimumOrders: 0, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: policy.baseSalary, extraOrderPrice: 8, performanceBonus: policy.levelBonuses.C },
+    // Keep A/B/C keys for backward compatibility with old UI/helpers.
+    A: { minimumOrders: 510, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 5200, extraOrderPrice: 8, performanceBonus: 1800 },
+    B: { minimumOrders: 460, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 5200, extraOrderPrice: 8, performanceBonus: 1100 },
+    C: { minimumOrders: 350, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 4500, extraOrderPrice: 8, performanceBonus: 0 },
     meta: {
       contractType: "all",
-      minimumWorkingDays: 28,
-      minimumWorkingHoursPerDay: 0,
-      workingDaysBase: 28,
-      shortageThresholdOrders: 460,
-      shortageDeductionRate: 8,
-      salaryProration: "baseSalary * workedDays / 28",
+      keetaPayrollVersion: "v2_order_slabs_experience_shortfall",
+      salarySlabs: DEFAULT_KEETA_SALARY_SLABS,
+      payrollMonthDays: 30,
+      paidLeaveDaysAllowed: 2,
+      prorateBaseSalaryByPaidDays: true,
+      bonusProratedByWorkingDays: false,
+      paidLeaveCountsForTarget: false,
+      expectedExperienceIncentiveAmount: 2000,
+      experienceIncentiveDeductionEnabled: true,
+      markMissingExperienceIncentiveAsReview: true,
+      salaryProration: "fixedSalary / payrollMonthDays * min(actualWorkingDays + eligiblePaidLeaveDays, payrollMonthDays)",
+      notes: "0-349 = orders*8; 350-409 = 4500 prorated; 410-459 = 5200+800; 460-509 = 5200+1100; 510+ = 5200+1800+(orders-510)*8.",
     },
   };
 }
 
-function keetaBonusRules(policy: KeetaPayrollPolicy) {
+function defaultKeetaBonusRules() {
   return {
     extraOrdersBonus: true,
     performanceBonus: true,
     targetAchievementBonus: 0,
     noCancellationBonus: 0,
     highOnTimeBonus: 0,
-    customBonuses: [
-      { name: "بدل بنزين", amount: policy.fuelAllowance },
-      { name: "بدل سكن", amount: 300 },
-      { name: "بدل اتصال", amount: 100 },
-      { name: "بدل سيارة شخصية", amount: 1500 },
-    ],
+    bonusPaidInFullWhenTargetReached: true,
+    customBonuses: [],
   };
 }
 
-function keetaDeductionRules() {
+function defaultKeetaDeductionRules() {
   return {
     appDeductions: true,
     advances: true,
@@ -294,11 +315,18 @@ function keetaDeductionRules() {
     damages: true,
     accidents: true,
     absenceDeductions: true,
-    customDeductions: [{ name: "خصم نقص الطلبات أقل من 460", amount: 8 }],
+    experienceIncentive: {
+      enabled: true,
+      expectedAmount: 2000,
+      markMissingAsReview: true,
+      allowManualOverride: false,
+      formula: "max(expectedAmount - invoiceExperienceIncentiveAmount, 0)",
+    },
+    customDeductions: [],
   };
 }
 
-function keetaCarRentRule() {
+function defaultKeetaCarRentRule() {
   return {
     enabled: true,
     defaultMonthlyRent: 1500,
@@ -306,11 +334,16 @@ function keetaCarRentRule() {
     fixedMonthlyDeduction: false,
     graceDays: 0,
     maxMonthlyDeduction: 1500,
-    vehicleOwnershipRule: "company_car = dailyRent * rentalDays, personal_car = allowance",
-    workingDaysBase: 28,
+    vehicleOwnershipRule: "company_car = dailyRent * rentalDays, personal_car = no rent deduction",
+    workingDaysBase: 30,
   };
 }
 
+/**
+ * Creates the new editable Keeta all-cities default setting once.
+ * Important: this intentionally does not update an existing setting on every page load,
+ * so monthly/user edits are not overwritten by simply opening the settings page.
+ */
 async function ensureKeetaImagePayrollSettings() {
   const application = await prisma.application.findFirst({
     where: {
@@ -324,37 +357,31 @@ async function ensureKeetaImagePayrollSettings() {
   });
   if (!application) return;
 
-  for (const policy of keetaImagePolicies) {
-    const payload = {
-      basicSalary: new Prisma.Decimal(policy.baseSalary),
-      targetOrders: policy.targetOrders,
+  const name = "Keeta - إعدادات الرواتب الافتراضية الجديدة";
+  const existing = await prisma.applicationPayrollSetting.findFirst({
+    where: { applicationId: application.id, name },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  await prisma.applicationPayrollSetting.create({
+    data: {
+      name,
+      applicationId: application.id,
+      applicationProjectId: null,
+      cityId: null,
+      basicSalary: new Prisma.Decimal(5200),
+      targetOrders: 410,
       extraOrderPrice: new Prisma.Decimal(8),
-      levelRules: keetaLevelRules(policy) as Prisma.InputJsonValue,
-      bonusRules: keetaBonusRules(policy) as Prisma.InputJsonValue,
-      deductionRules: keetaDeductionRules() as Prisma.InputJsonValue,
-      carRentRule: keetaCarRentRule() as Prisma.InputJsonValue,
+      levelRules: defaultKeetaLevelRules() as Prisma.InputJsonValue,
+      bonusRules: defaultKeetaBonusRules() as Prisma.InputJsonValue,
+      deductionRules: defaultKeetaDeductionRules() as Prisma.InputJsonValue,
+      carRentRule: defaultKeetaCarRentRule() as Prisma.InputJsonValue,
       salaryCalculationSource: "payroll_plan",
       useKeetaInvoiceAsSalaryBase: false,
-      status: "ACTIVE" as const,
-    };
-    const existing = await prisma.applicationPayrollSetting.findFirst({
-      where: { applicationId: application.id, name: policy.name },
-      select: { id: true },
-    });
-    if (existing) {
-      await prisma.applicationPayrollSetting.update({ where: { id: existing.id }, data: payload });
-    } else {
-      await prisma.applicationPayrollSetting.create({
-        data: {
-          name: policy.name,
-          applicationId: application.id,
-          applicationProjectId: null,
-          cityId: null,
-          ...payload,
-        },
-      });
-    }
-  }
+      status: "ACTIVE",
+    },
+  });
 }
 
 export async function getPayrollSettingsData(filters: PayrollSettingFilters): Promise<PayrollSettingsData> {
@@ -406,6 +433,41 @@ export async function getPayrollSettingsData(filters: PayrollSettingFilters): Pr
   }
 }
 
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
+}
+
+function normalizeAdvancedPayrollJson(body: Record<string, unknown>) {
+  const levelRules = objectValue(body.levelRules);
+  const levelMeta = objectValue(levelRules.meta);
+  const deductionRules = objectValue(body.deductionRules);
+  const experienceRule = objectValue(deductionRules.experienceIncentive);
+
+  if (Array.isArray(body.salarySlabs)) levelMeta.salarySlabs = body.salarySlabs as unknown[];
+  if (body.payrollMonthDays !== undefined) levelMeta.payrollMonthDays = numberValue(body.payrollMonthDays);
+  if (body.paidLeaveDaysAllowed !== undefined) levelMeta.paidLeaveDaysAllowed = numberValue(body.paidLeaveDaysAllowed);
+  if (body.prorateBaseSalaryByPaidDays !== undefined) levelMeta.prorateBaseSalaryByPaidDays = body.prorateBaseSalaryByPaidDays === true || body.prorateBaseSalaryByPaidDays === "true";
+  if (body.bonusProratedByWorkingDays !== undefined) levelMeta.bonusProratedByWorkingDays = body.bonusProratedByWorkingDays === true || body.bonusProratedByWorkingDays === "true";
+  if (body.expectedExperienceIncentiveAmount !== undefined) levelMeta.expectedExperienceIncentiveAmount = numberValue(body.expectedExperienceIncentiveAmount);
+
+  if (body.experienceIncentiveRule && typeof body.experienceIncentiveRule === "object") {
+    deductionRules.experienceIncentive = body.experienceIncentiveRule as Prisma.InputJsonValue;
+  } else if (body.expectedExperienceIncentiveAmount !== undefined) {
+    deductionRules.experienceIncentive = {
+      ...experienceRule,
+      enabled: body.experienceIncentiveDeductionEnabled === undefined ? experienceRule.enabled ?? true : body.experienceIncentiveDeductionEnabled === true || body.experienceIncentiveDeductionEnabled === "true",
+      expectedAmount: numberValue(body.expectedExperienceIncentiveAmount),
+      markMissingAsReview: body.markMissingExperienceIncentiveAsReview === undefined ? experienceRule.markMissingAsReview ?? true : body.markMissingExperienceIncentiveAsReview === true || body.markMissingExperienceIncentiveAsReview === "true",
+      allowManualOverride: body.allowManualExperienceIncentiveOverride === undefined ? experienceRule.allowManualOverride ?? false : body.allowManualExperienceIncentiveOverride === true || body.allowManualExperienceIncentiveOverride === "true",
+      formula: "max(expectedAmount - invoiceExperienceIncentiveAmount, 0)",
+    };
+  }
+
+  if (Object.keys(levelMeta).length) levelRules.meta = levelMeta;
+  return { levelRules, deductionRules };
+}
+
 export function normalizePayrollSettingPayload(body: Record<string, unknown>): Prisma.ApplicationPayrollSettingUncheckedCreateInput {
   const name = String(body.name ?? "").trim();
   const applicationId = String(body.applicationId ?? "").trim();
@@ -413,6 +475,8 @@ export function normalizePayrollSettingPayload(body: Record<string, unknown>): P
   if (body.useKeetaInvoiceAsSalaryBase === true || body.useKeetaInvoiceAsSalaryBase === "true") {
     throw new Error("مستحق كيتا يمثل إيراد الشركة وليس راتب المندوب. تفعيل هذا الخيار قد يؤدي إلى حساب راتب خاطئ.");
   }
+
+  const advanced = normalizeAdvancedPayrollJson(body);
 
   return {
     name,
@@ -422,9 +486,9 @@ export function normalizePayrollSettingPayload(body: Record<string, unknown>): P
     basicSalary: new Prisma.Decimal(numberValue(body.basicSalary)),
     targetOrders: body.targetOrders === "" || body.targetOrders === undefined ? null : numberValue(body.targetOrders),
     extraOrderPrice: new Prisma.Decimal(numberValue(body.extraOrderPrice)),
-    levelRules: json(body.levelRules),
+    levelRules: json(Object.keys(advanced.levelRules).length ? advanced.levelRules : body.levelRules),
     bonusRules: json(body.bonusRules),
-    deductionRules: json(body.deductionRules),
+    deductionRules: json(Object.keys(advanced.deductionRules).length ? advanced.deductionRules : body.deductionRules),
     carRentRule: json(body.carRentRule),
     salaryCalculationSource: "payroll_plan",
     useKeetaInvoiceAsSalaryBase: false,

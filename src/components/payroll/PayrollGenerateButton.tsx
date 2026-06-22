@@ -13,7 +13,7 @@ type GenerateResult = {
   message?: string;
 };
 
-export function PayrollGenerateButton({ filters }: { filters: ReportFilters }) {
+export function PayrollGenerateButton({ filters }: { filters: ReportFilters & { applicationProjectId?: string } }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState("");

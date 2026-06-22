@@ -1,7 +1,7 @@
-import { VehicleModulePage } from "@/components/vehicles/VehicleModulePage";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function NewVehiclePage() {
-  return <VehicleModulePage module="vehicles" openCreate />;
+  redirect("/vehicles?openCreate=1");
 }

@@ -4,7 +4,7 @@ import { databaseOfflineMessage } from "@/lib/imports/templates";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 export type NotificationSeverity = "CRITICAL" | "WARNING" | "INFO";
-export type NotificationStatus = "PENDING" | "ACTIVE" | "APPROVED" | "REJECTED" | "LOCKED" | "INACTIVE";
+export type NotificationStatus = "PENDING" | "ACTIVE" | "APPROVED" | "REJECTED" | "LOCKED" | "INACTIVE" | "CANCELLED" | "DEDUCTED" | "PARTIALLY_DEDUCTED";
 export type NotificationSource = "saved" | "daily-report" | "missing-report" | "account";
 
 export type NotificationRow = {
@@ -18,6 +18,9 @@ export type NotificationRow = {
   status: NotificationStatus;
   statusLabel: string;
   driverId: string;
+  cityId: string;
+  supervisorId: string;
+  supervisorName: string;
   driverName: string;
   cityName: string;
   projectName: string;
@@ -176,11 +179,21 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
           driver: {
             select: {
               id: true,
+              cityId: true,
+              supervisorId: true,
               internalCode: true,
               name: true,
               actualName: true,
               city: { select: { nameAr: true, nameEn: true } },
+              supervisor: { select: { id: true, name: true } },
               project: { select: { name: true, appName: true } },
+            },
+          },
+          supervisor: {
+            select: {
+              id: true,
+              name: true,
+              city: { select: { nameAr: true, nameEn: true } },
             },
           },
         },
@@ -195,10 +208,13 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
           driver: {
             select: {
               id: true,
+              cityId: true,
+              supervisorId: true,
               internalCode: true,
               name: true,
               actualName: true,
               city: { select: { nameAr: true, nameEn: true } },
+              supervisor: { select: { id: true, name: true } },
               project: { select: { name: true, appName: true } },
             },
           },
@@ -209,7 +225,8 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       prisma.driver.findMany({
         where: { status: "ACTIVE" },
         include: {
-          city: { select: { nameAr: true, nameEn: true } },
+          city: { select: { id: true, nameAr: true, nameEn: true } },
+          supervisor: { select: { id: true, name: true } },
           project: { select: { id: true, name: true, appName: true } },
         },
         orderBy: { updatedAt: "desc" },
@@ -221,7 +238,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
           status: "ACTIVE",
         },
         include: {
-          city: { select: { nameAr: true, nameEn: true } },
+          city: { select: { id: true, nameAr: true, nameEn: true } },
           project: { select: { name: true, appName: true } },
           application: { select: { name: true } },
           applicationProject: { select: { name: true } },
@@ -240,6 +257,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
 
     for (const notification of savedNotifications) {
       const driver = notification.driver;
+      const supervisor = notification.supervisor || driver?.supervisor || null;
       const source: NotificationSource = "saved";
       rows.push({
         id: notification.id,
@@ -252,8 +270,11 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
         status: notification.status,
         statusLabel: statusLabel(notification.status),
         driverId: driver?.id ?? "",
+        cityId: driver?.cityId ?? "",
+        supervisorId: supervisor?.id ?? "",
+        supervisorName: supervisor?.name ?? "-",
         driverName: driverLabel(driver),
-        cityName: driver?.city?.nameAr || driver?.city?.nameEn || "-",
+        cityName: driver?.city?.nameAr || driver?.city?.nameEn || notification.supervisor?.city?.nameAr || notification.supervisor?.city?.nameEn || "-",
         projectName: driver?.project?.name || "-",
         appName: driver?.project?.appName || "-",
         currentValue: "-",
@@ -271,6 +292,9 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       const dailyTarget = report.projectId ? targetByProject.get(report.projectId) ?? 0 : 0;
       const base = {
         driverId: driver?.id ?? "",
+        cityId: driver?.cityId ?? report.cityId ?? "",
+        supervisorId: driver?.supervisorId ?? "",
+        supervisorName: driver?.supervisor?.name ?? "-",
         driverName: driverLabel(driver),
         cityName,
         projectName,
@@ -387,6 +411,9 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
         status: "PENDING",
         statusLabel: "قيد المتابعة",
         driverId: driver.id,
+        cityId: driver.cityId || "",
+        supervisorId: driver.supervisorId || "",
+        supervisorName: driver.supervisor?.name || "-",
         driverName: driver.actualName || driver.name || driver.internalCode,
         cityName: driver.city?.nameAr || driver.city?.nameEn || "-",
         projectName: driver.project?.name || "-",
@@ -411,6 +438,9 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
         status: "PENDING",
         statusLabel: "قيد المتابعة",
         driverId: "",
+        cityId: account.city?.id || "",
+        supervisorId: "",
+        supervisorName: "-",
         driverName: "-",
         cityName: account.city?.nameAr || account.city?.nameEn || "-",
         projectName: account.applicationProject?.name || account.project?.name || "-",

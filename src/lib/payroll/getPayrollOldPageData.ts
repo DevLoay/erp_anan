@@ -30,6 +30,26 @@ function monthRange(month: string) {
   return { safeMonth, start, end, year: start.getUTCFullYear(), monthNumber: start.getUTCMonth() + 1 };
 }
 
+function monthDays(year: number, monthNumber: number) {
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+}
+
+function capDays(value: number, maxDays: number) {
+  return Math.max(0, Math.min(Math.round(value || 0), maxDays));
+}
+
+
+const COMPANY_CAR_FULL_MONTH_RENT = 2000;
+const VEHICLE_RENT_DAYS_BASE = 30;
+const COMPANY_CAR_DAILY_RENT = COMPANY_CAR_FULL_MONTH_RENT / VEHICLE_RENT_DAYS_BASE;
+const PERSONAL_CAR_USER_DEDUCTION = 300;
+
+function companyCarRentByDays(days: number) {
+  const rentDays = capDays(days, VEHICLE_RENT_DAYS_BASE);
+  if (rentDays <= 0) return 0;
+  return Math.round(Math.min(COMPANY_CAR_FULL_MONTH_RENT, rentDays * COMPANY_CAR_DAILY_RENT) * 100) / 100;
+}
+
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     draft: "مسودة",
@@ -63,6 +83,9 @@ function levelTone(level: string): "slate" | "emerald" | "blue" | "red" | "amber
 
 function normalizeVehicleOwnership(value: unknown, hasVehicle = false) {
   const text = String(value ?? "").trim().toLowerCase();
+  if (text.includes("شخص") || text.includes("خاص")) return "personal_car";
+  if (text.includes("شركة") || text.includes("شركه")) return "company_car";
+  if (text.includes("بدون")) return "no_vehicle";
   if (["company_car", "company", "شركة", "سيارة شركة"].some((token) => text.includes(token))) return "company_car";
   if (["personal_car", "personal", "own", "شخصية", "خاص"].some((token) => text.includes(token))) return "personal_car";
   if (["no_vehicle", "none", "بدون"].some((token) => text.includes(token))) return "no_vehicle";
@@ -86,6 +109,48 @@ function groupSum<T extends { driverId: string; amount?: unknown }>(rows: T[]) {
   const map = new Map<string, number>();
   for (const row of rows) map.set(row.driverId, (map.get(row.driverId) ?? 0) + toNumber(row.amount));
   return map;
+}
+
+function noteNumber(notes: string, keys: string[]) {
+  for (const key of keys) {
+    const patterns = [
+      new RegExp(`${key}\\s*=\\s*(-?\\d+(?:\\.\\d+)?)`, "i"),
+      new RegExp(`${key}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, "i"),
+      new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, "i"),
+    ];
+
+    for (const pattern of patterns) {
+      const match = notes.match(pattern);
+      if (match?.[1] !== undefined) return Number(match[1]) || 0;
+    }
+  }
+
+  return 0;
+}
+
+function noteText(notes: string, keys: string[]) {
+  for (const key of keys) {
+    const patterns = [
+      new RegExp(`${key}\\s*=\\s*([^|,}\\n]+)`, "i"),
+      new RegExp(`${key}\\s*:\\s*([^|,}\\n]+)`, "i"),
+      new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`, "i"),
+    ];
+
+    for (const pattern of patterns) {
+      const match = notes.match(pattern);
+      if (match?.[1]) return match[1].trim();
+    }
+  }
+
+  return "";
+}
+
+function salarySlabLabelByOrders(orders: number) {
+  if (orders < 350) return "أقل من 350";
+  if (orders <= 409) return "350 - 409";
+  if (orders <= 459) return "410 - 459";
+  if (orders <= 509) return "460 - 509";
+  return "510 فأكثر";
 }
 
 export type PayrollOldFilters = {
@@ -131,6 +196,12 @@ export type PayrollOldRow = {
   onTimeRate: number;
   cancellationRate: number;
   rejectionRate: number;
+  invoiceIsValid: boolean | null;
+  invoiceValidityReason: string;
+  performanceValidDays: number;
+  performanceValidRate: number;
+  kpiScore: number;
+  kpiStatus: string;
   basicSalary: number;
   extraOrdersBonus: number;
   performanceBonus: number;
@@ -172,6 +243,7 @@ export type PayrollOldRow = {
   workedDaysForSalary: number;
   baseSalaryBeforeProration: number;
   levelBonus: number;
+  housingAllowance: number;
   manualBonus: number;
   grossSalary: number;
   internalAdvances: number;
@@ -191,6 +263,12 @@ export type PayrollOldRow = {
   status: string;
   statusLabel: string;
   statusTone: "slate" | "amber" | "emerald" | "blue" | "red";
+  selectedSalarySlab: string;
+  paidSalaryDays: number;
+  eligiblePaidLeaveDays: number;
+  invoiceExperienceIncentiveAmount: number;
+  expectedExperienceIncentiveAmount: number;
+  experienceIncentiveDifferenceDeduction: number;
   notes: string;
 };
 
@@ -282,7 +360,7 @@ function buildInsight(summary: PayrollOldData["summary"]) {
 function matches(row: PayrollOldRow, filters: PayrollOldFilters) {
   if (filters.status && row.status !== filters.status) return false;
   if (filters.vehicleOwnershipType && row.vehicleOwnershipType !== filters.vehicleOwnershipType) return false;
-  if (filters.deductionFilter === "app_deductions" && !(row.totalAppDeductions || row.appDeductionsTotal)) return false;
+  if (filters.deductionFilter === "app_deductions" && !(row.totalAppDeductions || row.appDeductionsTotal || row.experienceIncentiveDifferenceDeduction)) return false;
   if (filters.deductionFilter === "car_rent" && !row.carRentDeduction) return false;
   if (filters.deductionFilter === "kafala" && !row.kafalaDeduction) return false;
   if (filters.deductionFilter === "user" && !row.userDeduction) return false;
@@ -314,6 +392,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
   try {
     const { safeMonth, start, end, year, monthNumber } = monthRange(filters.month);
     const payrollStatus = filters.status ? (filters.status as PayrollStatus) : undefined;
+    const selectedMonthDays = monthDays(year, monthNumber);
 
     const [items, payrolls, advances, deductions, violations, fuelRecords] = await Promise.all([
       prisma.payrollItem.findMany({
@@ -328,8 +407,24 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         },
         include: {
           payrollRun: { include: { application: { select: { name: true } }, applicationProject: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } },
-          driver: { include: { city: true, project: true, supervisor: true, vehicle: true } },
-          applicationAccount: true,
+          driver: {
+            include: {
+              city: true,
+              project: true,
+              supervisor: true,
+              vehicle: true,
+              applicationAccounts: {
+                select: {
+                  appUserId: true,
+                  appUsername: true,
+                  username: true,
+                  application: { select: { name: true } },
+                  applicationProject: { select: { name: true } },
+                },
+              },
+            },
+          },
+          applicationAccount: { include: { application: { select: { name: true } }, applicationProject: { select: { name: true } } } },
           vehicle: true,
         },
         orderBy: [{ updatedAt: "desc" }],
@@ -343,13 +438,39 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           ...(filters.cityId ? { driver: { cityId: filters.cityId } } : {}),
         },
         include: {
-          driver: { include: { city: true, project: true, supervisor: true, account: true, vehicle: true } },
+          driver: {
+            include: {
+              city: true,
+              project: true,
+              supervisor: true,
+              account: true,
+              vehicle: true,
+              applicationAccounts: {
+                select: {
+                  appUserId: true,
+                  appUsername: true,
+                  username: true,
+                  application: { select: { name: true } },
+                  applicationProject: { select: { name: true } },
+                },
+              },
+            },
+          },
           project: true,
         },
         orderBy: [{ updatedAt: "desc" }],
         take: 500,
       }),
-      prisma.advance.findMany({ where: { deductionMonth: safeMonth, status: "APPROVED" }, select: { driverId: true, amount: true } }),
+      prisma.advance.findMany({
+        where: {
+          deductionMonth: safeMonth,
+          status: "APPROVED",
+          isDeducted: false,
+          payrollItemId: null,
+          deductedPayrollRunId: null,
+        },
+        select: { driverId: true, amount: true },
+      }),
       prisma.deduction.findMany({ where: { month: safeMonth }, select: { driverId: true, amount: true } }),
       prisma.violation.findMany({ where: { occurredAt: { gte: start, lt: end } }, select: { driverId: true, amount: true } }),
       prisma.fuelRecord.findMany({ where: { fuelDate: { gte: start, lt: end } }, select: { driverId: true, amount: true } }),
@@ -395,42 +516,56 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
     const itemRows: PayrollOldRow[] = items.map((item) => {
       const driver = item.driver;
       const runMonth = `${item.payrollRun.year}-${String(item.payrollRun.month).padStart(2, "0")}`;
+      const maxMonthDays = monthDays(item.payrollRun.year, item.payrollRun.month);
+      const itemNotes = item.notes || "";
       const level = item.level || "-";
       const workingHours = toNumber(item.workingHours);
-      const rentalDays = item.rentalDays || 0;
+      const rentalDays = capDays(item.rentalDays || 0, maxMonthDays);
       const activeAssignment = activeAssignmentMap.get(item.driverId);
       const activeVehicle = item.vehicle || driver.vehicle || activeAssignment?.vehicle || null;
       const hasVehicle = Boolean(item.vehicleId || driver.vehicleId || activeVehicle);
       const vehicleOwnershipType = effectiveVehicleOwnership(item.vehicleOwnershipType, driver.vehicleOwnershipType, hasVehicle);
+      // Keeta V2 policy: no personal car allowance is included in rider salary.
+      // If old PayrollItems stored a car allowance in carRent, remove it from displayed totals.
       const rawCarAllowance = toNumber(item.carRent);
-      const carAllowance = vehicleOwnershipType === "personal_car" ? rawCarAllowance : 0;
-      const invalidNonPersonalCarAllowance = vehicleOwnershipType === "personal_car" ? 0 : rawCarAllowance;
-      const vehicleRentDays = item.vehicleRentDays || rentalDays || activeAssignment?.rentalDays || 0;
-      const vehicleDailyRent = toNumber(item.vehicleDailyRent || activeVehicle?.dailyRent);
-      const vehicleMonthlyRent = toNumber(item.vehicleMonthlyRent || activeVehicle?.monthlyRent);
-      const computedVehicleRentDisplayAmount =
-        vehicleOwnershipType === "company_car"
-          ? vehicleDailyRent > 0
-            ? vehicleDailyRent * vehicleRentDays
-            : vehicleMonthlyRent > 0
-              ? (vehicleMonthlyRent / 30) * vehicleRentDays
-              : 0
-          : 0;
-      const vehicleRentDisplayAmount = toNumber(item.vehicleRentDisplayAmount) || computedVehicleRentDisplayAmount;
+      const carAllowance = 0;
+      const carAllowanceToRemove = rawCarAllowance;
+      const vehicleRentDays = capDays(item.vehicleRentDays || rentalDays || activeAssignment?.rentalDays || 0, maxMonthDays);
+      const vehicleDailyRent = vehicleOwnershipType === "company_car" ? COMPANY_CAR_DAILY_RENT : 0;
+      const vehicleMonthlyRent = vehicleOwnershipType === "company_car" ? COMPANY_CAR_FULL_MONTH_RENT : 0;
+      const computedVehicleRentDisplayAmount = vehicleOwnershipType === "company_car" ? companyCarRentByDays(vehicleRentDays) : 0;
+      const vehicleRentDisplayAmount = computedVehicleRentDisplayAmount;
       const storedCarRentDeduction = toNumber(item.carRentDeduction);
 
       // سياسة المسير المعتمدة:
       // سيارة الشركة لا يتم خصم إيجارها من راتب المندوب.
       // يتم عرض أيام/سعر/قيمة الإيجار كمعلومة فقط.
       const carRentDeduction = 0;
-      const totalEarnings = Math.max(0, toNumber(item.totalEarnings) - invalidNonPersonalCarAllowance);
-      const grossSalary = Math.max(0, toNumber(item.grossSalary || item.totalEarnings) - invalidNonPersonalCarAllowance);
-      const netSalary = toNumber(item.netSalary) + storedCarRentDeduction - invalidNonPersonalCarAllowance;
-      const finalSalary = toNumber(item.finalSalary || item.netSalary) + storedCarRentDeduction - invalidNonPersonalCarAllowance;
+      const totalEarnings = Math.max(0, toNumber(item.totalEarnings) - carAllowanceToRemove);
+      const grossSalary = Math.max(0, toNumber(item.grossSalary || item.totalEarnings) - carAllowanceToRemove);
+      const netSalary = toNumber(item.netSalary) + storedCarRentDeduction - carAllowanceToRemove;
+      const finalSalary = toNumber(item.finalSalary || item.netSalary) + storedCarRentDeduction - carAllowanceToRemove;
       const fuelDeduction = toNumber(item.fuelDeduction);
       const companyRevenueFromKeeta = toNumber(item.companyRevenueFromKeeta);
-      const estimatedCompanyProfit =
-        companyRevenueFromKeeta ? companyRevenueFromKeeta - finalSalary - vehicleRentDisplayAmount - fuelDeduction : toNumber(item.estimatedCompanyProfit);
+      const deliveredOrdersForV2 = item.deliveredOrders || item.orders;
+      const selectedSalarySlab =
+        noteText(itemNotes, ["selectedSalarySlab", "slab", "salarySlab"]) ||
+        salarySlabLabelByOrders(deliveredOrdersForV2);
+      const eligiblePaidLeaveDays = noteNumber(itemNotes, ["eligiblePaidLeaveDays", "paidLeaveDays", "paidLeave"]);
+      const paidSalaryDays =
+        noteNumber(itemNotes, ["paidSalaryDays"]) ||
+        capDays(toNumber(item.workedDaysForSalary || rentalDays || Math.round(workingHours / 10)) + eligiblePaidLeaveDays, maxMonthDays);
+      const invoiceExperienceIncentiveAmount = noteNumber(itemNotes, ["invoiceExperienceIncentiveAmount", "invoiceExperience", "experienceIncentive"]);
+      const expectedExperienceIncentiveAmount = noteNumber(itemNotes, ["expectedExperienceIncentiveAmount", "expectedExperience"]) || 2000;
+      const experienceIncentiveDifferenceDeduction =
+        noteNumber(itemNotes, ["experienceIncentiveDifferenceDeduction", "experienceDeduction"]) ||
+        Math.max(expectedExperienceIncentiveAmount - invoiceExperienceIncentiveAmount, 0);
+      const userDeductionForProfit = vehicleOwnershipType === "personal_car" ? Math.max(toNumber(item.userDeduction), PERSONAL_CAR_USER_DEDUCTION) : toNumber(item.userDeduction);
+      const companyProfitRecoveredDeductions =
+        experienceIncentiveDifferenceDeduction + toNumber(item.keetaDeduction) + toNumber(item.keetaFoodCompensation) + userDeductionForProfit;
+      const estimatedCompanyProfit = companyRevenueFromKeeta
+        ? companyRevenueFromKeeta - grossSalary + companyProfitRecoveredDeductions
+        : toNumber(item.estimatedCompanyProfit);
       return {
         id: `item:${item.id}`,
         source: "payrollItem",
@@ -442,10 +577,10 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         driverName: driver.actualName || driver.name,
         nationalId: driver.nationalId || "-",
         city: driver.city?.nameAr || driver.city?.nameEn || item.payrollRun.city?.nameAr || "-",
-        project: driver.project?.name || item.payrollRun.applicationProject?.name || "-",
-        appName: item.payrollRun.application?.name || driver.project?.appName || "-",
+        project: item.payrollRun.applicationProject?.name || item.applicationAccount?.applicationProject?.name || driver.applicationAccounts?.[0]?.applicationProject?.name || driver.project?.name || "-",
+        appName: item.payrollRun.application?.name || item.applicationAccount?.application?.name || driver.applicationAccounts?.[0]?.application?.name || driver.project?.appName || "-",
         supervisor: driver.supervisor?.name || "-",
-        account: item.applicationAccount?.appUserId || item.applicationAccount?.appUsername || item.applicationAccount?.username || "-",
+        account: item.applicationAccount?.appUserId || item.applicationAccount?.appUsername || item.applicationAccount?.username || driver.applicationAccounts?.[0]?.appUserId || driver.applicationAccounts?.[0]?.appUsername || driver.applicationAccounts?.[0]?.username || "-",
         vehiclePlate: activeVehicle?.plateArabic || activeVehicle?.plateAr || activeVehicle?.plateEnglish || activeVehicle?.plateEn || "-",
         vehicleOwnershipType,
         vehicleOwnershipLabel: vehicleOwnershipLabel(vehicleOwnershipType),
@@ -456,7 +591,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         month: runMonth,
         level,
         levelTone: levelTone(level),
-        workDays: rentalDays || Math.round(workingHours / 10),
+        workDays: capDays(item.workedDaysForSalary || rentalDays || Math.round(workingHours / 10), maxMonthDays),
         rentalDays,
         orders: item.orders,
         extraOrders: item.extraOrders,
@@ -464,6 +599,12 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         onTimeRate: toNumber(item.onTimeRate),
         cancellationRate: toNumber(item.cancellationRate),
         rejectionRate: toNumber(item.rejectionRate),
+        invoiceIsValid: item.invoiceIsValid,
+        invoiceValidityReason: item.invoiceValidityReason || "",
+        performanceValidDays: item.performanceValidDays,
+        performanceValidRate: toNumber(item.performanceValidRate),
+        kpiScore: toNumber(item.kpiScore),
+        kpiStatus: item.kpiStatus || "",
         basicSalary: toNumber(item.basicSalary),
         extraOrdersBonus: toNumber(item.extraOrdersBonus),
         performanceBonus: toNumber(item.performanceBonus),
@@ -488,9 +629,9 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         kafalaDeduction: toNumber(item.kafalaDeduction),
         kafalaDeductionNotes: item.kafalaDeductionNotes || "",
         kafalaDeductionSource: item.kafalaDeductionSource || "",
-        userDeduction: toNumber(item.userDeduction),
-        userDeductionApplied: item.userDeductionApplied,
-        userDeductionReason: item.userDeductionReason || "",
+        userDeduction: vehicleOwnershipType === "personal_car" ? Math.max(toNumber(item.userDeduction), PERSONAL_CAR_USER_DEDUCTION) : toNumber(item.userDeduction),
+        userDeductionApplied: vehicleOwnershipType === "personal_car" || item.userDeductionApplied,
+        userDeductionReason: vehicleOwnershipType === "personal_car" ? "خصم يوزر سيارة شخصية" : item.userDeductionReason || "",
         otherDeductions: toNumber(item.otherDeductions),
         totalDeductions: Math.max(0, toNumber(item.totalDeductions) - storedCarRentDeduction),
         netSalary,
@@ -501,10 +642,11 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         extraOrderRate: toNumber(item.extraOrderRate),
         shortageOrders: item.shortageOrders,
         shortageDeduction: toNumber(item.shortageDeduction),
-        salaryBaseWorkingDays: item.salaryBaseWorkingDays || 28,
-        workedDaysForSalary: item.workedDaysForSalary || rentalDays || Math.round(workingHours / 10),
+        salaryBaseWorkingDays: item.salaryBaseWorkingDays || 30,
+        workedDaysForSalary: capDays(item.workedDaysForSalary || rentalDays || Math.round(workingHours / 10), maxMonthDays),
         baseSalaryBeforeProration: toNumber(item.baseSalaryBeforeProration || item.basicSalary),
         levelBonus: toNumber(item.levelBonus || item.performanceBonus),
+        housingAllowance: toNumber(item.housingAllowance),
         manualBonus: toNumber(item.manualBonus),
         grossSalary,
         internalAdvances: toNumber(item.internalAdvances || item.advancesTotal),
@@ -524,7 +666,13 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         status: item.status,
         statusLabel: statusLabel(item.status),
         statusTone: statusTone(item.status),
-        notes: item.notes || "",
+        selectedSalarySlab,
+        paidSalaryDays,
+        eligiblePaidLeaveDays,
+        invoiceExperienceIncentiveAmount,
+        expectedExperienceIncentiveAmount,
+        experienceIncentiveDifferenceDeduction,
+        notes: itemNotes,
       };
     });
 
@@ -554,10 +702,10 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           driverName: driver.actualName || driver.name,
           nationalId: driver.nationalId || "-",
           city: driver.city?.nameAr || driver.city?.nameEn || "-",
-          project: payroll.project?.name || driver.project?.name || "-",
-          appName: driver.account?.appName || driver.project?.appName || "-",
+          project: driver.applicationAccounts?.[0]?.applicationProject?.name || payroll.project?.name || driver.project?.name || "-",
+          appName: driver.applicationAccounts?.[0]?.application?.name || driver.account?.appName || driver.project?.appName || "-",
           supervisor: driver.supervisor?.name || "-",
-          account: driver.account?.appUserId || driver.account?.appUsername || driver.account?.username || "-",
+          account: driver.applicationAccounts?.[0]?.appUserId || driver.applicationAccounts?.[0]?.appUsername || driver.applicationAccounts?.[0]?.username || driver.account?.appUserId || driver.account?.appUsername || driver.account?.username || "-",
           vehiclePlate: activeVehicle?.plateArabic || activeVehicle?.plateAr || activeVehicle?.plateEnglish || activeVehicle?.plateEn || "-",
           vehicleOwnershipType,
           vehicleOwnershipLabel: vehicleOwnershipLabel(vehicleOwnershipType),
@@ -568,7 +716,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           month: payroll.month,
           level,
           levelTone: levelTone(level),
-          workDays: Math.round(workingHours / 10),
+          workDays: capDays(Math.round(workingHours / 10), selectedMonthDays),
           rentalDays: 0,
           orders: report?.orders ?? 0,
           extraOrders: 0,
@@ -576,6 +724,12 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           onTimeRate: report ? report.onTimeRate / count : 0,
           cancellationRate: report ? report.cancellationRate / count : 0,
           rejectionRate: report ? report.rejectionRate / count : 0,
+          invoiceIsValid: null,
+          invoiceValidityReason: "",
+          performanceValidDays: 0,
+          performanceValidRate: 0,
+          kpiScore: 0,
+          kpiStatus: "",
           basicSalary: toNumber(payroll.basicSalary),
           extraOrdersBonus: 0,
           performanceBonus: toNumber(payroll.bonus),
@@ -613,10 +767,11 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           extraOrderRate: 0,
           shortageOrders: 0,
           shortageDeduction: 0,
-          salaryBaseWorkingDays: 28,
-          workedDaysForSalary: Math.round(workingHours / 10),
+          salaryBaseWorkingDays: 30,
+          workedDaysForSalary: capDays(Math.round(workingHours / 10), selectedMonthDays),
           baseSalaryBeforeProration: toNumber(payroll.basicSalary),
           levelBonus: toNumber(payroll.bonus),
+          housingAllowance: 0,
           manualBonus: 0,
           grossSalary: toNumber(payroll.basicSalary) + toNumber(payroll.bonus),
           internalAdvances: advancesTotal,
@@ -636,6 +791,12 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
           status: payroll.status,
           statusLabel: statusLabel(payroll.status),
           statusTone: statusTone(payroll.status),
+          selectedSalarySlab: salarySlabLabelByOrders(report?.orders ?? 0),
+          paidSalaryDays: capDays(Math.round(workingHours / 10), selectedMonthDays),
+          eligiblePaidLeaveDays: 0,
+          invoiceExperienceIncentiveAmount: 0,
+          expectedExperienceIncentiveAmount: 2000,
+          experienceIncentiveDifferenceDeduction: 0,
           notes: "",
         };
       });
@@ -650,7 +811,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
       levelB: rows.filter((row) => row.level === "B").length,
       levelC: rows.filter((row) => row.level === "C").length,
       basicSalary: rows.reduce((sum, row) => sum + row.basicSalary, 0),
-      bonuses: rows.reduce((sum, row) => sum + row.extraOrdersBonus + row.performanceBonus, 0),
+      bonuses: rows.reduce((sum, row) => sum + row.extraOrdersBonus + row.performanceBonus + row.manualBonus, 0),
       advances: rows.reduce((sum, row) => sum + row.advancesTotal, 0),
       violations: rows.reduce((sum, row) => sum + row.violationsTotal, 0),
       fuel: rows.reduce((sum, row) => sum + row.fuelTotal, 0),
@@ -660,7 +821,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
       noVehicleDrivers: rows.filter((row) => row.vehicleOwnershipType === "no_vehicle").length,
       companyCarRentDeduction: rows.reduce((sum, row) => sum + row.carRentDeduction, 0),
       deductions: rows.reduce((sum, row) => sum + row.totalDeductions, 0),
-      netSalary: rows.reduce((sum, row) => sum + row.netSalary, 0),
+      netSalary: rows.reduce((sum, row) => sum + row.finalSalary, 0),
       companyRevenueFromKeeta: rows.reduce((sum, row) => sum + row.companyRevenueFromKeeta, 0),
       estimatedCompanyProfit: rows.reduce((sum, row) => sum + row.estimatedCompanyProfit, 0),
     };

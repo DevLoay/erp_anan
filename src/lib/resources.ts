@@ -241,7 +241,7 @@ export const resources: Record<string, ResourceConfig> = {
     description: "مهام التشغيل المرتبطة بالمشرفين والتنبيهات والمناديب.",
     delegate: "task",
     route: "/supervisor-tasks",
-    api: "/api/tasks",
+    api: "/api/supervisor-tasks",
     searchFields: ["title", "description", "status", "priority", "supervisorId", "driverId"],
     columns: [
       { key: "title", label: "المهمة" },

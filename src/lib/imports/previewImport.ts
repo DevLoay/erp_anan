@@ -31,13 +31,14 @@ export async function buildImportPreview(args: {
   applicationProjectId: string;
   projectId?: string;
   cityId?: string;
+  month?: string;
 }): Promise<ImportPreviewPayload> {
   try {
     const lowerName = args.fileName.toLowerCase();
     const parsed = lowerName.endsWith(".csv") ? parseCsvBuffer(args.buffer) : await parseExcelBuffer(args.buffer);
     const importType =
       args.importType === "keeta_invoice"
-        ? KEETA_PERIOD_REPORT_TEMPLATE
+        ? KEETA_DRIVER_INVOICE_TEMPLATE
         : args.importType === "keeta_rank"
           ? KEETA_RANK_TEMPLATE
           : args.importType;
@@ -55,6 +56,7 @@ export async function buildImportPreview(args: {
         projectId: args.projectId ?? "",
         cityId: args.cityId ?? "",
         templateId: template.source === "database" ? template.id : "",
+        month: args.month,
       });
     }
 
@@ -89,7 +91,10 @@ export async function buildImportPreview(args: {
     });
 
     return enrichKeetaPreview({
-      summary: result.summary,
+      summary: {
+        ...result.summary,
+        month: args.month || result.summary.month,
+      },
       columns: result.columns,
       missingColumns: result.missingColumns.map((column) => ({ key: column.key, displayName: column.displayName })),
       rows: result.rows,

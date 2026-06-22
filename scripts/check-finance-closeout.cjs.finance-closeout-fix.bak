@@ -1,0 +1,126 @@
+/*
+  Finance closeout checker for MOHAMED SHAWKI ERP.
+  Run from apps/erp:
+    node scripts/check-finance-closeout.cjs
+*/
+const fs = require('fs');
+const path = require('path');
+
+const root = process.cwd();
+const requiredFiles = [
+  'src/components/finance/FinanceModulePageClient.tsx',
+  'src/lib/finance/financePages.ts',
+  'src/app/finance/page.tsx',
+  'src/app/invoices/page.tsx',
+  'src/app/receivables/page.tsx',
+  'src/app/payments/page.tsx',
+  'src/app/expenses/page.tsx',
+  'src/app/revenues/page.tsx',
+  'src/app/advances/page.tsx',
+  'src/app/deductions/page.tsx',
+  'src/app/vehicle-finance/page.tsx',
+  'src/app/vehicle-cost/page.tsx',
+  'src/app/supplier-accounts/page.tsx',
+  'src/app/custody-cashbox/page.tsx',
+  'src/app/bank-accounts/page.tsx',
+  'src/app/vat/page.tsx',
+  'src/app/profit-loss/page.tsx',
+  'src/app/financial-reports/page.tsx',
+  'src/app/api/[resource]/route.ts',
+  'src/app/api/[resource]/[id]/route.ts',
+  'src/app/api/advances/route.ts',
+  'src/app/api/advances/[id]/route.ts',
+  'src/app/api/deductions/route.ts',
+  'src/app/api/deductions/[id]/route.ts',
+  'src/app/api/vehicle-costs/route.ts',
+  'src/app/api/vehicle-costs/[id]/route.ts',
+  'scripts/check-finance-system.cjs',
+  'scripts/smoke-finance-routes.cjs',
+  'scripts/smoke-finance-auth-routes.cjs',
+  'scripts/smoke-finance-crud.cjs',
+  'docs/FINANCE_SYSTEM_CLOSEOUT_AUDIT.md',
+  'docs/FINANCE_FUNCTIONAL_QA.md',
+  'docs/FINANCE_UI_UX_CLOSEOUT.md',
+];
+
+const expectedRoutes = [
+  '/finance',
+  '/payroll',
+  '/payroll/settings',
+  '/invoices',
+  '/receivables',
+  '/payments',
+  '/expenses',
+  '/revenues',
+  '/advances',
+  '/deductions',
+  '/vehicle-finance',
+  '/vehicle-cost',
+  '/supplier-accounts',
+  '/custody-cashbox',
+  '/bank-accounts',
+  '/vat',
+  '/profit-loss',
+  '/financial-reports',
+];
+
+function exists(rel) {
+  return fs.existsSync(path.join(root, rel));
+}
+
+function read(rel) {
+  return fs.readFileSync(path.join(root, rel), 'utf8');
+}
+
+let failed = 0;
+console.log('Finance final closeout check');
+console.log('Project root:', root);
+console.log('');
+
+for (const file of requiredFiles) {
+  if (exists(file)) console.log('✅ exists', file);
+  else {
+    failed++;
+    console.log('❌ missing', file);
+  }
+}
+
+console.log('');
+if (exists('src/components/finance/FinanceModulePageClient.tsx')) {
+  const client = read('src/components/finance/FinanceModulePageClient.tsx');
+  const checks = [
+    ['CSV export helper', /downloadCsv|exportRows/.test(client)],
+    ['Print action', /window\.print\(\)/.test(client)],
+    ['Pagination controls', /pageSize|totalPages|الأولى|التالي/.test(client)],
+    ['Details modal', /DetailsModal/.test(client)],
+    ['Form modal', /FinanceForm/.test(client)],
+    ['Database offline state', /databaseOffline/.test(client)],
+  ];
+  for (const [name, ok] of checks) {
+    if (ok) console.log('✅ ui', name);
+    else {
+      failed++;
+      console.log('❌ ui missing', name);
+    }
+  }
+}
+
+console.log('');
+if (exists('src/lib/finance/financePages.ts')) {
+  const financePages = read('src/lib/finance/financePages.ts');
+  for (const route of expectedRoutes) {
+    if (financePages.includes(route)) console.log('✅ route configured', route);
+    else {
+      failed++;
+      console.log('⚠️ route not found in financePages.ts', route);
+    }
+  }
+}
+
+console.log('');
+if (failed === 0) {
+  console.log('Finance final closeout result: OK');
+  process.exit(0);
+}
+console.log(`Finance final closeout result: NEEDS ATTENTION | failed=${failed}`);
+process.exit(1);

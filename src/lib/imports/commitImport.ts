@@ -9,7 +9,9 @@ import {
   findOperationalAccount,
   findOrCreateApplication as findOrCreateOperationalApplication,
   resolveOperationalProject,
+  upsertOperationalApplicationAccount,
 } from "@/lib/application-accounts/accountLinking";
+import { findOrCreateNormalizedCity } from "@/lib/cities/cityNormalization";
 import type { ImportPreviewPayload } from "./previewImport";
 import type { ImportPreviewRow } from "./validateRows";
 
@@ -20,6 +22,12 @@ function json(value: unknown) {
 
 function text(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function canonicalImportType(importType: string) {
+  if (importType === "keeta_invoice") return KEETA_DRIVER_INVOICE_TEMPLATE;
+  if (importType === "keeta_rank") return KEETA_RANK_TEMPLATE;
+  return importType;
 }
 
 function normalizeLookup(value: unknown) {
@@ -240,21 +248,25 @@ function firstText(record: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-async function uniqueAccountUsername(tx: Prisma.TransactionClient, preferred: string, scopeKey?: string | null, existingId?: string | null) {
-  const base = preferred || `account-${scopeKey || "import"}`;
-  const current = await tx.applicationAccount.findUnique({ where: { username: base }, select: { id: true } });
+async function uniqueDriverInternalCode(tx: Prisma.TransactionClient, preferred: string, scopeKey?: string | null, existingId?: string | null) {
+  const base = preferred || `DRV-${scopeKey || "IMPORT"}`;
+  const current = await tx.driver.findUnique({ where: { internalCode: base }, select: { id: true } });
   if (!current || current.id === existingId) return base;
 
-  const suffix = (scopeKey || "scoped").replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || "scoped";
-  const scoped = `${base}-${suffix}`;
-  const scopedCurrent = await tx.applicationAccount.findUnique({ where: { username: scoped }, select: { id: true } });
+  const scopedPrefix = normalizeCode(scopeKey || "IMPORT").slice(0, 24) || "IMPORT";
+  const scoped = `${scopedPrefix}-${base}`.slice(0, 80);
+  const scopedCurrent = await tx.driver.findUnique({ where: { internalCode: scoped }, select: { id: true } });
   if (!scopedCurrent || scopedCurrent.id === existingId) return scoped;
-  return `${base}-${suffix}-${Date.now().toString(36)}`;
+  return `${scoped}-${Date.now().toString(36)}`;
 }
 
 function cityAliases(name: string) {
   const raw = name.trim();
   const normalized = raw.toLowerCase();
+  if (raw.includes("مكة") || normalized.includes("makkah") || normalized.includes("mecca")) return ["مكة", "Makkah", "Mecca"];
+  if (raw.includes("المدينة") || normalized.includes("madinah") || normalized.includes("medina")) return ["المدينة المنورة", "المدينة", "Madinah", "Medina"];
+  if (raw.includes("الرياض") || normalized.includes("riyadh")) return ["الرياض", "Riyadh"];
+  if (raw.includes("الدمام") || normalized.includes("dammam")) return ["الدمام", "Dammam"];
   if (["mecca", "makkah", "makka", "makkah al mukarramah"].includes(normalized) || raw.includes("مكة")) return ["مكة", "Makkah", "Mecca"];
   if (["madinah", "medina", "al madinah"].includes(normalized) || raw.includes("المدينة")) return ["المدينة المنورة", "المدينة", "Madinah", "Medina"];
   if (["riyadh"].includes(normalized) || raw.includes("الرياض")) return ["الرياض", "Riyadh"];
@@ -264,19 +276,8 @@ function cityAliases(name: string) {
 
 async function findOrCreateCity(tx: Prisma.TransactionClient, name: string) {
   if (!name) return null;
-  const names = cityAliases(name);
-  const existing = await tx.city.findFirst({
-    where: {
-      OR: names.flatMap((cityName) => [
-        { nameAr: { equals: cityName, mode: "insensitive" } },
-        { nameEn: { equals: cityName, mode: "insensitive" } },
-      ]),
-    },
-    select: { id: true },
-  });
-  if (existing) return existing.id;
-  const created = await tx.city.create({ data: { nameAr: names[0] ?? name, nameEn: names[1] ?? name, status: "ACTIVE" }, select: { id: true } });
-  return created.id;
+  const city = await findOrCreateNormalizedCity(tx, name);
+  return city?.id ?? null;
 }
 
 async function findOrCreateProject(tx: Prisma.TransactionClient, name: string, appName: string, cityId: string | null) {
@@ -386,7 +387,6 @@ async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPrevie
     if ((!driverCode && !nationalId && !appUserId && !appUsername && !mobile) || !actualName) continue;
 
     const appName = text(mapped.applicationName) || selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview?.summary.importType ?? "");
-    const safeDriverCode = driverCode || nationalId || appUserId || mobile || `DRV-${row.rowNumber}`;
 
     const cityId = scopedCityId ?? (await findOrCreateCity(tx, cityName));
     const applicationId = preview?.summary.applicationId || selectedProject?.application.id || (await findOrCreateApplication(tx, appName || selectedApplicationName || ""));
@@ -399,22 +399,69 @@ async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPrevie
     const applicationProjectId = preview?.summary.applicationProjectId || operationalProject?.id || null;
     const projectId = null;
 
-    const existingDriver = await tx.driver.findFirst({
-      where: {
-        OR: [
-          driverCode ? { internalCode: driverCode } : undefined,
-          driverCode ? { driverCode } : undefined,
-          nationalId ? { nationalId } : undefined,
-          mobile ? { mobile } : undefined,
-          mobile ? { phone: mobile } : undefined,
-        ].filter(Boolean) as Prisma.DriverWhereInput[],
-      },
-      select: { id: true },
-    });
+    let existingAccount: { id: string; username: string; driverId: string | null } | null = null;
+    if (appUserId || appUsername) {
+      const accountMatch = await findOperationalAccount(tx, { applicationId, applicationProjectId, cityId }, { appUserId, appUsername });
+      if (accountMatch && "duplicate" in accountMatch) {
+        const preferred =
+          accountMatch.matches.find((account) => account.applicationProjectId === applicationProjectId && account.cityId === cityId) ??
+          accountMatch.matches.find((account) => !account.applicationProjectId && account.applicationId === applicationId && account.cityId === cityId) ??
+          accountMatch.matches.find((account) => account.driverId) ??
+          null;
+        existingAccount = preferred ? { id: preferred.id, username: preferred.username, driverId: preferred.driverId } : null;
+      } else if (accountMatch) {
+        existingAccount = { id: accountMatch.id, username: accountMatch.username, driverId: accountMatch.driverId };
+      }
+    }
+
+    const scopedOperationalImport = Boolean(applicationProjectId && (appUserId || appUsername));
+    let existingDriver: { id: string; internalCode: string; driverCode: string | null } | null = null;
+
+    if (existingAccount?.driverId) {
+      existingDriver = await tx.driver.findUnique({
+        where: { id: existingAccount.driverId },
+        select: { id: true, internalCode: true, driverCode: true },
+      });
+    }
+
+    if (!existingDriver) {
+      // عند رفع ملف مناديب فيه Keeta Courier ID، لازم نطابق المندوب القديم
+      // برقم الإقامة/الكود/الجوال قبل إنشاء مندوب جديد.
+      // النسخة القديمة كانت تمنع البحث المباشر لو appUserId موجود، وده كان ممكن يعمل Duplication
+      // بعد إصلاح مابنج Keeta Courier ID.
+      const lookupAttempts: Prisma.DriverWhereInput[] = [];
+      if (nationalId) lookupAttempts.push({ nationalId });
+      if (driverCode) lookupAttempts.push({ internalCode: driverCode }, { driverCode });
+      if (mobile) lookupAttempts.push({ mobile }, { phone: mobile });
+
+      for (const where of lookupAttempts) {
+        const matches = await tx.driver.findMany({
+          where,
+          select: { id: true, internalCode: true, driverCode: true },
+          take: 2,
+        });
+        if (matches.length === 1) {
+          existingDriver = matches[0];
+          break;
+        }
+      }
+    }
+
+    const preferredInternalCode = scopedOperationalImport
+      ? `${normalizeCode(operationalProject?.code || applicationProjectId || appName)}-${driverCode || appUserId || mobile || row.rowNumber}`
+      : driverCode || appUserId || mobile || `DRV-${row.rowNumber}`;
+    const internalCode = existingDriver?.internalCode ?? await uniqueDriverInternalCode(
+      tx,
+      preferredInternalCode,
+      operationalProject?.code || applicationProjectId || cityId || appName,
+      existingDriver?.id,
+    );
+    const sourceDriverCode = driverCode || existingDriver?.driverCode || internalCode;
+    const vehicleOwnership = normalizeLookup(mapped.vehicleOwnership);
 
     const driverData = {
-      internalCode: safeDriverCode,
-      driverCode: safeDriverCode,
+      internalCode,
+      driverCode: sourceDriverCode,
       nationalId: nationalId || null,
       name: actualName,
       actualName,
@@ -427,6 +474,11 @@ async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPrevie
       accommodationType: text(mapped.accommodationType) || null,
       housingStatus: text(mapped.accommodationType) || null,
       status: driverStatus(mapped.appStatus),
+      vehicleOwnershipType: vehicleOwnership.includes("personal") || vehicleOwnership.includes("شخص")
+        ? "personal_car"
+        : vehicleOwnership.includes("company") || vehicleOwnership.includes("شركة") || vehicleOwnership.includes("شركه")
+          ? "company_car"
+          : "no_vehicle",
     };
 
     const driver = existingDriver
@@ -437,54 +489,22 @@ async function commitDriverRows(tx: Prisma.TransactionClient, rows: ImportPrevie
     else createdDrivers += 1;
 
     if (appUserId || appUsername || appName) {
-      const existingAccount = await tx.applicationAccount.findFirst({
-        where: {
-          ...(applicationId ? { applicationId } : {}),
-          ...(applicationProjectId ? { applicationProjectId } : {}),
-          ...(cityId ? { cityId } : {}),
-          OR: [
-            appUserId ? { appUserId } : undefined,
-            appUserId ? { username: appUserId } : undefined,
-            appUsername ? { appUsername } : undefined,
-            appUsername ? { username: appUsername } : undefined,
-          ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[],
-        },
-        select: { id: true, username: true },
-      });
-      const username = await uniqueAccountUsername(tx, appUsername || appUserId || `${appName || "APP"}-${driverCode}`, applicationProjectId || cityId, existingAccount?.id);
-      const needsReview = !applicationProjectId || !cityId || !driver.id;
-      const unmatchedReason = [
-        !applicationProjectId ? "missing_application_project" : "",
-        !cityId ? "missing_city" : "",
-        !driver.id ? "missing_driver" : "",
-      ].filter(Boolean).join(",") || null;
-
-      const accountData = {
+      const account = await upsertOperationalApplicationAccount(tx, {
         appName: appName || "Unknown",
-        username,
         appUserId: appUserId || null,
-        appUsername: appUsername || username,
+        appUsername,
+        username: appUsername || appUserId || `${appName || "APP"}-${driverCode}`,
         applicationId,
         applicationProjectId,
-        projectId,
         cityId,
         driverId: driver.id,
-        isEmpty: false,
-        needsReview,
-        unmatchedReason,
         source: "IMPORT",
         status: recordStatus(mapped.appStatus),
-        linkedAt: new Date(),
-      };
+        existingId: existingAccount?.id,
+      });
 
-      const account = existingAccount
-        ? await tx.applicationAccount.update({ where: { id: existingAccount.id }, data: accountData, select: { id: true } })
-        : await tx.applicationAccount.create({ data: accountData, select: { id: true } });
-
-      if (existingAccount) updatedAccounts += 1;
-      else createdAccounts += 1;
-
-      await tx.driver.update({ where: { id: driver.id }, data: { accountId: account.id } });
+      if (account.wasCreated) createdAccounts += 1;
+      else updatedAccounts += 1;
     }
   }
 
@@ -515,59 +535,23 @@ async function commitApplicationAccountRows(tx: Prisma.TransactionClient, rows: 
       cityId,
     });
     const applicationProjectId = preview.summary.applicationProjectId || operationalProject?.id || null;
-    const projectId = null;
     const preferredUsername = appUsername || appUserId;
 
-    const existing = await tx.applicationAccount.findFirst({
-      where: {
-        ...(applicationId ? { applicationId } : {}),
-        ...(applicationProjectId ? { applicationProjectId } : {}),
-        ...(cityId ? { cityId } : {}),
-        OR: [
-          appUserId ? { appUserId } : undefined,
-          appUserId ? { username: appUserId } : undefined,
-          appUsername ? { appUsername } : undefined,
-          appUsername ? { username: appUsername } : undefined,
-        ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[],
-      },
-      select: { id: true, username: true },
-    });
-    const username = await uniqueAccountUsername(tx, preferredUsername, applicationProjectId || cityId, existing?.id);
-    const needsReview = !applicationProjectId || !cityId || !driver?.id;
-    const unmatchedReason = [
-      !applicationProjectId ? "missing_application_project" : "",
-      !cityId ? "missing_city" : "",
-      !driver?.id ? "missing_driver" : "",
-    ].filter(Boolean).join(",") || null;
-
-    const accountData = {
+    const account = await upsertOperationalApplicationAccount(tx, {
       appName,
-      username,
       appUserId: appUserId || null,
-      appUsername: appUsername || username,
+      appUsername,
+      username: preferredUsername,
       applicationId: applicationId || null,
       applicationProjectId,
-      projectId,
       cityId,
       driverId: driver?.id ?? null,
-      isEmpty: !driver?.id,
-      needsReview,
-      unmatchedReason,
       source: "IMPORT",
       status: recordStatus(mapped.status || mapped.appStatus),
-      linkedAt: driver?.id ? new Date() : null,
-    };
+    });
 
-    const account = existing
-      ? await tx.applicationAccount.update({ where: { id: existing.id }, data: accountData, select: { id: true } })
-      : await tx.applicationAccount.create({ data: accountData, select: { id: true } });
-
-    if (existing) updatedAccounts += 1;
-    else createdAccounts += 1;
-
-    if (driver?.id) {
-      await tx.driver.update({ where: { id: driver.id }, data: { accountId: account.id } }).catch(() => null);
-    }
+    if (account.wasCreated) createdAccounts += 1;
+    else updatedAccounts += 1;
   }
 
   return { createdAccounts, updatedAccounts };
@@ -764,7 +748,7 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
     const appName = text(mapped.applicationName) || selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview.summary.importType);
     const month = monthValue(mapped.month || mapped.reportDate || mapped.date, reportDate);
     const cityId = (preview.summary.cityId || selectedProject?.cityId) ?? driver.cityId ?? null;
-    const projectId = preview.summary.projectId || null;
+    const projectId = selectedProject?.projectId || null;
     const applicationProjectId = preview.summary.applicationProjectId || selectedProject?.id || null;
     const appUserId = text(mapped.appUserId);
     const appUsername = firstText(mapped, ["appUsername", "username"]);
@@ -772,47 +756,23 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
     const applicationId = preview.summary.applicationId || selectedProject?.application.id || (await findOrCreateApplication(tx, appName));
 
     if (username) {
-      const existingAccount = await tx.applicationAccount.findFirst({
-        where: {
-          ...(applicationId ? { applicationId } : {}),
-          ...(applicationProjectId ? { applicationProjectId } : {}),
-          ...(cityId ? { cityId } : {}),
-          OR: [
-            { username },
-            appUserId ? { appUserId } : undefined,
-            appUsername ? { appUsername } : undefined,
-          ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[],
-        },
-        select: { id: true, driverId: true },
-      });
-      const accountUsername = await uniqueAccountUsername(tx, username, applicationProjectId || cityId, existingAccount?.id);
-
-      const accountData = {
+      const account = await upsertOperationalApplicationAccount(tx, {
         appName,
-        username: accountUsername,
         appUserId: appUserId || null,
         appUsername: appUsername || username,
+        username,
         applicationId: applicationId || null,
         applicationProjectId,
-        projectId,
         cityId,
         driverId: driver.id,
-        isEmpty: false,
         status: RecordStatus.ACTIVE,
-        linkedAt: new Date(),
-      };
+        source: "IMPORT",
+      });
 
-      const account = existingAccount
-        ? await tx.applicationAccount.update({ where: { id: existingAccount.id }, data: accountData, select: { id: true } })
-        : await tx.applicationAccount.create({ data: accountData, select: { id: true } });
-
-      if (!existingAccount?.driverId) linkedAccounts += 1;
-      if (!driver.accountId || !existingAccount?.driverId) {
-        await tx.driver.update({ where: { id: driver.id }, data: { accountId: account.id } }).catch(() => null);
-      }
+      if (account.wasCreated || !account.driverId) linkedAccounts += 1;
     }
 
-    const existing = await tx.dailyReport.findFirst({
+    const existingReports = await tx.dailyReport.findMany({
       where: {
         driverId: driver.id,
         reportDate: {
@@ -821,9 +781,12 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
         },
         appName,
         ...(applicationProjectId ? { applicationProjectId } : {}),
+        ...(cityId ? { cityId } : {}),
       },
       select: { id: true },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     });
+    const existing = existingReports[0];
 
     const reportData = {
       reportDate,
@@ -843,6 +806,8 @@ async function commitDailyReportRows(tx: Prisma.TransactionClient, rows: ImportP
 
     if (existing) {
       await tx.dailyReport.update({ where: { id: existing.id }, data: reportData });
+      const duplicateIds = existingReports.slice(1).map((report) => report.id);
+      if (duplicateIds.length) await tx.dailyReport.deleteMany({ where: { id: { in: duplicateIds } } });
       updatedReports += 1;
     } else {
       await tx.dailyReport.create({ data: reportData });
@@ -987,6 +952,11 @@ async function commitPayrollRows(tx: Prisma.TransactionClient, rows: ImportPrevi
 }
 
 export async function commitImportPreview(preview: ImportPreviewPayload, userId?: string | null) {
+  const normalizedImportType = canonicalImportType(preview.summary.importType);
+  if (normalizedImportType !== preview.summary.importType) {
+    preview = { ...preview, summary: { ...preview.summary, importType: normalizedImportType } };
+  }
+
   if (importTypeRequiresProject(preview.summary.importType) && (!preview.summary.applicationId || !preview.summary.applicationProjectId || !preview.summary.cityId)) {
     throw new Error("لا يمكن حفظ تقرير أو فاتورة مشروع بدون projectId واضح.");
   }
@@ -1023,8 +993,12 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
     const selectedApplicationName = await findApplicationName(tx, preview.summary.applicationId);
     const selectedProject = await findProjectFromApplicationProject(tx, preview.summary.applicationProjectId);
     const reportDate = firstReportDate(validRows) ?? new Date();
-    const { periodStart, periodEnd } = reportDateRange(validRows);
-    const importMonth = monthValue(validRows[0]?.mappedData.month || validRows[0]?.mappedData.reportDate || validRows[0]?.mappedData.date, reportDate);
+    const detectedRange = reportDateRange(validRows);
+    const periodStart = parsedDateValue(preview.summary.periodStart) ?? detectedRange.periodStart;
+    const periodEnd = parsedDateValue(preview.summary.periodEnd) ?? detectedRange.periodEnd;
+    const importMonth =
+      preview.summary.month ||
+      monthValue(validRows[0]?.mappedData.month || validRows[0]?.mappedData.reportDate || validRows[0]?.mappedData.date, reportDate);
     const importErrors = preview.rows
       .filter((row) => row.severity === "error")
       .map((row) => ({ rowNumber: row.rowNumber, errorType: row.errorType, errorMessage: row.errorMessage }));
@@ -1033,7 +1007,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
       data: {
         applicationId: preview.summary.applicationId || null,
         applicationProjectId: preview.summary.applicationProjectId || null,
-        projectId: preview.summary.projectId || selectedProject?.projectId || null,
+        projectId: selectedProject?.projectId || null,
         cityId: preview.summary.cityId || selectedProject?.cityId || null,
         templateId: preview.summary.templateId || null,
         fileType: preview.summary.importType,
@@ -1110,7 +1084,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
           data: {
             number: `INV-${created.id.slice(-8).toUpperCase()}`,
             client: selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview.summary.importType),
-            projectId: preview.summary.projectId || selectedProject?.projectId || null,
+            projectId: selectedProject?.projectId || null,
             applicationProjectId: preview.summary.applicationProjectId || null,
             importBatchId: created.id,
             month: importMonth,
@@ -1224,7 +1198,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
     const payroll = preview.summary.importType === "payroll" ? await commitPayrollRows(tx, validRows) : null;
 
     return { created, uploadedReport, legacyBatch, invoice, drivers, vehicles, accounts, reports, keetaRecords, finance, documents, payroll };
-  }, { maxWait: 10000, timeout: 60000 });
+  }, { maxWait: 60000, timeout: 600000 });
 
   const processedMessage = (() => {
     if (preview.summary.importType === "drivers") return "تم اعتماد ملف المناديب وتحديث قاعدة البيانات.";
@@ -1268,7 +1242,8 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
 
   if (!stored) throw new Error("Import batch not found.");
 
-  const rows: ImportPreviewRow[] = stored.rows.map((row) => ({
+  const storedFileType = canonicalImportType(stored.fileType);
+  const storedRows: ImportPreviewRow[] = stored.rows.map((row) => ({
     rowNumber: row.rowNumber,
     status: row.status,
     severity: row.isValid ? (row.status === "warning" ? "warning" : "ready") : "error",
@@ -1280,6 +1255,16 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
     errorType: row.errorType ?? undefined,
     errorMessage: row.errorMessage ?? undefined,
   }));
+  const rows = storedRows
+    .filter((row) => row.rowNumber < 100000 && !String(row.status).includes("_detail"))
+    .map((row) => ({ ...row, mainIdentifier: String(row.mappedData.appUserId || row.mappedData.courierId || row.rowNumber) }));
+  const keetaInvoiceDetails = storedRows
+    .filter((row) => row.rowNumber >= 100000 || String(row.status).includes("_detail"))
+    .map((row) => ({
+      ...row,
+      rowNumber: row.rowNumber >= 100000 ? row.rowNumber - 100000 : row.rowNumber,
+      mainIdentifier: String(row.mappedData.businessId || row.mappedData.violationId || row.mappedData.courierId || row.rowNumber),
+    }));
   const validRows = rows.filter((row) => row.severity !== "error" && row.status !== "ignored");
   const processedTypes = new Set([
     "drivers",
@@ -1309,7 +1294,7 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
   const preview: ImportPreviewPayload = {
     summary: {
       fileName: stored.fileName ?? "stored-import",
-      importType: stored.fileType,
+      importType: storedFileType,
       applicationId: stored.applicationId ?? "",
       applicationProjectId: stored.applicationProjectId ?? "",
       projectId: stored.projectId ?? "",
@@ -1329,26 +1314,37 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
     columns: [],
     missingColumns: [],
     rows,
+    keetaInvoiceDetails,
     message: "",
   };
 
   const result = await prisma.$transaction(async (tx) => {
-    const drivers = isDriverImport(stored.fileType) ? await commitDriverRows(tx, validRows, preview) : null;
-    const vehicles = stored.fileType === "vehicles" ? await commitVehicleRows(tx, validRows, preview) : null;
-    const accounts = isApplicationAccountImport(stored.fileType) ? await commitApplicationAccountRows(tx, validRows, preview) : null;
-    const reports = [KEETA_PERIOD_REPORT_TEMPLATE, "keeta_invoice", "keeta_rank", "hungerstation_invoice", "hungerstation_performance", "talabat_invoice"].includes(stored.fileType)
+    const drivers = isDriverImport(storedFileType) ? await commitDriverRows(tx, validRows, preview) : null;
+    const vehicles = storedFileType === "vehicles" ? await commitVehicleRows(tx, validRows, preview) : null;
+    const accounts = isApplicationAccountImport(storedFileType) ? await commitApplicationAccountRows(tx, validRows, preview) : null;
+    const keetaRecords = isKeetaOperationalImport(storedFileType)
+      ? await commitKeetaRecords({
+          tx,
+          batchId,
+          preview,
+          applicationProjectId: stored.applicationProjectId,
+          cityId: stored.cityId,
+          userId,
+        })
+      : null;
+    const reports = [KEETA_PERIOD_REPORT_TEMPLATE, "hungerstation_invoice", "hungerstation_performance", "talabat_invoice"].includes(storedFileType)
       ? await commitDailyReportRows(tx, validRows, preview)
       : null;
-    const finance = ["advances", "deductions", "violations", "fuel"].includes(stored.fileType)
-      ? await commitFinanceRows(tx, validRows, stored.fileType)
+    const finance = ["advances", "deductions", "violations", "fuel"].includes(storedFileType)
+      ? await commitFinanceRows(tx, validRows, storedFileType)
       : null;
-    const documents = stored.fileType === "hr_documents" ? await commitDocumentRows(tx, validRows) : null;
-    const payroll = stored.fileType === "payroll" ? await commitPayrollRows(tx, validRows) : null;
+    const documents = storedFileType === "hr_documents" ? await commitDocumentRows(tx, validRows) : null;
+    const payroll = storedFileType === "payroll" ? await commitPayrollRows(tx, validRows) : null;
 
     const updated = await tx.applicationImportBatch.update({
       where: { id: batchId },
       data: {
-        status: processedTypes.has(stored.fileType)
+        status: processedTypes.has(storedFileType)
           ? stored.invalidRows
             ? "committed_processed_with_errors"
             : "committed_processed"
@@ -1365,9 +1361,10 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
         entityId: batchId,
         after: json({
           fileName: stored.fileName,
-          importType: stored.fileType,
+          importType: storedFileType,
           validRows: validRows.length,
           reports,
+          keetaRecords,
           drivers,
           vehicles,
           accounts,
@@ -1378,8 +1375,8 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
       },
     }).catch(() => null);
 
-    return { updated, drivers, vehicles, accounts, reports, finance, documents, payroll };
-  }, { maxWait: 10000, timeout: 60000 });
+    return { updated, drivers, vehicles, accounts, reports, keetaRecords, finance, documents, payroll };
+  }, { maxWait: 60000, timeout: 600000 });
 
   return {
     batchId: result.updated.id,
@@ -1389,6 +1386,7 @@ export async function reprocessStoredImportBatch(batchId: string, userId?: strin
     vehicles: result.vehicles,
     accounts: result.accounts,
     reports: result.reports,
+    keetaRecords: result.keetaRecords,
     finance: result.finance,
     documents: result.documents,
     payroll: result.payroll,

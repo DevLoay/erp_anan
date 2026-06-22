@@ -434,7 +434,11 @@ export function CityOldPagesClient({ data, mode }: Props) {
   const message = (text: string) => setToast(text);
 
   async function createCityTask(detail: CityDetail) {
-    const response = await fetch("/api/tasks", {
+    router.push(`/supervisor-tasks?cityId=${encodeURIComponent(detail.cityId)}`);
+    setToast(`افتح مهمة جديدة واختر مشرف مدينة ${detail.cityName}.`);
+    return;
+
+    const response = await fetch("/api/supervisor-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

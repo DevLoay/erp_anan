@@ -3,7 +3,7 @@ import { PayrollStatus, Prisma, RecordStatus } from "@prisma/client";
 import { ManagementReportsOldClient, type ManagementReportRow } from "@/components/reports/ManagementReportsOldClient";
 import { getAccessScope } from "@/lib/auth/accessScope";
 import { prisma } from "@/lib/prisma";
-import { getCityRanking, getFilterOptions, getProjectPerformance, getRiderKpiReport, resolveFilters } from "@/lib/reporting";
+import { getCityRanking, getFilterOptions, getProjectPerformance, getRiderKpiReport, resolveEffectiveReportFilters, resolveFilters } from "@/lib/reporting";
 
 export const dynamic = "force-dynamic";
 
@@ -50,13 +50,13 @@ export default async function ManagementReportsPage({ searchParams }: PageProps)
   const params = await searchParams;
   const accessScope = await getAccessScope(await headers());
   const options = await getFilterOptions(accessScope);
-  const filters = { ...resolveFilters(params, options), accessScope };
+  const filters = await resolveEffectiveReportFilters({ ...resolveFilters(params, options), accessScope });
 
   const dateFrom = filters.dateFrom ? startOfDay(filters.dateFrom) : undefined;
   const dateTo = filters.dateTo ? endOfDay(filters.dateTo) : undefined;
 
   const invoiceWhere: Prisma.InvoiceWhereInput = {
-    ...(filters.projectId ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] } : {}),
+    ...(filters.projectId ? { applicationProjectId: filters.projectId } : {}),
     ...(dateFrom || dateTo
       ? { issuedAt: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } }
       : filters.month
@@ -65,13 +65,13 @@ export default async function ManagementReportsPage({ searchParams }: PageProps)
     OR: approvedStatusWhere(),
   };
   const payrollWhere: Prisma.PayrollRunWhereInput = {
-    ...(filters.projectId ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] } : {}),
+    ...(filters.projectId ? { applicationProjectId: filters.projectId } : {}),
     ...(filters.cityId ? { cityId: filters.cityId } : accessScope.isGlobal || !accessScope.cityIds.length ? {} : { cityId: { in: accessScope.cityIds } }),
     ...(filters.month ? { year: Number(filters.month.slice(0, 4)), month: Number(filters.month.slice(5, 7)) } : {}),
     status: { in: [PayrollStatus.APPROVED, PayrollStatus.PAID, PayrollStatus.LOCKED] },
   };
   const keetaAnd: Prisma.KeetaInvoiceRecordWhereInput[] = [];
-  if (filters.projectId) keetaAnd.push({ OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { projectId: filters.projectId } }] });
+  if (filters.projectId) keetaAnd.push({ applicationProjectId: filters.projectId });
   if (dateFrom || dateTo) {
     keetaAnd.push({
       OR: [

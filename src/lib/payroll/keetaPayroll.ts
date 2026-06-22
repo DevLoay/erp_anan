@@ -5,6 +5,7 @@ import { resolveKeetaApplicationProject } from "@/lib/templates/templateConfig";
 type GenerateKeetaPayrollInput = {
   month: string;
   cityId?: string;
+  applicationProjectId?: string;
   requestedBy?: string;
 };
 
@@ -39,13 +40,29 @@ type KeetaPlanLike = {
   keetaDeductionSource?: string;
 };
 
-const APPROVED_TEXT = ["approved", "locked", "paid", "reviewed", "APPROVED", "LOCKED", "PAID", "Reviewed"];
+const APPROVED_TEXT = [
+  "approved",
+  "Approved",
+  "APPROVED",
+  "locked",
+  "Locked",
+  "LOCKED",
+  "paid",
+  "Paid",
+  "PAID",
+  "reviewed",
+  "Reviewed",
+  "REVIEWED",
+];
 const KEETA_WORKING_DAYS_BASE = 28;
 const SALARY_PRORATION_DAYS = 30;
 const VEHICLE_RENT_DAYS_BASE = 30;
 const KEETA_SHORTAGE_THRESHOLD = 460;
 const KEETA_SHORTAGE_RATE = 8;
-const KEETA_CAR_AMOUNT = 1500;
+const COMPANY_CAR_FULL_MONTH_RENT = 2000;
+const COMPANY_CAR_DAILY_RENT = COMPANY_CAR_FULL_MONTH_RENT / VEHICLE_RENT_DAYS_BASE;
+const PERSONAL_CAR_USER_DEDUCTION = 300;
+const KEETA_CAR_AMOUNT = COMPANY_CAR_FULL_MONTH_RENT;
 
 function numberValue(value: unknown) {
   if (value instanceof Prisma.Decimal) return value.toNumber();
@@ -56,6 +73,20 @@ function numberValue(value: unknown) {
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function arabicRelationship(text: string) {
+  if (text.includes("فري") || text.includes("حر")) return "freelancer";
+  if (text.includes("أجير") || text.includes("اجير")) return "ajeer";
+  if (text.includes("كفالة") || text.includes("كفاله")) return "sponsorship";
+  return "";
+}
+
+function arabicVehicleOwnership(text: string) {
+  if (text.includes("شخص") || text.includes("خاص")) return "personal_car";
+  if (text.includes("شركة") || text.includes("شركه")) return "company_car";
+  if (text.includes("بدون")) return "no_vehicle";
+  return "";
 }
 
 function normalizeLevel(value: unknown) {
@@ -70,6 +101,8 @@ function normalizeRelationship(value: unknown) {
   const text = clean(value).toLowerCase();
   if (!text) return "";
   if (["all", "default", "any"].includes(text)) return "all";
+  const arabic = arabicRelationship(text);
+  if (arabic) return arabic;
   if (text.includes("free") || text.includes("freelancer") || text.includes("حر")) return "freelancer";
   if (text.includes("ajeer") || text.includes("اجير") || text.includes("أجير")) return "ajeer";
   if (text.includes("sponsor") || text.includes("sponsorship") || text.includes("كفالة")) return "sponsorship";
@@ -78,6 +111,8 @@ function normalizeRelationship(value: unknown) {
 
 function normalizeVehicleOwnership(value: unknown, hasVehicle: boolean) {
   const text = clean(value).toLowerCase();
+  const arabic = arabicVehicleOwnership(text);
+  if (arabic) return arabic;
   if (text.includes("personal") || text.includes("own") || text.includes("شخص") || text.includes("خاص")) return "personal_car";
   if (text.includes("company") || text.includes("شركة") || text.includes("company_car")) return "company_car";
   if (text.includes("none") || text.includes("no_vehicle") || text.includes("بدون")) return "no_vehicle";
@@ -174,6 +209,140 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+
+type KeetaSalaryMode = "PER_ORDER" | "FIXED_PRORATED_BY_PAID_DAYS";
+
+type KeetaSalarySlab = {
+  minOrders: number;
+  maxOrders: number | null;
+  salaryMode: KeetaSalaryMode;
+  fixedSalary: number;
+  bonus: number;
+  perOrderRate: number;
+  extraOrderThreshold: number | null;
+  extraOrderRate: number;
+};
+
+const KEETA_DEFAULT_SETTINGS = {
+  payrollMonthDays: 30,
+  paidLeaveDaysAllowed: 2,
+  expectedExperienceIncentiveAmount: 2000,
+  experienceIncentiveDeductionEnabled: true,
+  salarySlabs: [
+    { minOrders: 0, maxOrders: 349, salaryMode: "PER_ORDER", fixedSalary: 0, bonus: 0, perOrderRate: 8, extraOrderThreshold: null, extraOrderRate: 0 },
+    { minOrders: 350, maxOrders: 409, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 4500, bonus: 0, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+    { minOrders: 410, maxOrders: 459, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 800, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+    { minOrders: 460, maxOrders: 509, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1100, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+    { minOrders: 510, maxOrders: null, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1800, perOrderRate: 0, extraOrderThreshold: 510, extraOrderRate: 8 },
+  ] satisfies KeetaSalarySlab[],
+};
+
+function findKeetaSalarySlab(orders: number) {
+  return (
+    KEETA_DEFAULT_SETTINGS.salarySlabs.find((slab) => orders >= slab.minOrders && (slab.maxOrders === null || orders <= slab.maxOrders)) ??
+    KEETA_DEFAULT_SETTINGS.salarySlabs[0]
+  );
+}
+
+function fallbackKeetaPlan(cityId?: string | null): KeetaPlanLike {
+  return {
+    id: "__keeta_v2_default__",
+    name: "Keeta V2 Default Slab Payroll",
+    relationshipType: "all",
+    level: null,
+    cityId: cityId ?? null,
+    baseSalary: 0,
+    fixedAllowance: 0,
+    monthlyTargetOrders: 0,
+    workingDaysBase: KEETA_DEFAULT_SETTINGS.payrollMonthDays,
+    shortageThresholdOrders: 0,
+    shortageDeductionRate: 0,
+    carAllowanceAmount: 0,
+    companyCarMonthlyRent: KEETA_CAR_AMOUNT,
+    fuelAllowanceAmount: 0,
+    housingAllowanceAmount: 0,
+    communicationAllowanceAmount: 0,
+    extraOrderRate: 0,
+    bonusAmount: 0,
+    bonusCondition: {},
+    carRentDeduction: 0,
+    fuelDeduction: 0,
+    internalPenaltyEnabled: true,
+    salaryCalculationSource: "payroll_plan",
+    useKeetaInvoiceAsSalaryBase: false,
+    enableFreelancerUserDeduction: false,
+    freelancerUserDeductionAmount: 0,
+    enableKafalaDeduction: true,
+    keetaDeductionSource: "invoiceExperienceIncentive",
+  };
+}
+
+function isFallbackKeetaPlan(plan: KeetaPlanLike) {
+  return plan.id.startsWith("__keeta_v2_default__");
+}
+
+function calculateKeetaSalaryV2(args: {
+  orders: number;
+  actualWorkingDays: number;
+  paidLeaveDaysUsed?: number;
+  invoiceExperienceIncentiveAmount?: number | null;
+}) {
+  const settings = KEETA_DEFAULT_SETTINGS;
+  const slab = findKeetaSalarySlab(args.orders);
+  const actualWorkingDays = safeDays(args.actualWorkingDays, settings.payrollMonthDays);
+
+  const autoPaidLeaveDays =
+    actualWorkingDays > 0 ? Math.min(settings.paidLeaveDaysAllowed, Math.max(settings.payrollMonthDays - actualWorkingDays, 0)) : 0;
+
+  const eligiblePaidLeaveDays = Math.min(args.paidLeaveDaysUsed ?? autoPaidLeaveDays, settings.paidLeaveDaysAllowed);
+  const paidSalaryDays = Math.min(actualWorkingDays + eligiblePaidLeaveDays, settings.payrollMonthDays);
+
+  let baseSalaryEarned = 0;
+  let bonusEarned = 0;
+  let extraOrders = 0;
+  let extraOrderAmount = 0;
+
+  if (slab.salaryMode === "PER_ORDER") {
+    baseSalaryEarned = args.orders * slab.perOrderRate;
+  } else {
+    baseSalaryEarned = (slab.fixedSalary / settings.payrollMonthDays) * paidSalaryDays;
+    bonusEarned = slab.bonus;
+
+    if (slab.extraOrderThreshold !== null) {
+      extraOrders = Math.max(args.orders - slab.extraOrderThreshold, 0);
+      extraOrderAmount = extraOrders * slab.extraOrderRate;
+    }
+  }
+
+  const hasExperienceIncentive = args.invoiceExperienceIncentiveAmount !== null && args.invoiceExperienceIncentiveAmount !== undefined;
+  const invoiceExperienceIncentiveAmount = hasExperienceIncentive ? numberValue(args.invoiceExperienceIncentiveAmount) : 0;
+
+  const experienceIncentiveDifferenceDeduction =
+    settings.experienceIncentiveDeductionEnabled && hasExperienceIncentive
+      ? roundMoney(Math.max(settings.expectedExperienceIncentiveAmount - invoiceExperienceIncentiveAmount, 0))
+      : 0;
+
+  return {
+    slab,
+    actualWorkingDays,
+    eligiblePaidLeaveDays,
+    paidSalaryDays,
+    baseSalaryEarned: roundMoney(baseSalaryEarned),
+    bonusEarned: roundMoney(bonusEarned),
+    extraOrders,
+    extraOrderAmount: roundMoney(extraOrderAmount),
+    grossSalary: roundMoney(baseSalaryEarned + bonusEarned + extraOrderAmount),
+    hasExperienceIncentive,
+    invoiceExperienceIncentiveAmount,
+    expectedExperienceIncentiveAmount: settings.expectedExperienceIncentiveAmount,
+    experienceIncentiveDifferenceDeduction,
+  };
+}
+
+function deductionAmount(value: unknown) {
+  return roundMoney(Math.abs(numberValue(value)));
+}
+
 function prorateBaseSalary(baseSalary: number, workedDays: number, workingDaysBase: number) {
   const fullMonthThreshold = Math.max(1, workingDaysBase || KEETA_WORKING_DAYS_BASE);
   const days = Math.max(0, Math.round(workedDays || 0));
@@ -181,8 +350,21 @@ function prorateBaseSalary(baseSalary: number, workedDays: number, workingDaysBa
   return roundMoney(baseSalary * (days / SALARY_PRORATION_DAYS));
 }
 
-function safeDays(value: number) {
-  return Math.max(0, Math.min(Math.round(value || 0), 31));
+function daysInMonth(year: number, monthNumber: number) {
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+}
+
+function safeDays(value: number, maxDays = 31) {
+  return Math.max(0, Math.min(Math.round(value || 0), maxDays));
+}
+
+
+function companyCarRentByDays(days: number) {
+  // Company-car rent rule: 2,000 SAR per 30-day month = 66.666... SAR/day.
+  // 31 calendar days are treated as a 30-day full month, so the cap remains 2,000.
+  const rentDays = safeDays(days, VEHICLE_RENT_DAYS_BASE);
+  if (rentDays <= 0) return 0;
+  return roundMoney(Math.min(COMPANY_CAR_FULL_MONTH_RENT, rentDays * COMPANY_CAR_DAILY_RENT));
 }
 
 function startOfUtcDate(value: Date) {
@@ -203,11 +385,18 @@ function inclusiveOverlapDays(rangeStart: Date, rangeEnd: Date, itemStart?: Date
 }
 
 function planAllowances(plan: KeetaPlanLike) {
+  const salaryIncentive = numberValue(plan.fixedAllowance);
   const fuel = numberValue(plan.fuelAllowanceAmount);
   const housing = numberValue(plan.housingAllowanceAmount);
   const communication = numberValue(plan.communicationAllowanceAmount);
-  if (fuel || housing || communication) return { fuel, housing, communication };
-  return { fuel: 0, housing: numberValue(plan.fixedAllowance), communication: 0 };
+  return { salaryIncentive, fuel, housing, communication };
+}
+
+function housingCategory(...values: Array<unknown>) {
+  const text = values.map((value) => String(value ?? "").toLowerCase()).join(" ");
+  if (text.includes("company") || text.includes("شركة")) return "company";
+  if (text.includes("external") || text.includes("خارجي") || text.includes("outside") || text.includes("self")) return "external";
+  return "unknown";
 }
 
 function deductionBucket(row: { type?: string | null; notes?: string | null }) {
@@ -263,12 +452,12 @@ export async function ensureKeetaPayrollFieldRules(applicationProjectId?: string
 
 async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
   const defaults = [
-    { target: 560, level: "A", baseSalary: 2000, fuel: 1100, bonus: 1800 },
-    { target: 560, level: "B", baseSalary: 2000, fuel: 1100, bonus: 1300 },
-    { target: 560, level: "C", baseSalary: 2000, fuel: 1100, bonus: 800 },
-    { target: 460, level: "A", baseSalary: 1500, fuel: 900, bonus: 1200 },
-    { target: 460, level: "B", baseSalary: 1500, fuel: 900, bonus: 700 },
-    { target: 460, level: "C", baseSalary: 1500, fuel: 900, bonus: 200 },
+    { target: 560, level: "A", baseSalary: 400, salaryIncentive: 1600, fuel: 1100, bonus: 1800 },
+    { target: 560, level: "B", baseSalary: 400, salaryIncentive: 1600, fuel: 1100, bonus: 1300 },
+    { target: 560, level: "C", baseSalary: 400, salaryIncentive: 1600, fuel: 1100, bonus: 800 },
+    { target: 460, level: "A", baseSalary: 400, salaryIncentive: 1100, fuel: 900, bonus: 1200 },
+    { target: 460, level: "B", baseSalary: 400, salaryIncentive: 1100, fuel: 900, bonus: 700 },
+    { target: 460, level: "C", baseSalary: 400, salaryIncentive: 1100, fuel: 900, bonus: 200 },
   ];
 
   for (const item of defaults) {
@@ -277,7 +466,37 @@ async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
       where: { projectId: "keeta", applicationProjectId, relationshipType: "all", level: item.level, monthlyTargetOrders: item.target },
       select: { id: true },
     });
-    if (existing) continue;
+    if (existing) {
+      await prisma.keetaPayrollPlan.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          baseSalary: item.baseSalary,
+          fixedAllowance: item.salaryIncentive,
+          workingDaysBase: KEETA_WORKING_DAYS_BASE,
+          shortageThresholdOrders: KEETA_SHORTAGE_THRESHOLD,
+          shortageDeductionRate: KEETA_SHORTAGE_RATE,
+          carAllowanceAmount: KEETA_CAR_AMOUNT,
+          companyCarMonthlyRent: KEETA_CAR_AMOUNT,
+          fuelAllowanceAmount: item.fuel,
+          housingAllowanceAmount: 300,
+          communicationAllowanceAmount: 100,
+          extraOrderRate: KEETA_SHORTAGE_RATE,
+          bonusAmount: item.bonus,
+          bonusCondition: { targetOrders: false },
+          carRentDeduction: 0,
+          fuelDeduction: 0,
+          salaryCalculationSource: "payroll_plan",
+          useKeetaInvoiceAsSalaryBase: false,
+          enableFreelancerUserDeduction: true,
+          freelancerUserDeductionAmount: 300,
+          enableKafalaDeduction: true,
+          keetaDeductionSource: "riderDetail",
+          active: true,
+        },
+      });
+      continue;
+    }
     await prisma.keetaPayrollPlan.create({
       data: {
         projectId: "keeta",
@@ -286,7 +505,7 @@ async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
         relationshipType: "all",
         level: item.level,
         baseSalary: item.baseSalary,
-        fixedAllowance: 0,
+        fixedAllowance: item.salaryIncentive,
         monthlyTargetOrders: item.target,
         workingDaysBase: KEETA_WORKING_DAYS_BASE,
         shortageThresholdOrders: KEETA_SHORTAGE_THRESHOLD,
@@ -314,11 +533,44 @@ async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
   }
 }
 
+async function resolvePayrollApplicationProject(input: GenerateKeetaPayrollInput) {
+  if (input.applicationProjectId && input.applicationProjectId !== "keeta") {
+    const explicit = await prisma.applicationProject.findFirst({
+      where: {
+        id: input.applicationProjectId,
+        application: {
+          OR: [{ code: { contains: "KEETA", mode: "insensitive" } }, { name: { contains: "Keeta", mode: "insensitive" } }],
+        },
+      },
+      include: { application: true, city: true, project: true },
+    });
+    if (explicit) return explicit;
+  }
+
+  if (input.cityId) {
+    const byCity = await prisma.applicationProject.findFirst({
+      where: {
+        cityId: input.cityId,
+        application: {
+          OR: [{ code: { contains: "KEETA", mode: "insensitive" } }, { name: { contains: "Keeta", mode: "insensitive" } }],
+        },
+      },
+      include: { application: true, city: true, project: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    if (byCity) return byCity;
+  }
+
+  return resolveKeetaApplicationProject();
+}
+
 export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
   const { safeMonth, year, monthNumber, start, end } = monthParts(input.month);
-  const applicationProject = await resolveKeetaApplicationProject();
+  const monthDays = daysInMonth(year, monthNumber);
+  const applicationProject = await resolvePayrollApplicationProject(input);
   await ensureKeetaPayrollFieldRules(applicationProject.id, applicationProject.applicationId);
-  await ensureDefaultKeetaPayrollPlans(applicationProject.id);
+  // Disabled: old Target 560/460 Level A/B/C plans conflict with the new Keeta slab payroll logic.
+  // await ensureDefaultKeetaPayrollPlans(applicationProject.id);
 
   const recordScope = {
     applicationProjectId: applicationProject.id,
@@ -327,7 +579,7 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
     status: statusWhere(),
   };
 
-  const [rankRecords, performanceRecords, invoiceRecords, plans] = await Promise.all([
+  let [rankRecords, performanceRecords, invoiceRecords, plans] = await Promise.all([
     prisma.keetaRankRecord.findMany({ where: recordScope, orderBy: [{ approvedAt: "desc" }, { updatedAt: "desc" }] }),
     prisma.keetaPerformanceRecord.findMany({ where: recordScope, orderBy: [{ reportDate: "asc" }] }),
     prisma.keetaInvoiceRecord.findMany({ where: recordScope, orderBy: [{ approvedAt: "desc" }, { updatedAt: "desc" }] }),
@@ -337,26 +589,41 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
     }),
   ]);
 
+  const sameMonthRankFound = rankRecords.length > 0;
+  if (!sameMonthRankFound) {
+    rankRecords = await prisma.keetaRankRecord.findMany({
+      where: {
+        applicationProjectId: applicationProject.id,
+        ...(input.cityId ? { cityId: input.cityId } : {}),
+        status: statusWhere(),
+      },
+      orderBy: [{ approvedAt: "desc" }, { updatedAt: "desc" }],
+    });
+  }
+  const fallbackRankMonths = new Set(rankRecords.map((record) => record.month).filter(Boolean));
+
   const rankByDriver = pickLatestByDriver(rankRecords);
   const performanceByDriver = groupByDriver(performanceRecords);
   const invoiceByDriver = pickLatestByDriver(invoiceRecords);
-  const driverIds = Array.from(new Set([...rankByDriver.keys(), ...performanceByDriver.keys(), ...invoiceByDriver.keys()]));
+  const driverIds = Array.from(new Set([...invoiceByDriver.keys()]));
 
   const unmatchedCourierIds = [
     ...rankRecords.filter((row) => !row.driverId).map((row) => row.courierId),
-    ...performanceRecords.filter((row) => !row.driverId).map((row) => row.courierId),
     ...invoiceRecords.filter((row) => !row.driverId).map((row) => row.courierId),
   ].filter(Boolean);
 
-  if (!rankRecords.length || !performanceRecords.length || !invoiceRecords.length) {
+  if (!rankRecords.length || !invoiceRecords.length) {
     return {
       ok: false as const,
       status: 422,
       error: "لا يمكن إنشاء مسير Keeta قبل اعتماد Rank وتقرير أداء وفاتورة Keeta لنفس الفترة.",
       details: {
         missingRank: !rankRecords.length,
-        missingPerformanceReport: !performanceRecords.length,
         missingInvoice: !invoiceRecords.length,
+        missingPerformanceReport: !performanceRecords.length,
+        performanceReportRequired: false,
+        rankFallbackUsed: !sameMonthRankFound && rankRecords.length > 0,
+        acceptedRankFallbackMonths: Array.from(fallbackRankMonths),
       },
     };
   }
@@ -392,10 +659,25 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
           orderBy: { startDate: "desc" },
         },
         applicationAccounts: { where: { applicationProjectId: applicationProject.id }, take: 1 },
+        housingRecords: {
+          where: { status: RecordStatus.ACTIVE },
+          orderBy: { startDate: "desc" },
+          take: 1,
+        },
         account: true,
       },
     }),
-    prisma.advance.findMany({ where: { driverId: { in: driverIds }, deductionMonth: safeMonth, status: RecordStatus.APPROVED }, select: { driverId: true, amount: true } }),
+    prisma.advance.findMany({
+      where: {
+        driverId: { in: driverIds },
+        deductionMonth: safeMonth,
+        status: RecordStatus.APPROVED,
+        isDeducted: false,
+        payrollItemId: null,
+        deductedPayrollRunId: null,
+      },
+      select: { driverId: true, amount: true },
+    }),
     prisma.deduction.findMany({ where: { driverId: { in: driverIds }, month: safeMonth, status: RecordStatus.APPROVED }, select: { driverId: true, amount: true, type: true, notes: true } }),
     prisma.violation.findMany({ where: { driverId: { in: driverIds }, occurredAt: { gte: start, lte: end }, status: { in: [RecordStatus.APPROVED, RecordStatus.PENDING] } }, select: { driverId: true, amount: true, type: true, notes: true } }),
     prisma.fuelRecord.findMany({ where: { driverId: { in: driverIds }, fuelDate: { gte: start, lte: end }, status: { in: [RecordStatus.APPROVED, RecordStatus.PENDING] } }, select: { driverId: true, amount: true } }),
@@ -431,59 +713,74 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
       continue;
     }
 
-    const level = normalizeLevel(rank?.currentEstimatedLevel);
-    const relationshipType = normalizeRelationship(driver.contractType || driver.sponsorshipType);
+    const rankLevel = normalizeLevel(rank?.currentEstimatedLevel);
+    const missingLevel = !rankLevel;
+    const level = rankLevel || "C";
+    const rawRelationshipType = normalizeRelationship(driver.contractType || driver.sponsorshipType);
+    const missingRelationshipType = !rawRelationshipType;
+    const relationshipType = rawRelationshipType || "all";
     if (!level) planProblems.push(`${driver.actualName || driver.name}: لا يوجد Level معتمد.`);
     if (!relationshipType) planProblems.push(`${driver.actualName || driver.name}: لا يوجد نوع علاقة/عقد.`);
 
-    const deliveredOrders = sumBy(reportRows, (row) => row.deliveredTasks ?? 0);
-    const validDaysRaw = reportRows.filter((row) => row.validDay).length || Math.round(numberValue(invoice?.onlineDaysValid));
-    const validDays = safeDays(validDaysRaw);
-    const onlineHours = sumBy(reportRows, (row) => numberValue(row.validOnlineTime || row.courierAppOnlineTime));
+    const invoiceDeliveredOrders = numberValue(invoice?.deliveredOrders);
+    const reportDeliveredOrders = sumBy(reportRows, (row) => row.deliveredTasks ?? 0);
+    const deliveredOrders = invoiceDeliveredOrders || reportDeliveredOrders;
+    const invoiceValidDays = Math.round(numberValue(invoice?.onlineDaysValid));
+    const reportValidDays = reportRows.filter((row) => row.validDay).length;
+    const validDaysRaw = invoiceValidDays || reportValidDays;
+    const validDays = safeDays(validDaysRaw, monthDays);
+    const periodDays = Math.max(1, Math.min(monthDays, reportRows.length || validDays || monthDays));
+    const reportOnlineHours = sumBy(reportRows, (row) => numberValue(row.validOnlineTime || row.courierAppOnlineTime));
+    const invoiceOnlineHours = numberValue(invoice?.dailyOnlineHoursValid) * validDays;
+    const onlineHours = reportOnlineHours || invoiceOnlineHours;
     const onTimeRate = average(reportRows.map((row) => numberValue(row.onTimeRate)));
     const cancellationRate = average(reportRows.map((row) => numberValue(row.cancellationRateFromDeliveryIssues)));
     const rejectedTasks = sumBy(reportRows, (row) => (row.rejectedTasks ?? 0) + (row.rejectedTasksCourier ?? 0) + (row.rejectedTasksAuto ?? 0));
     const acceptedTasks = sumBy(reportRows, (row) => row.acceptedTasks ?? 0);
     const rejectionRate = acceptedTasks > 0 ? (rejectedTasks / acceptedTasks) * 100 : 0;
 
-    const plan = findPlan(plans, { relationshipType, level, cityId: driver.cityId, deliveredOrders });
-    if (!plan) {
-      planProblems.push(`${driver.actualName || driver.name}: لا توجد Payroll Plan مناسبة (${relationshipType || "بدون علاقة"} / ${level || "بدون Level"}).`);
-      continue;
-    }
+    const plan = findPlan(plans, { relationshipType, level, cityId: driver.cityId, deliveredOrders }) ?? fallbackKeetaPlan(driver.cityId);
     if (plan.useKeetaInvoiceAsSalaryBase || plan.salaryCalculationSource !== "payroll_plan") {
       planProblems.push(`${plan.name}: إعداد غير آمن، مستحق Keeta لا يجوز استخدامه كأساس راتب.`);
       continue;
     }
 
-    const monthlyTargetOrders = plan.monthlyTargetOrders;
-    const extraOrders = Math.max(0, deliveredOrders - monthlyTargetOrders);
-    const extraOrderRate = numberValue(plan.extraOrderRate);
-    const baseSalaryBeforeProration = numberValue(plan.baseSalary);
-    const salaryBaseWorkingDays = Math.max(1, plan.workingDaysBase || KEETA_WORKING_DAYS_BASE);
-    const workedDaysForSalary = safeDays(validDays);
-    const baseSalary = prorateBaseSalary(baseSalaryBeforeProration, workedDaysForSalary, salaryBaseWorkingDays);
-    const allowances = planAllowances(plan);
-    const fuelAllowance = allowances.fuel;
-    const manualBonus = allowances.housing + allowances.communication;
+ const keetaSalary = calculateKeetaSalaryV2({
+  orders: deliveredOrders,
+  actualWorkingDays: validDays,
+  invoiceExperienceIncentiveAmount:
+    invoice?.experienceIncentive === null || invoice?.experienceIncentive === undefined
+      ? null
+      : numberValue(invoice.experienceIncentive),
+});
+
+    const monthlyTargetOrders = keetaSalary.slab.minOrders;
+    const extraOrders = keetaSalary.extraOrders;
+    const extraOrderRate = keetaSalary.slab.extraOrderRate;
+    const salaryBaseWorkingDays = KEETA_DEFAULT_SETTINGS.payrollMonthDays;
+    const workedDaysForSalary = keetaSalary.actualWorkingDays;
+    const baseSalaryBeforeProration = keetaSalary.slab.fixedSalary;
+    const baseSalary = keetaSalary.baseSalaryEarned;
+    const fuelAllowance = 0;
+    const housingAllowance = 0;
+    const manualBonus = 0;
     const hasLinkedVehicle = Boolean(driver.vehicleId || driver.vehicle);
     const vehicleOwnershipType = normalizeVehicleOwnership(driver.vehicleOwnershipType, hasLinkedVehicle);
     const activeAssignment = driver.vehicleAssignments[0];
     const activeVehicle = activeAssignment?.vehicle || driver.vehicle;
     const vehicleId = activeVehicle?.id || driver.vehicleId || null;
-    const vehicleMonthlyRent =
-      numberValue(activeVehicle?.monthlyRent) || numberValue(plan.companyCarMonthlyRent) || numberValue(plan.carRentDeduction) || KEETA_CAR_AMOUNT;
-    const vehicleDailyRent = numberValue(activeVehicle?.dailyRent) || vehicleMonthlyRent / VEHICLE_RENT_DAYS_BASE;
-    const vehicleRentDays = vehicleOwnershipType === "company_car" ? inclusiveOverlapDays(start, end, activeAssignment?.startDate, activeAssignment?.endDate) : 0;
-    const carAllowance = vehicleOwnershipType === "personal_car" ? numberValue(plan.carAllowanceAmount) || KEETA_CAR_AMOUNT : 0;
-    const vehicleRentDisplayAmount = vehicleOwnershipType === "company_car" ? roundMoney(vehicleDailyRent * vehicleRentDays) : 0;
+    const rawVehicleRentDays = vehicleOwnershipType === "company_car" ? inclusiveOverlapDays(start, end, activeAssignment?.startDate, activeAssignment?.endDate) : 0;
+    const vehicleRentDays = safeDays(rawVehicleRentDays, monthDays);
+    const carAllowance = 0;
+    const vehicleMonthlyRent = vehicleOwnershipType === "company_car" ? COMPANY_CAR_FULL_MONTH_RENT : 0;
+    const vehicleDailyRent = vehicleOwnershipType === "company_car" ? COMPANY_CAR_DAILY_RENT : 0;
+    const vehicleRentDisplayAmount = vehicleOwnershipType === "company_car" ? companyCarRentByDays(vehicleRentDays) : 0;
     const carRentDeduction = 0;
-    const shortageThresholdOrders = plan.shortageThresholdOrders || KEETA_SHORTAGE_THRESHOLD;
-    const shortageOrders = Math.max(0, shortageThresholdOrders - deliveredOrders);
-    const shortageDeduction = shortageOrders * (numberValue(plan.shortageDeductionRate) || KEETA_SHORTAGE_RATE);
-    const levelBonus = isBonusDue(plan, { deliveredOrders, monthlyTargetOrders, onTimeRate, cancellationRate, rejectionRate }) ? numberValue(plan.bonusAmount) : 0;
-    const extraOrdersBonus = extraOrders * extraOrderRate;
-    const grossSalary = baseSalary + fuelAllowance + carAllowance + manualBonus + levelBonus + extraOrdersBonus;
+    const shortageOrders = 0;
+    const shortageDeduction = 0;
+    const levelBonus = keetaSalary.bonusEarned;
+    const extraOrdersBonus = keetaSalary.extraOrderAmount;
+    const grossSalary = keetaSalary.grossSalary;
 
     const deductionBuckets = classifiedDeductionMap.get(driverId) ?? {};
     const adminCarryoverDeduction = deductionBuckets.admin ?? 0;
@@ -501,17 +798,16 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
       ? adminCarryoverDeduction + housingDeduction + vehicleCarryoverDeduction + vehicleDamageDeduction + accidentLiabilityDeduction + bikeRentDeduction + manualInternalDeduction + trafficViolationDeduction
       : 0;
     const fuelDeduction = numberValue(plan.fuelDeduction) + (fuelMap.get(driverId) ?? 0);
-    const keetaDeduction = numberValue(invoice?.deduction);
-    const keetaFoodCompensation = numberValue(invoice?.foodCompensation);
-    const keetaTgaDeduction = numberValue(invoice?.tgaDeductionVatExcluded);
+    const keetaDeduction = deductionAmount(invoice?.deduction);
+    const keetaFoodCompensation = deductionAmount(invoice?.foodCompensation);
+    const keetaTgaDeduction = deductionAmount(invoice?.tgaDeductionVatExcluded);
     const totalAppDeductions = roundMoney(keetaDeduction + keetaFoodCompensation + keetaTgaDeduction);
-    const userDeduction =
-      relationshipType === "freelancer" && plan.enableFreelancerUserDeduction !== false
-        ? numberValue(plan.freelancerUserDeductionAmount) || 300
-        : 0;
+    const experienceIncentiveDifferenceDeduction = keetaSalary.experienceIncentiveDifferenceDeduction;
+    const userDeduction = vehicleOwnershipType === "personal_car" ? PERSONAL_CAR_USER_DEDUCTION : 0;
     const manualDeduction = shortageDeduction + manualInternalDeduction;
     const totalDeductions = roundMoney(
-      adminCarryoverDeduction +
+      experienceIncentiveDifferenceDeduction +
+        adminCarryoverDeduction +
         housingDeduction +
         trafficViolationDeduction +
         fuelDeduction +
@@ -537,12 +833,40 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
       numberValue(invoice?.activitiesAndOtherRewards) +
       numberValue(invoice?.tipsExcludingTax);
     const companyGrossRevenue = companyRevenueFromKeeta;
-    const estimatedCompanyProfit = roundMoney(companyRevenueFromKeeta - finalSalary - vehicleRentDisplayAmount - fuelDeduction);
+    const companyProfitRecoveredDeductions = roundMoney(
+      experienceIncentiveDifferenceDeduction + keetaDeduction + keetaFoodCompensation + userDeduction,
+    );
+    const estimatedCompanyProfit = roundMoney(companyRevenueFromKeeta - grossSalary + companyProfitRecoveredDeductions);
     const costPerOrder = deliveredOrders > 0 ? finalSalary / deliveredOrders : 0;
-    const warnings = [];
+    const targetAchievement = monthlyTargetOrders > 0 ? Math.min((deliveredOrders / monthlyTargetOrders) * 100, 120) : 0;
+    const performanceValidRate = Math.min(100, (validDays / periodDays) * 100);
+    const hasPerformanceAnalytics = reportRows.length > 0;
+    const kpiScore = hasPerformanceAnalytics
+      ? roundMoney(
+          Math.min(
+            100,
+            onTimeRate * 0.35 +
+              Math.max(0, 100 - cancellationRate) * 0.2 +
+              Math.max(0, 100 - rejectionRate) * 0.15 +
+              Math.min(targetAchievement, 100) * 0.2 +
+              performanceValidRate * 0.1,
+          ),
+        )
+      : roundMoney(Math.min(100, Math.min(targetAchievement, 100) * 0.7 + performanceValidRate * 0.3));
+    const kpiStatus = !hasPerformanceAnalytics ? "invoice_only" : kpiScore >= 90 ? "excellent" : kpiScore >= 75 ? "good" : kpiScore >= 60 ? "review" : "weak";
+    const warnings: string[] = [];
+    if (missingLevel) warnings.push("لا يوجد Level مقروء من Keeta Rank لهذا المندوب؛ تم استخدام Level C مؤقتًا وتحتاج مراجعة قبل الاعتماد.");
+    if (missingRelationshipType) warnings.push("لا يوجد نوع علاقة/عقد للمندوب؛ تم استخدام خطة عامة مؤقتًا وتحتاج مراجعة قبل الاعتماد.");
+    if (rank?.month && rank.month !== safeMonth) warnings.push(`Keeta Rank مستخدم من شهر ${rank.month} لأن شهر ${safeMonth} لا يحتوي Rank معتمد لهذا المشروع.`);
+    if (invoice?.isValid === false) warnings.push(`Keeta invoice marks this rider invalid: ${invoice.reason || "No reason"}.`);
+    if (reportRows.length && validDays === 0) warnings.push("Keeta performance report has rows but no valid working days for this rider.");
+    if (!keetaSalary.hasExperienceIncentive) warnings.push("Experience Incentive غير موجود في فاتورة Keeta؛ لم يتم احتساب خصم فرق Experience ويحتاج مراجعة.");
+    const performanceWarningMarker = "performance report";
+    const blockingWarningCountFromSources = Number(invoice?.isValid === false) + Number(!invoice || companyRevenueFromKeeta === 0) + Number(!rank);
     if (!invoice || companyRevenueFromKeeta === 0) warnings.push("لا يوجد إيراد كيتا معتمد لهذا المندوب، راجع الفاتورة قبل اعتماد المسير.");
     if (!rank) warnings.push("لا يوجد Rank معتمد لهذا المندوب في الفترة المحددة.");
     if (!reportRows.length) warnings.push("لا يوجد تقرير أداء Keeta معتمد لهذا المندوب في الفترة المحددة.");
+    const blockingWarningCount = warnings.filter((warning) => !warning.toLowerCase().includes(performanceWarningMarker) && !warning.includes("طھظ‚ط±ظٹط± ط£ط¯ط§ط،")).length;
 
     rows.push({
       values: {
@@ -561,9 +885,16 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
         onTimeRate,
         cancellationRate,
         rejectionRate,
+        invoiceIsValid: invoice?.isValid ?? null,
+        invoiceValidityReason: invoice?.reason ?? null,
+        performanceValidDays: validDays,
+        performanceValidRate,
+        kpiScore,
+        kpiStatus,
         level,
         salaryBaseWorkingDays,
         workedDaysForSalary,
+        // Keeta V2: paid leave days are stored in notes until schema gets explicit snapshot columns.
         baseSalaryBeforeProration,
         shortageOrders,
         shortageDeduction,
@@ -594,17 +925,18 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
         kafalaDeductionSource: kafalaDeduction ? "KAFALA_DEDUCTION" : null,
         userDeduction,
         userDeductionApplied: userDeduction > 0,
-        userDeductionReason: userDeduction > 0 ? "خصم يوزر فريلانسر من PayrollPlan" : null,
+        userDeductionReason: userDeduction > 0 ? "خصم يوزر سيارة شخصية" : null,
         damagesTotal: 0,
         accidentDeduction: 0,
         otherDeductions: manualDeduction,
         totalDeductions,
         netSalary: finalSalary,
-        salaryPlanId: plan.id,
+        salaryPlanId: isFallbackKeetaPlan(plan) ? null : plan.id,
         relationshipType,
         monthlyTargetOrders,
         extraOrderRate,
         levelBonus,
+        housingAllowance,
         manualBonus,
         grossSalary,
         internalAdvances,
@@ -621,7 +953,10 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
         estimatedCompanyProfit,
         costPerOrder,
         status: warnings.length ? "review" : "draft",
-        notes: warnings.join(" | "),
+        notes: [
+          ...warnings,
+          `Keeta V2: slab=${keetaSalary.slab.minOrders}-${keetaSalary.slab.maxOrders ?? "open"}, paidSalaryDays=${keetaSalary.paidSalaryDays}, paidLeave=${keetaSalary.eligiblePaidLeaveDays}, invoiceExperience=${keetaSalary.invoiceExperienceIncentiveAmount}, expectedExperience=${keetaSalary.expectedExperienceIncentiveAmount}, experienceDeduction=${experienceIncentiveDifferenceDeduction}, profitRecovered=${companyProfitRecoveredDeductions}, companyCarRent=${vehicleRentDisplayAmount}`,
+        ].join(" | "),
       },
     });
   }
@@ -712,7 +1047,7 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
         entityId: payrollRun.id,
         newValue: {
           month: safeMonth,
-          formula: "finalSalary = payrollPlan base/fixed/bonus/extraOrders - internal deductions. totalPayableAmount is company_revenue only.",
+          formula: "Keeta V2: finalSalary = slab baseSalary/prorated paid days + bonus + extraOrders - Experience Incentive shortfall - internal deductions. totalPayableAmount is company_revenue only.",
           totals,
         },
       },

@@ -1,4 +1,5 @@
 import { ProjectReportsView, ProjectStateCard } from "@/components/projects/ProjectWorkspaceViews";
+import { redirectLegacyProjectSlug } from "@/lib/projects/legacyProjectRedirect";
 import { getProjectWorkspace, type ProjectWorkspaceFilters } from "@/lib/projects/projectWorkspace";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ function filtersFromParams(params: Record<string, string | string[] | undefined>
 
 export default async function ProjectReportsPage({ params, searchParams }: PageProps) {
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  redirectLegacyProjectSlug(projectId, query);
   const data = await getProjectWorkspace(projectId, filtersFromParams(query));
   if (data.status !== "online") return <ProjectStateCard data={data} />;
   return <ProjectReportsView data={data} />;

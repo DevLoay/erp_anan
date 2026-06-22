@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    if (!(file instanceof File)) return NextResponse.json({ error: "يجب رفع ملف Excel أو CSV أولًا." }, { status: 400 });
+    if (!(file instanceof File)) return NextResponse.json({ error: "يجب رفع ملف Excel أو CSV أولا." }, { status: 400 });
     if (!isSupportedFile(file.name)) return NextResponse.json({ error: "صيغة الملف غير مدعومة. استخدم Excel أو CSV." }, { status: 400 });
 
     const importType = String(form.get("importType") || form.get("fileType") || "").trim();
@@ -25,12 +25,12 @@ export async function POST(request: Request) {
     const applicationProjectId = String(form.get("applicationProjectId") || "").trim();
     const projectId = String(form.get("projectId") || "").trim();
     if (importTypeRequiresProject(importType) && (!applicationId || !applicationProjectId)) {
-      return NextResponse.json({ error: "لا يمكن رفع تقرير أو فاتورة خاصة بمشروع بدون تحديد مشروع واضح." }, { status: 400 });
+      return NextResponse.json({ error: "لا يمكن رفع تقرير أو فاتورة مشروع بدون تحديد مشروع واضح." }, { status: 400 });
     }
 
     const cityId = String(form.get("cityId") || "").trim();
     if (importTypeRequiresProject(importType) && !cityId) {
-      return NextResponse.json({ error: "لا يمكن رفع ملف مشروع بدون تحديد المدينة. اختر المدينة من مساحة المشروع ثم أعد رفع الملف." }, { status: 400 });
+      return NextResponse.json({ error: "لا يمكن رفع ملف مشروع بدون تحديد المدينة. افتح الاستيراد من داخل مشروع المدينة الصحيح." }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       applicationProjectId,
       projectId,
       cityId,
+      month: String(form.get("month") || "").trim(),
     });
 
     return NextResponse.json({ data: preview });

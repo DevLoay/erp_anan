@@ -211,6 +211,11 @@ async function supervisorDetails(id: string) {
           status: true,
           city: { select: { nameAr: true, nameEn: true } },
           project: { select: { name: true, appName: true } },
+          applicationAccounts: {
+            take: 1,
+            orderBy: { updatedAt: "desc" },
+            select: { applicationProject: { select: { name: true } } },
+          },
         },
       },
     },

@@ -1,0 +1,58 @@
+# Keeta Al Ahsa Account Matching Report
+
+- Matched invoice rows: 31
+- Unmatched invoice rows: 7
+- Matched performance rows: 918
+- Unmatched performance rows: 131
+
+## Unmatched Samples
+- Row 10: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 16: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 18: 1768998632206323 / Omar Awadh / missing_driver
+- Row 21: 1767307793088644 / BADER AHMED / missing_driver
+- Row 45: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 51: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 53: 1768998632206323 / Omar Awadh / missing_driver
+- Row 56: 1767307793088644 / BADER AHMED / missing_driver
+- Row 80: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 86: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 88: 1768998632206323 / Omar Awadh / missing_driver
+- Row 91: 1767307793088644 / BADER AHMED / missing_driver
+- Row 115: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 121: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 123: 1768998632206323 / Omar Awadh / missing_driver
+- Row 126: 1767307793088644 / BADER AHMED / missing_driver
+- Row 150: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 156: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 158: 1768998632206323 / Omar Awadh / missing_driver
+- Row 161: 1767307793088644 / BADER AHMED / missing_driver
+- Row 185: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 191: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 193: 1768998632206323 / Omar Awadh / missing_driver
+- Row 196: 1767307793088644 / BADER AHMED / missing_driver
+- Row 220: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 226: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 228: 1768998632206323 / Omar Awadh / missing_driver
+- Row 231: 1767307793088644 / BADER AHMED / missing_driver
+- Row 255: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 261: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 263: 1768998632206323 / Omar Awadh / missing_driver
+- Row 266: 1767307793088644 / BADER AHMED / missing_driver
+- Row 290: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 296: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 298: 1768998632206323 / Omar Awadh / missing_driver
+- Row 301: 1767307793088644 / BADER AHMED / missing_driver
+- Row 325: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 331: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 333: 1768998632206323 / Omar Awadh / missing_driver
+- Row 336: 1767307793088644 / BADER AHMED / missing_driver
+- Row 360: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 366: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 368: 1768998632206323 / Omar Awadh / missing_driver
+- Row 371: 1767307793088644 / BADER AHMED / missing_driver
+- Row 395: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 401: 1769904521060090 / Faisal Yehya / missing_driver
+- Row 403: 1768998632206323 / Omar Awadh / missing_driver
+- Row 406: 1767307793088644 / BADER AHMED / missing_driver
+- Row 430: 1775044208237223 / ADEB AHMED / missing_driver
+- Row 436: 1769904521060090 / Faisal Yehya / missing_driver

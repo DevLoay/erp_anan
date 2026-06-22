@@ -24,6 +24,9 @@ enum RecordStatus {
   APPROVED
   REJECTED
   LOCKED
+  CANCELLED
+  DEDUCTED
+  PARTIALLY_DEDUCTED
 }
 
 enum DriverStatus {
@@ -77,6 +80,8 @@ model User {
   createdImportBatches ApplicationImportBatch[] @relation("ApplicationImportBatchCreatedBy")
   approvedImportBatches ApplicationImportBatch[] @relation("ApplicationImportBatchApprovedBy")
   payrollAdjustments   PayrollAdjustment[]      @relation("PayrollAdjustmentCreatedBy")
+  createdAdvances       Advance[]                @relation("AdvanceCreatedBy")
+  approvedAdvances      Advance[]                @relation("AdvanceApprovedBy")
   attendanceRecords    AttendanceRecord[]       @relation("UserAttendanceRecords")
   auditLogs            AuditLog[]               @relation("AuditLogUser")
 }
@@ -105,6 +110,7 @@ model City {
   keetaRankRecords    KeetaRankRecord[]
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
+  advances            Advance[]
 }
 
 model Project {
@@ -138,6 +144,8 @@ model Supervisor {
   users   User[]   @relation("UserSupervisorAccount")
   drivers Driver[]
   tasks   Task[]
+  notifications Notification[]
+  advances Advance[]
   attendanceRecords AttendanceRecord[]
 }
 
@@ -216,6 +224,7 @@ model Vehicle {
   year            Int?
   ownershipType   String        @default("company")
   rentalCompany   String?
+  rentalCompanyId String?
   dailyRent       Decimal       @default(0) @db.Decimal(12, 2)
   monthlyRent     Decimal       @default(0)
   status          VehicleStatus @default(AVAILABLE)
@@ -226,17 +235,20 @@ model Vehicle {
 
   city          City?               @relation(fields: [cityId], references: [id])
   currentDriver Driver?             @relation("VehicleCurrentDriver", fields: [currentDriverId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  rentalCompanyRef RentalCompany? @relation("VehicleRentalCompany", fields: [rentalCompanyId], references: [id], onDelete: SetNull)
   drivers       Driver[]            @relation("DriverVehicle")
   assignments   VehicleAssignment[]
   payrollItems  PayrollItem[]
   fuelRecords   FuelRecord[]
   violations    Violation[]
+  deductions    Deduction[]
 
   @@index([plateAr])
   @@index([plateArabic])
   @@index([plateEnglish])
   @@index([vehicleCode])
   @@index([currentDriverId])
+  @@index([rentalCompanyId])
 }
 
 model Application {
@@ -288,6 +300,7 @@ model ApplicationProject {
   financeEntries  FinanceEntry[]
   dailyReports    DailyReport[]
   invoices        Invoice[]
+  advances        Advance[]
   templateConfigs TemplateConfig[]
   payrollFieldRules PayrollFieldRule[]
   keetaPayrollPlans KeetaPayrollPlan[]
@@ -810,28 +823,52 @@ model DailyReport {
 }
 
 model Advance {
-  id              String       @id @default(cuid())
-  driverId        String
-  payrollItemId   String?
-  amount          Decimal      @default(0)
-  remainingAmount Decimal      @default(0)
-  reason          String?
-  deductionMonth  String?
-  status          RecordStatus @default(PENDING)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  id                   String       @id @default(cuid())
+  driverId             String
+  applicationProjectId String?
+  cityId               String?
+  supervisorId         String?
+  payrollItemId        String?
+  deductedPayrollRunId String?
+  referenceNumber      String?
+  amount               Decimal      @default(0)
+  remainingAmount      Decimal      @default(0)
+  reason               String?
+  deductionMonth       String?
+  advanceDate          DateTime     @default(now())
+  status               RecordStatus @default(PENDING)
+  isDeducted           Boolean      @default(false)
+  createdById          String?
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
-  driver      Driver       @relation(fields: [driverId], references: [id])
-  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+  driver             Driver              @relation(fields: [driverId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  supervisor         Supervisor?         @relation(fields: [supervisorId], references: [id])
+  payrollItem        PayrollItem?        @relation(fields: [payrollItemId], references: [id])
+  deductedPayrollRun PayrollRun?         @relation("AdvanceDeductedPayrollRun", fields: [deductedPayrollRunId], references: [id])
+  createdBy          User?               @relation("AdvanceCreatedBy", fields: [createdById], references: [id])
+  approvedBy         User?               @relation("AdvanceApprovedBy", fields: [approvedById], references: [id])
 
   @@index([driverId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([supervisorId])
   @@index([payrollItemId])
+  @@index([deductedPayrollRunId])
+  @@index([createdById])
+  @@index([approvedById])
   @@index([deductionMonth, status])
+  @@index([advanceDate])
 }
 
 model Deduction {
   id            String       @id @default(cuid())
   driverId      String
+  vehicleId     String?
   payrollItemId String?
   type          String
   amount        Decimal      @default(0)
@@ -842,9 +879,11 @@ model Deduction {
   updatedAt     DateTime     @updatedAt
 
   driver      Driver       @relation(fields: [driverId], references: [id])
+  vehicle     Vehicle?     @relation(fields: [vehicleId], references: [id])
   payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
 
   @@index([driverId])
+  @@index([vehicleId])
   @@index([payrollItemId])
   @@index([month, status])
 }
@@ -920,6 +959,7 @@ model PayrollRun {
   approvedBy         User?                      @relation("PayrollRunApprovedBy", fields: [approvedById], references: [id])
   items              PayrollItem[]
   financeEntries     FinanceEntry[]
+  deductedAdvances   Advance[]                  @relation("AdvanceDeductedPayrollRun")
 
   @@index([year, month])
   @@index([applicationId])
@@ -947,6 +987,12 @@ model PayrollItem {
   onTimeRate           Decimal? @db.Decimal(8, 2)
   cancellationRate     Decimal? @db.Decimal(8, 2)
   rejectionRate        Decimal? @db.Decimal(8, 2)
+  invoiceIsValid       Boolean?
+  invoiceValidityReason String?
+  performanceValidDays Int      @default(0)
+  performanceValidRate Decimal  @default(0) @db.Decimal(8, 2)
+  kpiScore             Decimal  @default(0) @db.Decimal(8, 2)
+  kpiStatus            String?
   level                String?
   basicSalary          Decimal  @default(0) @db.Decimal(12, 2)
   extraOrdersBonus     Decimal  @default(0) @db.Decimal(12, 2)
@@ -992,6 +1038,7 @@ model PayrollItem {
   workedDaysForSalary  Int      @default(0)
   baseSalaryBeforeProration Decimal @default(0) @db.Decimal(12, 2)
   levelBonus           Decimal  @default(0) @db.Decimal(12, 2)
+  housingAllowance     Decimal  @default(0) @db.Decimal(12, 2)
   manualBonus          Decimal  @default(0) @db.Decimal(12, 2)
   grossSalary          Decimal  @default(0) @db.Decimal(12, 2)
   internalAdvances     Decimal  @default(0) @db.Decimal(12, 2)
@@ -1171,18 +1218,25 @@ model Task {
   id           String       @id @default(cuid())
   title        String
   description  String?
+  category     String?
   cityId       String?
   supervisorId String?
   driverId     String?
   priority     Severity     @default(INFO)
   status       RecordStatus @default(PENDING)
   dueDate      DateTime?
+  notes        String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
   city       City?       @relation(fields: [cityId], references: [id])
   supervisor Supervisor? @relation(fields: [supervisorId], references: [id])
   driver     Driver?     @relation(fields: [driverId], references: [id])
+
+  @@index([cityId])
+  @@index([supervisorId])
+  @@index([driverId])
+  @@index([status, priority, dueDate])
 }
 
 model Notification {
@@ -1192,12 +1246,19 @@ model Notification {
   severity   Severity     @default(INFO)
   status     RecordStatus @default(PENDING)
   driverId   String?
+  supervisorId String?
   entityType String?
   entityId   String?
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  driver Driver? @relation(fields: [driverId], references: [id])
+  driver     Driver?     @relation(fields: [driverId], references: [id])
+  supervisor Supervisor? @relation(fields: [supervisorId], references: [id])
+
+  @@index([driverId])
+  @@index([supervisorId])
+  @@index([entityType, entityId])
+  @@index([status, severity, createdAt])
 }
 
 model Interview {
@@ -1439,15 +1500,16 @@ model VehicleMovement {
 }
 
 model VehicleCleaning {
-  id        String       @id @default(cuid())
-  vehicleId String
-  driverId  String?
-  cleanDate DateTime     @default(now())
-  cost      Decimal      @default(0)
-  status    RecordStatus @default(PENDING)
-  notes     String?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id          String       @id @default(cuid())
+  vehicleId   String
+  driverId    String?
+  cleanDate   DateTime     @default(now())
+  cost        Decimal      @default(0)
+  status      RecordStatus @default(PENDING)
+  notes       String?
+  attachments Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model VehicleMaintenance {
@@ -1486,6 +1548,8 @@ model RentalCompany {
   notes     String?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+
+  vehicles Vehicle[] @relation("VehicleRentalCompany")
 }
 
 model VehicleCost {
@@ -1517,6 +1581,7 @@ model VehicleAccident {
   status           RecordStatus @default(PENDING)
   date             DateTime     @default(now())
   notes            String?
+  attachments      Json?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 }
@@ -1531,6 +1596,7 @@ model VehicleDamage {
   status        RecordStatus @default(PENDING)
   date          DateTime     @default(now())
   notes         String?
+  attachments   Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 }

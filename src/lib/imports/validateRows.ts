@@ -188,6 +188,42 @@ function isApplicationAccountImport(fileType: string) {
   return fileType === "application_accounts" || fileType.endsWith("_accounts");
 }
 
+function primaryIdentifierForFileType(fileType: string, mappedData: Record<string, unknown>, rowNumber: number) {
+  if (isDriverImport(fileType)) {
+    return (
+      valueOf(mappedData, "appUserId") ||
+      valueOf(mappedData, "courierId") ||
+      valueOf(mappedData, "appUsername") ||
+      valueOf(mappedData, "driverCode") ||
+      valueOf(mappedData, "internalCode") ||
+      valueOf(mappedData, "mobile") ||
+      valueOf(mappedData, "phone") ||
+      `row-${rowNumber}`
+    );
+  }
+
+  if (isApplicationAccountImport(fileType)) {
+    return (
+      valueOf(mappedData, "appUserId") ||
+      valueOf(mappedData, "courierId") ||
+      valueOf(mappedData, "appUsername") ||
+      valueOf(mappedData, "username") ||
+      `row-${rowNumber}`
+    );
+  }
+
+  return (
+    valueOf(mappedData, "driverCode") ||
+    valueOf(mappedData, "courierId") ||
+    valueOf(mappedData, "appUserId") ||
+    valueOf(mappedData, "appUsername") ||
+    valueOf(mappedData, "vehicleCode") ||
+    valueOf(mappedData, "plateEnglish") ||
+    valueOf(mappedData, "nationalId") ||
+    `row-${rowNumber}`
+  );
+}
+
 export function mapRawRow(
   rawData: Record<string, unknown>,
   columns: ImportColumn[],
@@ -249,7 +285,7 @@ async function findApplicationAccountForDriver(
   };
 }
 
-async function matchDriver(mappedData: Record<string, unknown>, scope?: OperationalScope & { projectId?: string }): Promise<{
+async function matchDriver(mappedData: Record<string, unknown>, scope: (OperationalScope & { projectId?: string }) | undefined, fileType = ""): Promise<{
   status: "matched" | "missing_driver" | "duplicate_match" | "not_required";
   driver?: MatchedDriver;
   account?: MatchedApplicationAccount;
@@ -315,16 +351,18 @@ async function matchDriver(mappedData: Record<string, unknown>, scope?: Operatio
     return { status: "missing_driver", account, message: "الحساب موجود لكنه غير مربوط بمندوب داخلي. اربطه من مراجعة حسابات التطبيقات أو من شاشة المعاينة." };
   }
 
+  const operationalDriverImport = isDriverImport(fileType) && Boolean(scope?.applicationProjectId && (appUserId || appUsername));
+  const allowDirectDriverLookup = !operationalDriverImport;
   const driverMatches = await prisma.driver.findMany({
     where: {
       OR: [
-        driverCode ? { internalCode: driverCode } : undefined,
-        driverCode ? { driverCode } : undefined,
-        nationalId ? { nationalId } : undefined,
-        mobile ? { mobile } : undefined,
-        mobile ? { phone: mobile } : undefined,
-        courierName ? { name: { equals: courierName, mode: "insensitive" } } : undefined,
-        courierName ? { actualName: { equals: courierName, mode: "insensitive" } } : undefined,
+        allowDirectDriverLookup && driverCode ? { internalCode: driverCode } : undefined,
+        allowDirectDriverLookup && driverCode ? { driverCode } : undefined,
+        allowDirectDriverLookup && mobile ? { mobile } : undefined,
+        allowDirectDriverLookup && mobile ? { phone: mobile } : undefined,
+        allowDirectDriverLookup && nationalId ? { nationalId } : undefined,
+        allowDirectDriverLookup && courierName ? { name: { equals: courierName, mode: "insensitive" } } : undefined,
+        allowDirectDriverLookup && courierName ? { actualName: { equals: courierName, mode: "insensitive" } } : undefined,
       ].filter(Boolean) as Prisma.DriverWhereInput[],
     },
     select: { id: true, internalCode: true, driverCode: true, name: true, actualName: true, nationalId: true },
@@ -344,7 +382,13 @@ async function matchDriver(mappedData: Record<string, unknown>, scope?: Operatio
   const drivers = [...combined.values()];
 
   if (!drivers.length) return { status: "missing_driver", account, message: "لم يتم العثور على مندوب مطابق داخل جدول Driver أو حسابات التطبيق." };
-  if (drivers.length > 1) return { status: "duplicate_match", account, message: "تم العثور على أكثر من مندوب مطابق. راجع الصف قبل الاعتماد." };
+  if (drivers.length > 1) {
+    return {
+      status: "missing_driver",
+      account,
+      message: "تم العثور على أكثر من مندوب بنفس بيانات المساعدة. سيتم ترك الصف كمندوب جديد أو للمراجعة اليدوية بدل اعتباره مكررًا.",
+    };
+  }
 
   const driver = drivers[0];
   const accountForDriver = await findApplicationAccountForDriver(driver.id, scope);
@@ -436,15 +480,7 @@ export async function validateImportRows(args: {
       args.fileType === "vehicles"
         ? enrichVehicleMappedData(rawData, mapRawRow(rawData, allColumns, args.columnMapping))
         : mapRawRow(rawData, allColumns, args.columnMapping);
-    const primaryIdentifier =
-      valueOf(mappedData, "driverCode") ||
-      valueOf(mappedData, "nationalId") ||
-      valueOf(mappedData, "courierId") ||
-      valueOf(mappedData, "appUserId") ||
-      valueOf(mappedData, "appUsername") ||
-      valueOf(mappedData, "vehicleCode") ||
-      valueOf(mappedData, "plateEnglish") ||
-      `row-${index + 2}`;
+    const primaryIdentifier = primaryIdentifierForFileType(args.fileType, mappedData, index + 2);
     const mainIdentifier =
       isDailyReportImport(args.fileType)
         ? `${reportDateValue(mappedData) || "no-date"}-${primaryIdentifier}`
@@ -472,16 +508,18 @@ export async function validateImportRows(args: {
             applicationId: args.applicationId,
             applicationProjectId: args.applicationProjectId,
             cityId: args.cityId,
-          });
+          }, args.fileType);
     if (driverMatch.status === "missing_driver") {
-      errors.push({
-        type: args.fileType === "vehicles" ? "missing_driver_vehicle" : "missing_driver",
-        message:
-          driverMatch.message ??
-          (args.fileType === "vehicles"
-            ? "لم يتم العثور على مندوب مطابق للسيارة، سيتم حفظ السيارة بدون مندوب حتى تتم مراجعتها."
-            : "لم يتم العثور على المندوب."),
-      });
+      if (!isDriverImport(args.fileType)) {
+        errors.push({
+          type: args.fileType === "vehicles" ? "missing_driver_vehicle" : "missing_driver",
+          message:
+            driverMatch.message ??
+            (args.fileType === "vehicles"
+              ? "لم يتم العثور على مندوب مطابق للسيارة، سيتم حفظ السيارة بدون مندوب حتى تتم مراجعتها."
+              : "لم يتم العثور على المندوب."),
+        });
+      }
     }
     if (driverMatch.status === "duplicate_match") errors.push({ type: "duplicate_match", message: driverMatch.message ?? "نتائج ربط متعددة." });
 

@@ -3,6 +3,7 @@ import type { ParsedImportFile, ParsedImportSheet } from "./parseCsv";
 import type { ImportPreviewPayload } from "./previewImport";
 import { validateImportRows, type ImportPreviewRow } from "./validateRows";
 import type { ImportColumn, ImportColumnMapping } from "./templates";
+import { upsertOperationalApplicationAccount } from "@/lib/application-accounts/accountLinking";
 import {
   KEETA_DRIVER_INVOICE_TEMPLATE,
   KEETA_PERIOD_REPORT_TEMPLATE,
@@ -86,6 +87,14 @@ function parsedDateValue(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function startOfUtcDay(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function endOfUtcDay(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 23, 59, 59, 999));
+}
+
 function monthFrom(value: unknown, fallback = new Date()) {
   const raw = text(value);
   const cycle = raw.match(/(\d{4})[-/](\d{2})/);
@@ -94,9 +103,23 @@ function monthFrom(value: unknown, fallback = new Date()) {
   return (parsed ?? fallback).toISOString().slice(0, 7);
 }
 
+function normalizedMonth(value: unknown) {
+  const raw = text(value);
+  const match = raw.match(/^(20\d{2})-(0[1-9]|1[0-2])$/);
+  return match ? `${match[1]}-${match[2]}` : "";
+}
+
 function monthFromFileName(fileName: string) {
   const match = fileName.match(/(20\d{2})[-_\s#]*(0[1-9]|1[0-2])/);
   return match ? `${match[1]}-${match[2]}` : "";
+}
+
+function monthFromBillingCycle(value: unknown) {
+  const raw = text(value);
+  const matches = Array.from(raw.matchAll(/(20\d{2})[-/](0?[1-9]|1[0-2])/g));
+  const last = matches.at(-1);
+  if (!last) return "";
+  return `${last[1]}-${last[2].padStart(2, "0")}`;
 }
 
 function rowDateRange(rows: ImportPreviewRow[]) {
@@ -172,6 +195,7 @@ export async function buildKeetaDriverInvoicePreview(args: {
   projectId?: string;
   cityId?: string;
   templateId: string;
+  month?: string;
 }) {
   const sheets = args.parsed.sheets?.length ? args.parsed.sheets : [{ name: "riderDetail", columns: args.parsed.columns, rows: args.parsed.rows }];
   const riderDetail = sheets.find((sheet) => normalizedSheetName(sheet.name) === "riderdetail") ?? sheets[0];
@@ -211,9 +235,11 @@ export async function buildKeetaDriverInvoicePreview(args: {
       })
     : { rows: [] as ImportPreviewRow[] };
 
-  const billingMonth = text(detailResult.rows[0]?.mappedData.billingCycle)
-    ? monthFrom(detailResult.rows[0]?.mappedData.billingCycle)
-    : monthFromFileName(args.fileName) || monthFrom(new Date());
+  const billingMonth =
+    monthFromFileName(args.fileName) ||
+    monthFromBillingCycle(detailResult.rows[0]?.mappedData.billingCycle) ||
+    normalizedMonth(args.month) ||
+    monthFrom(new Date());
   const summary = {
     ...detailResult.summary,
     sheetNames: sheets.map((sheet) => sheet.name),
@@ -276,28 +302,93 @@ export function enrichKeetaPreview(preview: ImportPreviewPayload): ImportPreview
   };
 }
 
-async function findAccountAndDriver(tx: Prisma.TransactionClient, row: ImportPreviewRow) {
+async function findAccountAndDriver(
+  tx: Prisma.TransactionClient,
+  row: ImportPreviewRow,
+  scope: { applicationId?: string | null; applicationProjectId?: string | null; cityId?: string | null },
+) {
   const courierId = text(row.mappedData.courierId || row.mappedData.appUserId || row.mappedData.applicationAccountId);
   if (!courierId) return { driverId: row.driverId ?? null, applicationAccountId: row.applicationAccountId ?? null, cityId: null as string | null };
-  const account = await tx.applicationAccount.findFirst({
-    where: {
-      OR: [
-        { appUserId: courierId },
-        { username: courierId },
-        { appUsername: courierId },
-      ],
-    },
-    include: { driver: { select: { id: true, cityId: true } } },
-  });
+  const identityWhere = {
+    OR: [
+      { appUserId: courierId },
+      { username: courierId },
+      { appUsername: courierId },
+    ],
+  };
+  const scopedWhere: Prisma.ApplicationAccountWhereInput[] = [];
+  if (scope.applicationProjectId) scopedWhere.push({ ...identityWhere, applicationProjectId: scope.applicationProjectId });
+  if (scope.applicationId && scope.cityId) scopedWhere.push({ ...identityWhere, applicationId: scope.applicationId, cityId: scope.cityId });
+  if (scope.applicationId) scopedWhere.push({ ...identityWhere, applicationId: scope.applicationId });
+  scopedWhere.push(identityWhere);
+
+  let account: {
+    id: string;
+    driverId: string | null;
+    cityId: string | null;
+    driver: { id: string; cityId: string | null } | null;
+  } | null = null;
+  for (const where of scopedWhere) {
+    account = await tx.applicationAccount.findFirst({
+      where,
+      include: { driver: { select: { id: true, cityId: true } } },
+    });
+    if (account) break;
+  }
+  const driverId = row.driverId ?? account?.driverId ?? account?.driver?.id ?? null;
+  let applicationAccountId = row.applicationAccountId ?? account?.id ?? null;
+  let cityId = account?.cityId ?? account?.driver?.cityId ?? scope.cityId ?? null;
+
+  if (driverId) {
+    const linked = await upsertOperationalApplicationAccount(tx, {
+      appName: "Keeta",
+      applicationId: scope.applicationId ?? null,
+      applicationProjectId: scope.applicationProjectId ?? null,
+      cityId,
+      driverId,
+      appUserId: courierId,
+      appUsername: text(row.mappedData.courierName || row.mappedData.name),
+      existingId: applicationAccountId,
+      source: "KEETA_IMPORT",
+    });
+    applicationAccountId = linked.id;
+    cityId = linked.cityId ?? cityId;
+  }
+
   return {
-    driverId: row.driverId ?? account?.driverId ?? account?.driver?.id ?? null,
-    applicationAccountId: row.applicationAccountId ?? account?.id ?? null,
-    cityId: account?.cityId ?? account?.driver?.cityId ?? null,
+    driverId,
+    applicationAccountId,
+    cityId,
   };
 }
 
 function periodDate(value?: string | null) {
   return value ? parsedDateValue(value) : null;
+}
+
+async function resolveRequiredKeetaLinks(
+  tx: Prisma.TransactionClient,
+  rows: ImportPreviewRow[],
+  scope: { applicationId?: string | null; applicationProjectId?: string | null; cityId?: string | null },
+) {
+  const links = new Map<number, Awaited<ReturnType<typeof findAccountAndDriver>>>();
+  const missing: string[] = [];
+
+  for (const row of rows) {
+    const link = await findAccountAndDriver(tx, row, scope);
+    links.set(row.rowNumber, link);
+    if (!link.driverId) {
+      const courierId = text(row.mappedData.courierId || row.mappedData.appUserId || row.mappedData.applicationAccountId);
+      const courierName = text(row.mappedData.courierName || row.mappedData.name || row.mappedData.courierFirstName);
+      missing.push(`row ${row.rowNumber}: ${courierId || "no Courier ID"}${courierName ? ` / ${courierName}` : ""} / project=${scope.applicationProjectId || "-"} / city=${scope.cityId || "-"}`);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`Cannot approve Keeta import before linking every Courier ID to an internal driver. Missing: ${Array.from(new Set(missing)).slice(0, 20).join(", ")}`);
+  }
+
+  return links;
 }
 
 export async function commitKeetaRecords(args: {
@@ -317,36 +408,57 @@ export async function commitKeetaRecords(args: {
   const month = preview.summary.month ?? monthFrom(periodStart ?? new Date());
 
   if (importType === KEETA_RANK_TEMPLATE) {
+    const requiredLinks = await resolveRequiredKeetaLinks(tx, validRows, {
+      applicationId: preview.summary.applicationId,
+      applicationProjectId: args.applicationProjectId,
+      cityId: args.cityId,
+    });
     for (const row of validRows) {
-      const link = await findAccountAndDriver(tx, row);
-      await tx.keetaRankRecord.create({
-        data: {
-          projectId: "keeta",
-          applicationProjectId: args.applicationProjectId,
-          driverId: link.driverId,
-          applicationAccountId: link.applicationAccountId,
-          courierId: text(row.mappedData.courierId || row.mappedData.appUserId),
-          courierName: text(row.mappedData.courierName || row.mappedData.name) || null,
-          cityId: link.cityId ?? args.cityId,
+      const link = requiredLinks.get(row.rowNumber)!;
+      const courierId = text(row.mappedData.courierId || row.mappedData.appUserId);
+      const rankData = {
+        projectId: "keeta",
+        applicationProjectId: args.applicationProjectId,
+        driverId: link.driverId,
+        applicationAccountId: link.applicationAccountId,
+        courierId,
+        courierName: text(row.mappedData.courierName || row.mappedData.name) || null,
+        cityId: link.cityId ?? args.cityId,
+        month,
+        periodStart,
+        periodEnd,
+        currentEstimatedLevel: text(row.mappedData.currentEstimatedLevel || row.mappedData.rank) || null,
+        currentEstimatedRanking: numberValue(row.mappedData.currentEstimatedRanking),
+        courierRankingPercentile: rateValue(row.mappedData.courierRankingPercentile),
+        currentScoreForForcedAssignment: numberValue(row.mappedData.currentScoreForForcedAssignment),
+        currentEstimatedRewardAmount: numberValue(row.mappedData.currentEstimatedRewardAmount),
+        onTimeRate: rateValue(row.mappedData.onTimeRate),
+        orderCompletionRate: rateValue(row.mappedData.orderCompletionRate),
+        dropOffNotEarlyRate: rateValue(row.mappedData.dropOffNotEarlyRate),
+        orderVolume: intValue(row.mappedData.orderVolume),
+        rawData: json(row.rawData),
+        importBatchId: batchId,
+        status: "Approved",
+        approvedBy: args.userId ?? null,
+        approvedAt,
+      };
+      const existingRanks = await tx.keetaRankRecord.findMany({
+        where: {
+          courierId,
           month,
-          periodStart,
-          periodEnd,
-          currentEstimatedLevel: text(row.mappedData.currentEstimatedLevel || row.mappedData.rank) || null,
-          currentEstimatedRanking: numberValue(row.mappedData.currentEstimatedRanking),
-          courierRankingPercentile: rateValue(row.mappedData.courierRankingPercentile),
-          currentScoreForForcedAssignment: numberValue(row.mappedData.currentScoreForForcedAssignment),
-          currentEstimatedRewardAmount: numberValue(row.mappedData.currentEstimatedRewardAmount),
-          onTimeRate: rateValue(row.mappedData.onTimeRate),
-          orderCompletionRate: rateValue(row.mappedData.orderCompletionRate),
-          dropOffNotEarlyRate: rateValue(row.mappedData.dropOffNotEarlyRate),
-          orderVolume: intValue(row.mappedData.orderVolume),
-          rawData: json(row.rawData),
-          importBatchId: batchId,
-          status: "Approved",
-          approvedBy: args.userId ?? null,
-          approvedAt,
+          ...(args.applicationProjectId ? { applicationProjectId: args.applicationProjectId } : {}),
+          ...((link.cityId ?? args.cityId) ? { cityId: link.cityId ?? args.cityId } : {}),
         },
+        select: { id: true },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       });
+      if (existingRanks[0]) {
+        await tx.keetaRankRecord.update({ where: { id: existingRanks[0].id }, data: rankData });
+        const duplicateIds = existingRanks.slice(1).map((record) => record.id);
+        if (duplicateIds.length) await tx.keetaRankRecord.deleteMany({ where: { id: { in: duplicateIds } } });
+      } else {
+        await tx.keetaRankRecord.create({ data: rankData });
+      }
     }
     return { keetaRankRecords: validRows.length };
   }
@@ -355,66 +467,96 @@ export async function commitKeetaRecords(args: {
     let createdDailyReports = 0;
     let updatedDailyReports = 0;
     for (const row of validRows) {
-      const link = await findAccountAndDriver(tx, row);
-      const reportDate = parsedDateValue(row.mappedData.reportDate || row.mappedData.date) ?? periodStart ?? approvedAt;
+      const link = await findAccountAndDriver(tx, row, {
+        applicationId: preview.summary.applicationId,
+        applicationProjectId: args.applicationProjectId,
+        cityId: args.cityId,
+      });
+      const reportDate = startOfUtcDay(parsedDateValue(row.mappedData.reportDate || row.mappedData.date) ?? periodStart ?? approvedAt);
       const deliveredTasks = intValue(row.mappedData.deliveredTasks || row.mappedData.orders);
       const validOnlineTime = hoursValue(row.mappedData.validOnlineTime || row.mappedData.workingHours);
-      await tx.keetaPerformanceRecord.create({
-        data: {
-          projectId: "keeta",
-          applicationProjectId: args.applicationProjectId,
-          driverId: link.driverId,
-          applicationAccountId: link.applicationAccountId,
-          courierId: text(row.mappedData.courierId || row.mappedData.appUserId),
-          courierFirstName: text(row.mappedData.courierFirstName) || null,
-          courierLastName: text(row.mappedData.courierLastName) || null,
-          supervisorName: text(row.mappedData.supervisorName) || null,
-          vehicleType: text(row.mappedData.vehicleType) || null,
-          cityId: link.cityId ?? args.cityId,
-          reportDate,
-          month: monthFrom(reportDate),
-          periodStart,
-          periodEnd,
-          shiftAttendanceSummary: text(row.mappedData.shiftAttendanceSummary) || null,
-          onShift: boolValue(row.mappedData.onShift),
-          validDay: boolValue(row.mappedData.validDay),
-          courierAppOnlineTime: hoursValue(row.mappedData.courierAppOnlineTime),
-          validOnlineTime,
-          peakOnlineHours: hoursValue(row.mappedData.peakOnlineHours),
-          acceptedTasks: intValue(row.mappedData.acceptedTasks),
-          tasksWithRestaurantArrivals: intValue(row.mappedData.tasksWithRestaurantArrivals),
-          deliveredTasks,
-          largeOrderTasksCompleted: intValue(row.mappedData.largeOrderTasksCompleted),
-          rejectedTasks: intValue(row.mappedData.rejectedTasks),
-          rejectedTasksCourier: intValue(row.mappedData.rejectedTasksCourier),
-          rejectedTasksAuto: intValue(row.mappedData.rejectedTasksAuto),
-          cancellationRateFromDeliveryIssues: rateValue(row.mappedData.cancellationRateFromDeliveryIssues),
-          orderCompletionRateNonDelivery: rateValue(row.mappedData.orderCompletionRateNonDelivery),
-          onTimeRate: rateValue(row.mappedData.onTimeRate),
-          largeOrderOnTimeRate: rateValue(row.mappedData.largeOrderOnTimeRate),
-          avgDeliveryTime: numberValue(row.mappedData.avgDeliveryTime),
-          deliveredOrdersOver55MinPercent: rateValue(row.mappedData.deliveredOrdersOver55MinPercent),
-          overdueOrderTasks: intValue(row.mappedData.overdueOrderTasks),
-          severelyOverdueOrderTasks: intValue(row.mappedData.severelyOverdueOrderTasks),
-          rawData: json(row.rawData),
-          importBatchId: batchId,
-          status: "Approved",
-          approvedBy: args.userId ?? null,
-          approvedAt,
+      const courierId = text(row.mappedData.courierId || row.mappedData.appUserId);
+      const performanceData = {
+        projectId: "keeta",
+        applicationProjectId: args.applicationProjectId,
+        driverId: link.driverId,
+        applicationAccountId: link.applicationAccountId,
+        courierId,
+        courierFirstName: text(row.mappedData.courierFirstName) || null,
+        courierLastName: text(row.mappedData.courierLastName) || null,
+        supervisorName: text(row.mappedData.supervisorName) || null,
+        vehicleType: text(row.mappedData.vehicleType) || null,
+        cityId: link.cityId ?? args.cityId,
+        reportDate,
+        month: monthFrom(reportDate),
+        periodStart,
+        periodEnd,
+        shiftAttendanceSummary: text(row.mappedData.shiftAttendanceSummary) || null,
+        onShift: boolValue(row.mappedData.onShift),
+        validDay: boolValue(row.mappedData.validDay),
+        courierAppOnlineTime: hoursValue(row.mappedData.courierAppOnlineTime),
+        validOnlineTime,
+        peakOnlineHours: hoursValue(row.mappedData.peakOnlineHours),
+        acceptedTasks: intValue(row.mappedData.acceptedTasks),
+        tasksWithRestaurantArrivals: intValue(row.mappedData.tasksWithRestaurantArrivals),
+        deliveredTasks,
+        largeOrderTasksCompleted: intValue(row.mappedData.largeOrderTasksCompleted),
+        rejectedTasks: intValue(row.mappedData.rejectedTasks),
+        rejectedTasksCourier: intValue(row.mappedData.rejectedTasksCourier),
+        rejectedTasksAuto: intValue(row.mappedData.rejectedTasksAuto),
+        cancellationRateFromDeliveryIssues: rateValue(row.mappedData.cancellationRateFromDeliveryIssues),
+        orderCompletionRateNonDelivery: rateValue(row.mappedData.orderCompletionRateNonDelivery),
+        onTimeRate: rateValue(row.mappedData.onTimeRate),
+        largeOrderOnTimeRate: rateValue(row.mappedData.largeOrderOnTimeRate),
+        avgDeliveryTime: numberValue(row.mappedData.avgDeliveryTime),
+        deliveredOrdersOver55MinPercent: rateValue(row.mappedData.deliveredOrdersOver55MinPercent),
+        overdueOrderTasks: intValue(row.mappedData.overdueOrderTasks),
+        severelyOverdueOrderTasks: intValue(row.mappedData.severelyOverdueOrderTasks),
+        rawData: json(row.rawData),
+        importBatchId: batchId,
+        status: "Approved",
+        approvedBy: args.userId ?? null,
+        approvedAt,
+      };
+      const existingPerformance = await tx.keetaPerformanceRecord.findMany({
+        where: {
+          courierId,
+          reportDate: { gte: reportDate, lte: endOfUtcDay(reportDate) },
+          ...(args.applicationProjectId ? { applicationProjectId: args.applicationProjectId } : {}),
+          ...((link.cityId ?? args.cityId) ? { cityId: link.cityId ?? args.cityId } : {}),
         },
+        select: { id: true },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       });
+      if (existingPerformance[0]) {
+        await tx.keetaPerformanceRecord.update({ where: { id: existingPerformance[0].id }, data: performanceData });
+        const duplicateIds = existingPerformance.slice(1).map((record) => record.id);
+        if (duplicateIds.length) await tx.keetaPerformanceRecord.deleteMany({ where: { id: { in: duplicateIds } } });
+      } else {
+        await tx.keetaPerformanceRecord.create({ data: performanceData });
+      }
 
       if (link.driverId) {
-        const existing = await tx.dailyReport.findFirst({
-          where: { driverId: link.driverId, reportDate, appName: "Keeta" },
+        const existingReports = await tx.dailyReport.findMany({
+          where: {
+            driverId: link.driverId,
+            reportDate: { gte: reportDate, lte: endOfUtcDay(reportDate) },
+            appName: "Keeta",
+            ...(args.applicationProjectId ? { applicationProjectId: args.applicationProjectId } : {}),
+            ...((link.cityId ?? args.cityId) ? { cityId: link.cityId ?? args.cityId } : {}),
+          },
           select: { id: true },
+          orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
         });
+        const existing = existingReports[0];
         const dailyData = {
           reportDate,
           month: monthFrom(reportDate),
           driverId: link.driverId,
           cityId: link.cityId ?? args.cityId,
           projectId: null,
+          applicationId: preview.summary.applicationId || null,
+          applicationProjectId: args.applicationProjectId,
           appName: "Keeta",
           orders: deliveredTasks,
           workingHours: validOnlineTime,
@@ -424,6 +566,8 @@ export async function commitKeetaRecords(args: {
         };
         if (existing) {
           await tx.dailyReport.update({ where: { id: existing.id }, data: dailyData });
+          const duplicateIds = existingReports.slice(1).map((report) => report.id);
+          if (duplicateIds.length) await tx.dailyReport.deleteMany({ where: { id: { in: duplicateIds } } });
           updatedDailyReports += 1;
         } else {
           await tx.dailyReport.create({ data: dailyData });
@@ -435,55 +579,94 @@ export async function commitKeetaRecords(args: {
   }
 
   if (importType === KEETA_DRIVER_INVOICE_TEMPLATE) {
+    const requiredLinks = await resolveRequiredKeetaLinks(tx, validRows, {
+      applicationId: preview.summary.applicationId,
+      applicationProjectId: args.applicationProjectId,
+      cityId: args.cityId,
+    });
     for (const row of validRows) {
-      const link = await findAccountAndDriver(tx, row);
-      await tx.keetaInvoiceRecord.create({
-        data: {
-          projectId: "keeta",
-          applicationProjectId: args.applicationProjectId,
-          driverId: link.driverId,
-          applicationAccountId: link.applicationAccountId,
-          courierId: text(row.mappedData.courierId || row.mappedData.appUserId),
-          courierName: text(row.mappedData.courierName) || null,
-          partnerId: text(row.mappedData.partnerId) || null,
-          partnerName: text(row.mappedData.partnerName) || null,
-          billingCycle: text(row.mappedData.billingCycle) || null,
-          cityId: link.cityId ?? args.cityId,
+      const link = requiredLinks.get(row.rowNumber)!;
+      const courierId = text(row.mappedData.courierId || row.mappedData.appUserId);
+      const invoiceData = {
+        projectId: "keeta",
+        applicationProjectId: args.applicationProjectId,
+        driverId: link.driverId,
+        applicationAccountId: link.applicationAccountId,
+        courierId,
+        courierName: text(row.mappedData.courierName) || null,
+        partnerId: text(row.mappedData.partnerId) || null,
+        partnerName: text(row.mappedData.partnerName) || null,
+        billingCycle: text(row.mappedData.billingCycle) || null,
+        cityId: link.cityId ?? args.cityId,
+        month,
+        periodStart,
+        periodEnd,
+        isValid: boolValue(row.mappedData.isValid),
+        reason: text(row.mappedData.reason) || null,
+        onlineDaysValid: numberValue(row.mappedData.onlineDaysValid),
+        dailyOnlineHoursValid: numberValue(row.mappedData.dailyOnlineHoursValid),
+        dailyOnlineHoursPeakValid: numberValue(row.mappedData.dailyOnlineHoursPeakValid),
+        deliveredOrders: intValue(row.mappedData.deliveredOrders),
+        orderBasedPricing: numberValue(row.mappedData.orderBasedPricing),
+        distanceFromPriceIncrease: numberValue(row.mappedData.distanceFromPriceIncrease),
+        validDaCapacityIncentives: numberValue(row.mappedData.validDaCapacityIncentives),
+        experienceIncentive: numberValue(row.mappedData.experienceIncentive),
+        dxgy: numberValue(row.mappedData.dxgy),
+        subsidy: numberValue(row.mappedData.subsidy),
+        activitiesAndOtherRewards: numberValue(row.mappedData.activitiesAndOtherRewards),
+        deduction: numberValue(row.mappedData.deduction),
+        foodCompensation: numberValue(row.mappedData.foodCompensation),
+        registrationServiceFee: numberValue(row.mappedData.registrationServiceFee),
+        otherAdjustment: numberValue(row.mappedData.otherAdjustment),
+        tipsExcludingTax: numberValue(row.mappedData.tipsExcludingTax),
+        tgaDeductionVatExcluded: numberValue(row.mappedData.tgaDeductionVatExcluded),
+        totalPayableAmount: numberValue(row.mappedData.totalPayableAmount),
+        rawData: json(row.rawData),
+        invoiceBatchId: batchId,
+        status: "Approved",
+        approvedBy: args.userId ?? null,
+        approvedAt,
+      };
+      const existingInvoices = await tx.keetaInvoiceRecord.findMany({
+        where: {
+          courierId,
           month,
-          periodStart,
-          periodEnd,
-          isValid: boolValue(row.mappedData.isValid),
-          reason: text(row.mappedData.reason) || null,
-          onlineDaysValid: numberValue(row.mappedData.onlineDaysValid),
-          dailyOnlineHoursValid: numberValue(row.mappedData.dailyOnlineHoursValid),
-          dailyOnlineHoursPeakValid: numberValue(row.mappedData.dailyOnlineHoursPeakValid),
-          deliveredOrders: intValue(row.mappedData.deliveredOrders),
-          orderBasedPricing: numberValue(row.mappedData.orderBasedPricing),
-          distanceFromPriceIncrease: numberValue(row.mappedData.distanceFromPriceIncrease),
-          validDaCapacityIncentives: numberValue(row.mappedData.validDaCapacityIncentives),
-          experienceIncentive: numberValue(row.mappedData.experienceIncentive),
-          dxgy: numberValue(row.mappedData.dxgy),
-          subsidy: numberValue(row.mappedData.subsidy),
-          activitiesAndOtherRewards: numberValue(row.mappedData.activitiesAndOtherRewards),
-          deduction: numberValue(row.mappedData.deduction),
-          foodCompensation: numberValue(row.mappedData.foodCompensation),
-          registrationServiceFee: numberValue(row.mappedData.registrationServiceFee),
-          otherAdjustment: numberValue(row.mappedData.otherAdjustment),
-          tipsExcludingTax: numberValue(row.mappedData.tipsExcludingTax),
-          tgaDeductionVatExcluded: numberValue(row.mappedData.tgaDeductionVatExcluded),
-          totalPayableAmount: numberValue(row.mappedData.totalPayableAmount),
-          rawData: json(row.rawData),
-          invoiceBatchId: batchId,
-          status: "Approved",
-          approvedBy: args.userId ?? null,
-          approvedAt,
+          ...(args.applicationProjectId ? { applicationProjectId: args.applicationProjectId } : {}),
+          ...((link.cityId ?? args.cityId) ? { cityId: link.cityId ?? args.cityId } : {}),
         },
+        select: { id: true },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       });
+      if (existingInvoices[0]) {
+        await tx.keetaInvoiceRecord.update({ where: { id: existingInvoices[0].id }, data: invoiceData });
+        const duplicateIds = existingInvoices.slice(1).map((record) => record.id);
+        if (duplicateIds.length) await tx.keetaInvoiceRecord.deleteMany({ where: { id: { in: duplicateIds } } });
+      } else {
+        await tx.keetaInvoiceRecord.create({ data: invoiceData });
+      }
     }
 
     const details = preview.keetaInvoiceDetails?.filter((row) => row.severity !== "error" && row.status !== "ignored") ?? [];
+    const detailCourierIds = [...new Set(details.map((row) => text(row.mappedData.courierId || row.mappedData.appUserId)).filter(Boolean))];
+    const detailBillingCycles = [...new Set(details.map((row) => text(row.mappedData.billingCycle)).filter(Boolean))];
+    if (detailCourierIds.length) {
+      await tx.keetaInvoiceDetailRecord.deleteMany({
+        where: {
+          courierId: { in: detailCourierIds },
+          ...(args.applicationProjectId ? { applicationProjectId: args.applicationProjectId } : {}),
+          ...(detailBillingCycles.length ? { billingCycle: { in: detailBillingCycles } } : {}),
+        },
+      });
+    }
+    const detailLinks = details.length
+      ? await resolveRequiredKeetaLinks(tx, details, {
+          applicationId: preview.summary.applicationId,
+          applicationProjectId: args.applicationProjectId,
+          cityId: args.cityId,
+        })
+      : new Map<number, Awaited<ReturnType<typeof findAccountAndDriver>>>();
     for (const row of details) {
-      const link = await findAccountAndDriver(tx, row);
+      const link = detailLinks.get(row.rowNumber)!;
       await tx.keetaInvoiceDetailRecord.create({
         data: {
           projectId: "keeta",

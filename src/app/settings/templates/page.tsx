@@ -33,7 +33,7 @@ export default async function TemplateManagerPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/projects/keeta/imports" className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-white">قوالب Keeta</Link>
+              <Link href="/projects?application=keeta" className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-white">قوالب Keeta</Link>
               <Link href="/imports" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700">الاستيراد العام</Link>
             </div>
           </div>

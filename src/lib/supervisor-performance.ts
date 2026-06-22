@@ -196,6 +196,15 @@ export async function getSupervisorPerformanceReport(
             city: { select: { nameAr: true, nameEn: true } },
             project: { select: { name: true, appName: true } },
             account: { select: { id: true, username: true } },
+            applicationAccounts: {
+              take: 1,
+              orderBy: { updatedAt: "desc" },
+              select: {
+                id: true,
+                application: { select: { name: true } },
+                applicationProject: { select: { name: true } },
+              },
+            },
           },
         },
       },
@@ -206,6 +215,7 @@ export async function getSupervisorPerformanceReport(
       select: {
         id: true,
         appName: true,
+        applicationProject: { select: { application: { select: { name: true } } } },
         orders: true,
         workingHours: true,
         onTimeRate: true,
@@ -253,7 +263,8 @@ export async function getSupervisorPerformanceReport(
   const rows = supervisors.map((supervisor) => {
     const teamDrivers = supervisor.drivers.filter((driver) => {
       if (filters.cityId && driver.cityId !== filters.cityId) return false;
-      if (filters.appName && driver.project?.appName !== filters.appName) return false;
+      const driverAppName = driver.applicationAccounts[0]?.application?.name || driver.project?.appName || "";
+      if (filters.appName && driverAppName !== filters.appName) return false;
       return true;
     });
     const supervisorReports = reportsBySupervisor.get(supervisor.id) ?? [];
@@ -262,8 +273,8 @@ export async function getSupervisorPerformanceReport(
     const activeDrivers = teamDrivers.filter((driver) => driver.status === "ACTIVE").length;
     const apps = new Set(
       [
-        ...teamDrivers.map((driver) => driver.project?.appName ?? ""),
-        ...supervisorReports.map((report) => report.appName ?? report.driver?.project?.appName ?? ""),
+        ...teamDrivers.map((driver) => driver.applicationAccounts[0]?.application?.name || driver.project?.appName || ""),
+        ...supervisorReports.map((report) => report.applicationProject?.application.name || report.appName || report.driver?.project?.appName || ""),
       ].filter(Boolean),
     );
     const totalOrders = supervisorReports.reduce((sum, report) => sum + report.orders, 0);
@@ -274,14 +285,14 @@ export async function getSupervisorPerformanceReport(
     const rejectionRate = reportCount ? pct(supervisorReports.reduce((sum, report) => sum + numberValue(report.rejectionRate), 0) / reportCount) : null;
 
     const monthlyTarget = teamDrivers.reduce((sum, driver) => {
-      const appName = filters.appName || driver.project?.appName || "Keeta";
+      const appName = filters.appName || driver.applicationAccounts[0]?.application?.name || driver.project?.appName || "Keeta";
       const rules = getRulesForApp(appName, settings);
       const target = filters.from || filters.to ? rules.dailyOrders * periodDays : rules.monthlyOrders;
       return sum + target;
     }, 0);
     const targetAchievement = monthlyTarget ? pct((totalOrders / monthlyTarget) * 100) : null;
     const hoursTarget = teamDrivers.reduce((sum, driver) => {
-      const appName = filters.appName || driver.project?.appName || "Keeta";
+      const appName = filters.appName || driver.applicationAccounts[0]?.application?.name || driver.project?.appName || "Keeta";
       const rules = getRulesForApp(appName, settings);
       return sum + (filters.from || filters.to ? (rules.workingHours / 30) * periodDays : rules.workingHours);
     }, 0);
@@ -311,8 +322,8 @@ export async function getSupervisorPerformanceReport(
     const teamOrganizationScore = linkedDrivers
       ? clamp(
           (activeDrivers / linkedDrivers) * 40 +
-            (teamDrivers.filter((driver) => driver.projectId).length / linkedDrivers) * 25 +
-            (teamDrivers.filter((driver) => driver.accountId).length / linkedDrivers) * 20 +
+            (teamDrivers.filter((driver) => driver.applicationAccounts[0]?.applicationProject).length / linkedDrivers) * 25 +
+            (teamDrivers.filter((driver) => driver.applicationAccounts[0]?.id || driver.accountId).length / linkedDrivers) * 20 +
             (teamDrivers.filter((driver) => driver.cityId).length / linkedDrivers) * 15,
         )
       : null;
@@ -335,8 +346,8 @@ export async function getSupervisorPerformanceReport(
     if (linkedDrivers && !reportCount) warnings.push("لا توجد تقارير للفترة");
     if (finalKpi !== null && finalKpi < 75) warnings.push("KPI أقل من 75%");
     if (supervisorTasks.some((task) => !["APPROVED", "LOCKED"].includes(task.status))) warnings.push("مهام مفتوحة");
-    if (teamDrivers.some((driver) => !driver.projectId)) warnings.push("مناديب بدون مشروع");
-    if (teamDrivers.some((driver) => !driver.accountId)) warnings.push("مناديب بدون حساب");
+    if (teamDrivers.some((driver) => !driver.applicationAccounts[0]?.applicationProject)) warnings.push("مناديب بدون مشروع تشغيل");
+    if (teamDrivers.some((driver) => !driver.applicationAccounts[0]?.id && !driver.accountId)) warnings.push("مناديب بدون حساب تطبيق");
 
     const taskItems = supervisorTasks.slice(0, 12).map((task) => ({
       id: task.id,
@@ -395,7 +406,7 @@ export async function getSupervisorPerformanceReport(
         name: driver.name,
         code: driver.internalCode,
         cityName: cityName(driver.city),
-        projectName: driver.project?.name ?? "بدون مشروع",
+        projectName: driver.applicationAccounts[0]?.applicationProject?.name || driver.project?.name || "بدون مشروع",
         status: driver.status,
       })),
       tasks: taskItems,

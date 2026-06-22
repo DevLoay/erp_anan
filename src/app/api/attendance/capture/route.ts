@@ -41,12 +41,27 @@ async function canUsePerson(headers: Headers, personType: string, personId: stri
   if (scope.isGlobal) return true;
 
   if (personType === "driver") {
-    const driver = await prisma.driver.findUnique({ where: { id: personId }, select: { id: true, cityId: true, projectId: true, supervisorId: true } });
+    const driver = await prisma.driver.findUnique({
+      where: { id: personId },
+      select: {
+        id: true,
+        cityId: true,
+        projectId: true,
+        supervisorId: true,
+        applicationAccounts: { select: { applicationProjectId: true, projectId: true } },
+      },
+    });
     if (!driver) return false;
     if (scope.driverId && scope.driverId !== driver.id) return false;
     if (scope.supervisorId && scope.supervisorId !== driver.supervisorId) return false;
     if (scope.cityIds.length && (!driver.cityId || !scope.cityIds.includes(driver.cityId))) return false;
-    if (scope.projectIds.length && (!driver.projectId || !scope.projectIds.includes(driver.projectId))) return false;
+    if (scope.projectIds.length) {
+      const driverProjectIds = [
+        driver.projectId,
+        ...driver.applicationAccounts.flatMap((account) => [account.applicationProjectId, account.projectId]),
+      ].filter(Boolean) as string[];
+      if (!driverProjectIds.some((id) => scope.projectIds.includes(id))) return false;
+    }
     return true;
   }
 

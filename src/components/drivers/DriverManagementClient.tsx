@@ -10,10 +10,31 @@ type Props = {
   data: DriverManagementData;
 };
 
-type DriverAction = {
-  type: "report" | "advance" | "violation";
-  row: DriverManagementRow;
-};
+const driverTemplateColumns = [
+  "internalCode",
+  "driverCode",
+  "name",
+  "actualName",
+  "phone",
+  "mobile",
+  "nationalId",
+  "nationality",
+  "city",
+  "project",
+  "applicationProject",
+  "supervisor",
+  "vehiclePlate",
+  "vehicleOwnershipType",
+  "appUserId",
+  "appUsername",
+  "contractType",
+  "sponsorshipType",
+  "accommodationType",
+  "housingStatus",
+  "joinDate",
+  "status",
+  "notes",
+];
 
 const statusOptions = [
   { value: "", label: "كل الحالات" },
@@ -22,11 +43,18 @@ const statusOptions = [
   { value: "INACTIVE", label: "غير نشط" },
 ];
 
+const vehicleOwnershipOptions = [
+  { value: "", label: "كل أنواع السيارة" },
+  { value: "company_car", label: "سيارة شركة" },
+  { value: "personal_car", label: "سيارة شخصية" },
+  { value: "no_vehicle", label: "بدون سيارة" },
+];
+
 function money(value: number) {
   return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 0 }).format(value);
 }
 
-function number(value: number) {
+function num(value: number) {
   return new Intl.NumberFormat("ar-SA").format(value);
 }
 
@@ -40,7 +68,7 @@ function monthInput() {
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
-    <div className="fixed bottom-5 left-5 z-[90] flex max-w-sm items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-800 shadow-2xl">
+    <div className="fixed bottom-5 left-5 z-[90] flex max-w-md items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-800 shadow-2xl">
       <span>{message}</span>
       <button type="button" onClick={onClose} className="rounded-xl bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
         إغلاق
@@ -49,7 +77,7 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   );
 }
 
-function SummaryCard({ title, value, icon, tone = "slate" }: { title: string; value: string | number; icon: string; tone?: "slate" | "emerald" | "amber" | "red" | "blue" }) {
+function SummaryCard({ title, value, tone = "slate" }: { title: string; value: string | number; tone?: "slate" | "emerald" | "amber" | "red" | "blue" }) {
   const classes = {
     slate: "border-slate-200 bg-white text-slate-900",
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
@@ -59,10 +87,7 @@ function SummaryCard({ title, value, icon, tone = "slate" }: { title: string; va
   };
   return (
     <div className={`rounded-2xl border p-4 shadow-sm ${classes[tone]}`}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-black opacity-70">{title}</p>
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/75 text-lg shadow-sm">{icon}</span>
-      </div>
+      <p className="text-xs font-black opacity-70">{title}</p>
       <strong className="mt-2 block text-2xl font-black">{value}</strong>
     </div>
   );
@@ -78,139 +103,310 @@ function StatusBadge({ row }: { row: DriverManagementRow }) {
   return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${classes}`}>{row.statusLabel}</span>;
 }
 
-function Rating({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-xs font-bold text-slate-400">لا يوجد أداء</span>;
-  const tone = value >= 4.3 ? "text-emerald-700" : value >= 3.5 ? "text-amber-700" : "text-red-700";
-  return (
-    <span className={`inline-flex items-center gap-1 text-sm font-black ${tone}`}>
-      {value.toFixed(1)}
-      <span className="text-amber-400">★</span>
-    </span>
-  );
+function vehicleLabel(value: string) {
+  if (value === "company_car") return "سيارة شركة";
+  if (value === "personal_car") return "سيارة شخصية";
+  return "بدون سيارة";
 }
 
-function buildCsv(rows: DriverManagementRow[]) {
-  const headers = ["كود المندوب", "رقم الإقامة", "الاسم", "الجوال", "الجنسية", "المدينة", "المشروع", "التطبيق", "المشرف", "لوحة السيارة", "الحالة", "طلبات الشهر"];
-  const lines = rows.map((row) =>
-    [
-      row.driverCode,
-      row.nationalId,
-      row.name,
-      row.mobile,
-      row.nationality,
-      row.city,
-      row.project,
-      row.application,
-      row.supervisor,
-      row.vehiclePlate,
-      row.statusLabel,
-      row.monthOrders,
-    ]
-      .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
-      .join(","),
+function exportCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  const lines = rows.map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","));
+  const blob = new Blob([`\uFEFF${headers.join(",")}\n${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function field(form: FormData, key: string) {
+  return String(form.get(key) || "").trim();
+}
+
+function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverManagementData; onClose: () => void; onSaved: () => void; setToast: (message: string) => void }) {
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(
+      [
+        "internalCode",
+        "driverCode",
+        "name",
+        "actualName",
+        "phone",
+        "mobile",
+        "nationalId",
+        "nationality",
+        "cityId",
+        "applicationProjectId",
+        "supervisorId",
+        "vehicleId",
+        "accountId",
+        "vehicleOwnershipType",
+        "appUserId",
+        "appUsername",
+        "contractType",
+        "sponsorshipType",
+        "accommodationType",
+        "housingStatus",
+        "joinDate",
+        "status",
+        "source",
+      ].map((key) => [key, field(form, key)]),
+    );
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/drivers/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; data?: { duplicateNationalId?: boolean } };
+      if (!response.ok) throw new Error(result.error || "تعذر حفظ المندوب.");
+      onSaved();
+      setToast(result.data?.duplicateNationalId ? "تم حفظ المندوب، لكن رقم الهوية موجود سابقًا وتم تعليمه للمراجعة." : "تم إضافة المندوب بنجاح.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "تعذر حفظ المندوب.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true">
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-slate-500">إضافة يدوية منفصلة عن الاستيراد</p>
+            <h2 className="text-2xl font-black text-slate-950">إضافة مندوب</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
+            إغلاق
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            كود داخلي *
+            <input name="internalCode" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            اسم المندوب *
+            <input name="name" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            الجوال *
+            <input name="phone" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            المدينة *
+            <select name="cityId" required className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">اختر المدينة</option>
+              {data.cities.map((city) => (
+                <option key={city.id} value={city.id}>
+                  {city.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            مشروع التطبيق
+            <select name="applicationProjectId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">بدون مشروع تطبيق</option>
+              {data.projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            الحالة
+            <select name="status" defaultValue="ACTIVE" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="ACTIVE">نشط</option>
+              <option value="SUSPENDED">موقوف</option>
+              <option value="INACTIVE">غير نشط</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            كود المندوب
+            <input name="driverCode" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            الاسم الفعلي
+            <input name="actualName" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            رقم الهوية / الإقامة
+            <input name="nationalId" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            الجنسية
+            <input name="nationality" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            المشرف
+            <select name="supervisorId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">بدون مشرف</option>
+              {data.supervisors.map((supervisor) => (
+                <option key={supervisor.id} value={supervisor.id}>
+                  {supervisor.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            نوع السيارة
+            <select name="vehicleOwnershipType" defaultValue="no_vehicle" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="no_vehicle">بدون سيارة</option>
+              <option value="company_car">سيارة شركة</option>
+              <option value="personal_car">سيارة شخصية</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            سيارة متاحة
+            <select name="vehicleId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">بدون ربط سيارة</option>
+              {data.vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            حساب تطبيق موجود
+            <select name="accountId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">بدون حساب موجود</option>
+              {data.accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            App User ID
+            <input name="appUserId" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            App Username
+            <input name="appUsername" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            نوع العقد
+            <input name="contractType" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            نوع الكفالة
+            <input name="sponsorshipType" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            نوع السكن
+            <input name="accommodationType" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            حالة السكن
+            <input name="housingStatus" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+          <label className="grid gap-1 text-xs font-black text-slate-800">
+            تاريخ البداية
+            <input name="joinDate" type="date" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+          </label>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+          لو اخترت سيارة، النظام سيرفض السيارة المرتبطة بمندوب نشط. ولو اخترت حساب تطبيق مرتبط بمندوب آخر سيتم إيقاف الحفظ لحماية الربط.
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-black text-slate-800">
+            إلغاء
+          </button>
+          <button type="submit" disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-black text-white shadow-sm disabled:opacity-60">
+            {saving ? "جاري الحفظ..." : "حفظ المندوب"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
-  return `\uFEFF${headers.join(",")}\n${lines.join("\n")}`;
 }
 
 export function DriverManagementClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState("");
+  const [showCreate, setShowCreate] = useState(data.filters.newDriver === "1");
   const [selectedDriver, setSelectedDriver] = useState<DriverManagementRow | null>(null);
-  const [driverAction, setDriverAction] = useState<DriverAction | null>(null);
-  const [savingAction, setSavingAction] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkSupervisorId, setBulkSupervisorId] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
   const rows = data.rows;
-
   const visibleRows = useMemo(() => rows.slice(0, 100), [rows]);
+  const selectedRows = useMemo(() => rows.filter((row) => selectedIds.includes(row.id)), [rows, selectedIds]);
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => selectedIds.includes(row.id));
 
-  function askToPickDriver(action: string) {
-    setToast(`اختر مندوبًا من الجدول ثم اضغط زر ${action} داخل صف المندوب.`);
+  function refresh() {
+    router.refresh();
   }
 
-  async function createResource(resource: "advances" | "violations", body: Record<string, unknown>, successMessage: string) {
-    setSavingAction(true);
+  function exportCurrentDrivers() {
+    const headers = ["internalCode", "name", "phone", "nationalId", "city", "applicationProject", "application", "supervisor", "vehicle", "vehicleOwnershipType", "appUserId", "status"];
+    exportCsv(
+      `drivers-${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows.map((row) => [row.driverCode, row.name, row.mobile, row.nationalId, row.city, row.project, row.application, row.supervisor, row.vehiclePlate, vehicleLabel(row.vehicleOwnershipType), row.appUserId, row.statusLabel]),
+    );
+    setToast("تم تجهيز ملف المناديب الحالي.");
+  }
+
+  function exportDriverTemplate() {
+    exportCsv("drivers-template.csv", driverTemplateColumns, []);
+    setToast("تم تجهيز قالب المناديب بنفس حقول الإضافة اليدوية.");
+  }
+
+  function toggleRow(id: string) {
+    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
+  function toggleVisibleRows() {
+    setSelectedIds((current) => {
+      if (allVisibleSelected) return current.filter((id) => !visibleRows.some((row) => row.id === id));
+      return [...new Set([...current, ...visibleRows.map((row) => row.id)])];
+    });
+  }
+
+  async function applyBulkSupervisor() {
+    if (!selectedIds.length || !bulkSupervisorId) {
+      setToast("اختر المناديب والمشرف أولًا.");
+      return;
+    }
+    const confirmed = window.confirm(`تأكيد ربط ${selectedIds.length} مندوب بالمشرف المحدد؟`);
+    if (!confirmed) return;
+
+    setBulkSaving(true);
     try {
-      const response = await fetch(`/api/${resource}`, {
-        method: "POST",
+      const response = await fetch("/api/drivers/bulk", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ action: "assignSupervisor", driverIds: selectedIds, supervisorId: bulkSupervisorId }),
       });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "تعذر حفظ العملية. يرجى المحاولة مرة أخرى.");
-      setDriverAction(null);
-      setToast(successMessage);
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; data?: { updatedCount?: number; skippedCount?: number } };
+      if (!response.ok) throw new Error(payload.error || "تعذر تنفيذ التعديل الجماعي.");
+      setToast(`تم تحديث ${payload.data?.updatedCount ?? 0} مندوب. المتجاوز: ${payload.data?.skippedCount ?? 0}`);
+      setSelectedIds([]);
+      setBulkSupervisorId("");
+      refresh();
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "تعذر حفظ العملية. يرجى المحاولة مرة أخرى.");
+      setToast(error instanceof Error ? error.message : "تعذر تنفيذ التعديل الجماعي.");
     } finally {
-      setSavingAction(false);
+      setBulkSaving(false);
     }
-  }
-
-  async function submitAdvance(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!driverAction || driverAction.type !== "advance") return;
-
-    const form = new FormData(event.currentTarget);
-    const amount = Number(form.get("amount") || 0);
-    const deductionMonth = String(form.get("deductionMonth") || monthInput());
-    const reason = String(form.get("reason") || "").trim();
-    if (!amount || amount <= 0) {
-      setToast("قيمة السلفة مطلوبة ويجب أن تكون أكبر من صفر.");
-      return;
-    }
-
-    await createResource(
-      "advances",
-      {
-        driverId: driverAction.row.id,
-        amount,
-        remainingAmount: amount,
-        deductionMonth,
-        reason: reason || "طلب سلفة من صفحة إدارة المناديب",
-        status: "PENDING",
-      },
-      `تم تسجيل طلب سلفة للمندوب ${driverAction.row.name}.`,
-    );
-  }
-
-  async function submitViolation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!driverAction || driverAction.type !== "violation") return;
-
-    const form = new FormData(event.currentTarget);
-    const amount = Number(form.get("amount") || 0);
-    const type = String(form.get("type") || "تشغيلية").trim();
-    const occurredAt = String(form.get("occurredAt") || todayInput());
-    const notes = String(form.get("notes") || "").trim();
-    if (!amount || amount < 0) {
-      setToast("قيمة المخالفة مطلوبة ويجب ألا تكون سالبة.");
-      return;
-    }
-
-    await createResource(
-      "violations",
-      {
-        driverId: driverAction.row.id,
-        type,
-        amount,
-        occurredAt,
-        notes: notes || "مخالفة مسجلة من صفحة إدارة المناديب",
-        status: "PENDING",
-      },
-      `تم تسجيل مخالفة للمندوب ${driverAction.row.name}.`,
-    );
-  }
-
-  function exportExcel() {
-    const blob = new Blob([buildCsv(rows)], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `drivers-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setToast("تم تجهيز ملف CSV قابل للفتح على Excel");
   }
 
   if (data.databaseStatus === "offline") {
@@ -227,12 +423,13 @@ export function DriverManagementClient({ data }: Props) {
   return (
     <section className="w-full max-w-none space-y-4" dir="rtl">
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
+      {showCreate ? <DriverCreateModal data={data} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); refresh(); }} setToast={setToast} /> : null}
 
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <nav className="mb-1 text-xs font-black text-slate-500">الرئيسية &gt; المناديب والموارد البشرية &gt; إدارة المناديب</nav>
           <h1 className="text-3xl font-black text-slate-950">إدارة المناديب</h1>
-          <p className="mt-1 text-sm font-semibold text-slate-500">صفحة مرتبطة ببيانات النظام والصلاحيات الحالية.</p>
+          <p className="mt-1 text-sm font-semibold text-slate-500">إضافة يدوية، استيراد Excel، ربط المشرفين، وربط المناديب بالمدينة والمشروع والحسابات.</p>
         </div>
         <Link href="/dashboard" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
           رجوع
@@ -242,20 +439,17 @@ export function DriverManagementClient({ data }: Props) {
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => router.push("/imports/preview?importType=drivers&mode=create")} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700">
-              + إضافة
+            <button type="button" onClick={() => setShowCreate(true)} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700">
+              + إضافة مندوب
             </button>
             <Link href="/imports/preview?importType=drivers" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-              استيراد Excel / PDF
+              استيراد مناديب
             </Link>
-            <button type="button" onClick={() => askToPickDriver("تعديل")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-              تعديل
+            <button type="button" onClick={exportDriverTemplate} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
+              تصدير قالب المناديب
             </button>
-            <button type="button" onClick={() => askToPickDriver("حذف / تعطيل")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-red-700">
-              حذف
-            </button>
-            <button type="button" onClick={exportExcel} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-amber-600">
-              تصدير إكسل
+            <button type="button" onClick={exportCurrentDrivers} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-amber-600">
+              تصدير المناديب الحالية
             </button>
             <button type="button" onClick={() => window.print()} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
               طباعة / PDF
@@ -263,13 +457,13 @@ export function DriverManagementClient({ data }: Props) {
           </div>
 
           <form method="get" className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="drivers-from-date">
+            <label className="grid gap-1 text-xs font-black text-slate-800">
               من تاريخ
-              <input id="drivers-from-date" name="fromDate" defaultValue={data.filters.fromDate} type="date" className="h-10 rounded-xl border border-slate-200 px-3 text-sm" />
+              <input name="fromDate" defaultValue={data.filters.fromDate} type="date" className="h-10 rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
-            <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="drivers-to-date">
+            <label className="grid gap-1 text-xs font-black text-slate-800">
               إلى تاريخ
-              <input id="drivers-to-date" name="toDate" defaultValue={data.filters.toDate} type="date" className="h-10 rounded-xl border border-slate-200 px-3 text-sm" />
+              <input name="toDate" defaultValue={data.filters.toDate} type="date" className="h-10 rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
           </form>
         </div>
@@ -278,22 +472,9 @@ export function DriverManagementClient({ data }: Props) {
       <form method="get" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <input type="hidden" name="fromDate" value={data.filters.fromDate} />
         <input type="hidden" name="toDate" value={data.filters.toDate} />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <label className="sr-only" htmlFor="drivers-search">
-            بحث
-          </label>
-          <input
-            id="drivers-search"
-            name="q"
-            defaultValue={data.filters.q}
-            placeholder="بحث"
-            className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-blue-400"
-          />
-
-          <label className="sr-only" htmlFor="drivers-city">
-            المدينة
-          </label>
-          <select id="drivers-city" name="cityId" defaultValue={data.filters.cityId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <input name="q" defaultValue={data.filters.q} placeholder="بحث بالاسم / الكود / الجوال / الهوية / حساب التطبيق" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-blue-400 xl:col-span-2" />
+          <select name="cityId" defaultValue={data.filters.cityId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
             <option value="">كل المدن</option>
             {data.cities.map((city) => (
               <option key={city.id} value={city.id}>
@@ -301,154 +482,139 @@ export function DriverManagementClient({ data }: Props) {
               </option>
             ))}
           </select>
-
-          <label className="sr-only" htmlFor="drivers-status">
-            الحالة
-          </label>
-          <select id="drivers-status" name="status" defaultValue={data.filters.status} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-            {statusOptions.map((option, index) => (
-              <option key={`${option.value}:${index}`} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <label className="sr-only" htmlFor="drivers-project">
-            المشروع
-          </label>
-          <select id="drivers-project" name="projectId" defaultValue={data.filters.projectId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-            <option value="">كل التطبيقات</option>
+          <select name="projectId" defaultValue={data.filters.projectId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <option value="">كل مشاريع التطبيقات</option>
             {data.projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
             ))}
           </select>
-
-          <label className="sr-only" htmlFor="drivers-nationality">
-            الجنسية
-          </label>
-          <select id="drivers-nationality" name="nationality" defaultValue={data.filters.nationality} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-            <option value="">كل الجنسيات</option>
-            {data.nationalities.map((nationality) => (
-              <option key={nationality} value={nationality}>
-                {nationality}
+          <select name="supervisorId" defaultValue={data.filters.supervisorId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <option value="">كل المشرفين</option>
+            {data.supervisors.map((supervisor) => (
+              <option key={supervisor.id} value={supervisor.id}>
+                {supervisor.name}
               </option>
             ))}
           </select>
-
+          <select name="status" defaultValue={data.filters.status} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            {statusOptions.map((option) => (
+              <option key={option.value || "ALL"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select name="vehicleOwnershipType" defaultValue={data.filters.vehicleOwnershipType} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            {vehicleOwnershipOptions.map((option) => (
+              <option key={option.value || "ALL"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           <button type="submit" className="h-11 rounded-xl bg-slate-900 px-4 text-sm font-black text-white shadow-sm hover:bg-slate-800">
             تطبيق
           </button>
         </div>
+        <div className="mt-3 flex justify-end">
+          <Link href="/drivers" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
+            عرض الكل
+          </Link>
+        </div>
       </form>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard title="إجمالي المناديب" value={number(data.summary.totalDrivers)} icon="ID" tone="blue" />
-        <SummaryCard title="نشط" value={number(data.summary.activeDrivers)} icon="✓" tone="emerald" />
-        <SummaryCard title="موقوف" value={number(data.summary.suspendedDrivers)} icon="!" tone={data.summary.suspendedDrivers ? "red" : "slate"} />
-        <SummaryCard title="طلبات الفترة" value={number(data.summary.monthOrders)} icon="ORD" tone="slate" />
-        <SummaryCard title="بدون حساب تطبيق" value={number(data.summary.withoutAppAccount)} icon="@" tone={data.summary.withoutAppAccount ? "amber" : "emerald"} />
+        <SummaryCard title="إجمالي المناديب" value={num(data.summary.totalDrivers)} tone="blue" />
+        <SummaryCard title="نشط" value={num(data.summary.activeDrivers)} tone="emerald" />
+        <SummaryCard title="موقوف" value={num(data.summary.suspendedDrivers)} tone={data.summary.suspendedDrivers ? "red" : "slate"} />
+        <SummaryCard title="طلبات الفترة" value={num(data.summary.monthOrders)} />
+        <SummaryCard title="بدون حساب تطبيق" value={num(data.summary.withoutAppAccount)} tone={data.summary.withoutAppAccount ? "amber" : "emerald"} />
       </div>
 
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-950 shadow-sm">
-        {data.insight}
-      </div>
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-950 shadow-sm">{data.insight}</div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Link href="/rider-kpi" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-          عرض KPI المناديب
-        </Link>
-        <button type="button" onClick={() => askToPickDriver("سلفة")} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-amber-600">
-          طلب سلفة
-        </button>
-        <button type="button" onClick={exportExcel} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-          تصدير إكسل
-        </button>
-        <button type="button" onClick={() => window.print()} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-          طباعة / PDF
-        </button>
-        <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm">100 صف</span>
-      </div>
+      {selectedIds.length ? (
+        <div className="sticky top-2 z-20 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-black text-amber-950">تم تحديد {num(selectedIds.length)} مندوب</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={bulkSupervisorId} onChange={(event) => setBulkSupervisorId(event.target.value)} className="h-11 min-w-64 rounded-xl border border-amber-200 bg-white px-3 text-sm font-bold">
+                <option value="">اختر مشرف للتعيين الجماعي</option>
+                {data.supervisors.map((supervisor) => (
+                  <option key={supervisor.id} value={supervisor.id}>
+                    {supervisor.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={applyBulkSupervisor} disabled={bulkSaving} className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-black text-white disabled:opacity-60">
+                {bulkSaving ? "جاري التنفيذ..." : "تطبيق"}
+              </button>
+              <button type="button" onClick={() => setSelectedIds([])} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">
+                إلغاء التحديد
+              </button>
+            </div>
+          </div>
+          {selectedRows.length ? <p className="mt-2 text-xs font-bold text-amber-900">المحدد: {selectedRows.slice(0, 5).map((row) => row.name).join("، ")}{selectedRows.length > 5 ? "..." : ""}</p> : null}
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {visibleRows.length ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[1320px] w-full border-separate border-spacing-0 text-sm">
+            <table className="min-w-[1500px] w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-100 text-xs font-black text-slate-700">
                   <th className="rounded-r-xl px-3 py-3 text-right">
-                    <label className="sr-only" htmlFor="drivers-select-all">
-                      تحديد الكل
-                    </label>
-                    <input id="drivers-select-all" type="checkbox" className="h-4 w-4 rounded border-slate-300" />
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleVisibleRows} className="h-4 w-4 rounded border-slate-300" />
                   </th>
                   <th className="px-3 py-3 text-right">الاسم</th>
                   <th className="px-3 py-3 text-right">الجوال</th>
                   <th className="px-3 py-3 text-right">الجنسية</th>
                   <th className="px-3 py-3 text-right">المدينة</th>
+                  <th className="px-3 py-3 text-right">مشروع التطبيق</th>
                   <th className="px-3 py-3 text-right">التطبيق</th>
+                  <th className="px-3 py-3 text-right">حساب التطبيق</th>
                   <th className="px-3 py-3 text-right">المشرف</th>
-                  <th className="px-3 py-3 text-right">لوحة السيارة</th>
                   <th className="px-3 py-3 text-right">نوع السيارة</th>
+                  <th className="px-3 py-3 text-right">لوحة السيارة</th>
                   <th className="px-3 py-3 text-right">الحالة</th>
-                  <th className="px-3 py-3 text-right">طلبات شهر</th>
+                  <th className="px-3 py-3 text-right">طلبات الفترة</th>
                   <th className="px-3 py-3 text-right">سلف معتمدة</th>
                   <th className="px-3 py-3 text-right">سلف معلقة</th>
-                  <th className="px-3 py-3 text-right">التقييم</th>
-                  <th className="sticky left-0 z-10 rounded-l-xl bg-slate-100 px-3 py-3 text-right">إجراءات</th>
+                  <th className="rounded-l-xl px-3 py-3 text-right">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleRows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-100">
-                    <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-4">
-                      <label className="sr-only" htmlFor={`driver-${row.id}`}>
-                        تحديد {row.name}
-                      </label>
-                      <input id={`driver-${row.id}`} type="checkbox" className="h-4 w-4 rounded border-slate-300" />
-                    </td>
                     <td className="border-b border-slate-100 px-3 py-4">
+                      <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggleRow(row.id)} className="h-4 w-4 rounded border-slate-300" />
+                    </td>
+                    <td className="sticky right-0 z-10 border-b border-slate-100 bg-white px-3 py-4 shadow-[-8px_0_16px_-14px_rgba(15,23,42,0.45)]">
                       <button type="button" onClick={() => setSelectedDriver(row)} className="text-right font-black text-slate-950 hover:text-blue-700">
                         {row.name}
                       </button>
-                      <div className="text-xs font-medium text-slate-500">{row.nationalId}</div>
+                      <div className="text-xs font-bold text-slate-500">{row.driverCode}</div>
+                      <div className="text-xs font-medium text-slate-400">{row.nationalId}</div>
                     </td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.mobile}</td>
-                    <td className="border-b border-slate-100 px-3 py-4">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{row.nationality}</span>
-                    </td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.nationality}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.city}</td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.project}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.application}</td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.appUserId}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.supervisor}</td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-bold">{vehicleLabel(row.vehicleOwnershipType)}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.vehiclePlate}</td>
-                    <td className="border-b border-slate-100 px-3 py-4">{row.vehicleType}</td>
-                    <td className="border-b border-slate-100 px-3 py-4">
-                      <StatusBadge row={row} />
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-4 font-black">{number(row.monthOrders)}</td>
+                    <td className="border-b border-slate-100 px-3 py-4"><StatusBadge row={row} /></td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-black">{num(row.monthOrders)}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{money(row.approvedAdvances)}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{money(row.pendingAdvances)}</td>
                     <td className="border-b border-slate-100 px-3 py-4">
-                      <Rating value={row.rating} />
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-4">
-                      <div className="flex min-w-[160px] flex-wrap gap-1">
-                        <button type="button" onClick={() => setDriverAction({ type: "report", row })} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">
-                          تقرير
-                        </button>
-                        <button type="button" onClick={() => setDriverAction({ type: "violation", row })} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">
-                          مخالفة
-                        </button>
-                        <button type="button" onClick={() => setDriverAction({ type: "advance", row })} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">
-                          سلفة
-                        </button>
-                        <button type="button" onClick={() => setSelectedDriver(row)} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-800 hover:bg-slate-50" aria-label={`عرض ${row.name}`}>
-                          عين
-                        </button>
-                        <button type="button" onClick={() => setSelectedDriver(row)} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-800 hover:bg-slate-50" aria-label={`تعديل ${row.name}`}>
-                          قلم
-                        </button>
+                      <div className="flex min-w-[210px] flex-wrap gap-1">
+                        <Link href={`/drivers/${row.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">فتح</Link>
+                        <button type="button" onClick={() => setSelectedDriver(row)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">تفاصيل</button>
+                        <Link href={`/rider-reports?driverId=${row.id}`} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-black text-blue-800 hover:bg-blue-100">تقرير</Link>
                       </div>
                     </td>
                   </tr>
@@ -459,25 +625,21 @@ export function DriverManagementClient({ data }: Props) {
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
             <h2 className="text-xl font-black text-slate-900">لا توجد مناديب مطابقة للفلاتر الحالية</h2>
-            <p className="mt-2 text-sm font-bold text-slate-500">يمكن رفع ملف المناديب الرسمي من زر الاستيراد وسيظهر Preview قبل الحفظ.</p>
-            <Link href="/imports/preview?importType=drivers" className="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-              رفع ملف المناديب
-            </Link>
+            <p className="mt-2 text-sm font-bold text-slate-500">يمكن إضافة مندوب يدويًا أو استخدام استيراد المناديب كمسار منفصل.</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <button type="button" onClick={() => setShowCreate(true)} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700">
+                + إضافة مندوب
+              </button>
+              <Link href="/imports/preview?importType=drivers" className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+                استيراد مناديب
+              </Link>
+            </div>
           </div>
         )}
 
         <div className="mt-4 flex items-center justify-between text-xs font-bold text-slate-500">
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setToast("أنت بالفعل في الصفحة الأولى حسب البيانات المعروضة حاليًا.")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-              السابق
-            </button>
-            <button type="button" onClick={() => setToast("لا توجد صفحة تالية محفوظة في نتائج الفلاتر الحالية.")} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-              التالي
-            </button>
-          </div>
-          <span>
-            عدد السجلات: {number(rows.length)} | صفحة 1 / 1
-          </span>
+          <span>عدد السجلات: {num(rows.length)} | المعروض: {num(visibleRows.length)}</span>
+          <span>صفحة 1 / 1</span>
         </div>
       </div>
 
@@ -487,9 +649,7 @@ export function DriverManagementClient({ data }: Props) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-black text-slate-950">{selectedDriver.name}</h2>
-                <p className="text-sm font-bold text-slate-500">
-                  {selectedDriver.driverCode} · {selectedDriver.nationalId}
-                </p>
+                <p className="text-sm font-bold text-slate-500">{selectedDriver.driverCode} · {selectedDriver.nationalId}</p>
               </div>
               <button type="button" onClick={() => setSelectedDriver(null)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
                 إغلاق
@@ -497,20 +657,21 @@ export function DriverManagementClient({ data }: Props) {
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <SummaryCard title="طلبات الفترة" value={number(selectedDriver.monthOrders)} icon="ORD" tone="blue" />
-              <SummaryCard title="سلف معتمدة" value={money(selectedDriver.approvedAdvances)} icon="SAR" tone="emerald" />
-              <SummaryCard title="صافي آخر مسير" value={money(selectedDriver.netPayroll)} icon="NET" tone={selectedDriver.netPayroll < 0 ? "red" : "slate"} />
+              <SummaryCard title="طلبات الفترة" value={num(selectedDriver.monthOrders)} tone="blue" />
+              <SummaryCard title="سلف معتمدة" value={money(selectedDriver.approvedAdvances)} tone="emerald" />
+              <SummaryCard title="صافي آخر مسير" value={money(selectedDriver.netPayroll)} tone={selectedDriver.netPayroll < 0 ? "red" : "slate"} />
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2">
               {[
                 ["الجوال", selectedDriver.mobile],
                 ["المدينة", selectedDriver.city],
-                ["المشروع", selectedDriver.project],
+                ["مشروع التطبيق", selectedDriver.project],
                 ["التطبيق", selectedDriver.application],
                 ["حساب التطبيق", selectedDriver.appUserId],
                 ["اسم الحساب", selectedDriver.appUsername],
                 ["المشرف", selectedDriver.supervisor],
+                ["نوع السيارة", vehicleLabel(selectedDriver.vehicleOwnershipType)],
                 ["لوحة السيارة", selectedDriver.vehiclePlate],
                 ["أيام الإيجار", selectedDriver.rentalDays],
                 ["آخر تقرير", selectedDriver.lastReportDate],
@@ -521,125 +682,6 @@ export function DriverManagementClient({ data }: Props) {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      ) : null}
-
-      {driverAction ? (
-        <div className="fixed inset-0 z-[85] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true">
-          <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-black text-slate-500">إدارة المناديب</p>
-                <h2 className="text-2xl font-black text-slate-950">
-                  {driverAction.type === "report" ? "تقرير المندوب" : driverAction.type === "advance" ? "طلب سلفة" : "تسجيل مخالفة"}
-                </h2>
-                <p className="mt-1 text-sm font-bold text-slate-500">
-                  {driverAction.row.name} · {driverAction.row.driverCode}
-                </p>
-              </div>
-              <button type="button" onClick={() => setDriverAction(null)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700">
-                إغلاق
-              </button>
-            </div>
-
-            {driverAction.type === "report" ? (
-              <div className="mt-5 space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <SummaryCard title="طلبات الفترة" value={number(driverAction.row.monthOrders)} icon="ORD" tone="blue" />
-                  <SummaryCard title="السلف المعلقة" value={money(driverAction.row.pendingAdvances)} icon="SAR" tone={driverAction.row.pendingAdvances ? "amber" : "slate"} />
-                  <SummaryCard title="إجمالي المخالفات" value={money(driverAction.row.violationsTotal)} icon="!" tone={driverAction.row.violationsTotal ? "red" : "slate"} />
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-black text-slate-950">روابط التقرير</h3>
-                  <div className="mt-3 grid gap-2 md:grid-cols-2">
-                    <button type="button" onClick={() => window.location.assign(`/rider-kpi?driverId=${driverAction.row.id}`)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">
-                      فتح KPI المندوب
-                    </button>
-                    <button type="button" onClick={() => window.location.assign(`/rider-reports?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-                      التقارير اليومية
-                    </button>
-                    <button type="button" onClick={() => window.location.assign(`/payroll?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-                      المسير والمالية
-                    </button>
-                    <button type="button" onClick={() => window.location.assign(`/notifications?driverId=${driverAction.row.id}`)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-                      التنبيهات
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {driverAction.type === "advance" ? (
-              <form onSubmit={submitAdvance} className="mt-5 grid gap-4">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-advance-amount">
-                    قيمة السلفة
-                    <input id="driver-advance-amount" name="amount" type="number" min="1" step="0.01" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold outline-none focus:border-blue-400" />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-advance-month">
-                    شهر الخصم
-                    <input id="driver-advance-month" name="deductionMonth" type="month" defaultValue={monthInput()} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold outline-none focus:border-blue-400" />
-                  </label>
-                </div>
-                <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-advance-reason">
-                  سبب السلفة
-                  <textarea id="driver-advance-reason" name="reason" rows={3} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold outline-none focus:border-blue-400" placeholder="مثال: طلب سلفة تشغيلية للمندوب" />
-                </label>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
-                  سيتم حفظ الطلب كحالة Pending حتى يتم اعتماده من المستخدم المصرح له، ولن يتم اعتماده أو خصمه تلقائيًا من المسير.
-                </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={() => setDriverAction(null)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800">
-                    إلغاء
-                  </button>
-                  <button type="submit" disabled={savingAction} className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-amber-600 disabled:opacity-60">
-                    {savingAction ? "جاري الحفظ..." : "حفظ طلب السلفة"}
-                  </button>
-                </div>
-              </form>
-            ) : null}
-
-            {driverAction.type === "violation" ? (
-              <form onSubmit={submitViolation} className="mt-5 grid gap-4">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-violation-type">
-                    نوع المخالفة
-                    <select id="driver-violation-type" name="type" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-blue-400">
-                      <option value="تشغيلية">تشغيلية</option>
-                      <option value="حضور">حضور</option>
-                      <option value="تطبيق">تطبيق</option>
-                      <option value="سيارة">سيارة</option>
-                      <option value="مالية">مالية</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-violation-amount">
-                    قيمة المخالفة
-                    <input id="driver-violation-amount" name="amount" type="number" min="0" step="0.01" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold outline-none focus:border-blue-400" />
-                  </label>
-                  <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-violation-date">
-                    تاريخ المخالفة
-                    <input id="driver-violation-date" name="occurredAt" type="date" defaultValue={todayInput()} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold outline-none focus:border-blue-400" />
-                  </label>
-                </div>
-                <label className="grid gap-1 text-xs font-black text-slate-800" htmlFor="driver-violation-notes">
-                  ملاحظات
-                  <textarea id="driver-violation-notes" name="notes" rows={3} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold outline-none focus:border-blue-400" placeholder="اكتب سبب المخالفة أو رقم التقرير المرتبط بها" />
-                </label>
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-900">
-                  سيتم حفظ المخالفة كحالة Pending، ولا يتم خصمها من المسير إلا بعد الاعتماد حسب صلاحيات المالية.
-                </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={() => setDriverAction(null)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800">
-                    إلغاء
-                  </button>
-                  <button type="submit" disabled={savingAction} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-red-700 disabled:opacity-60">
-                    {savingAction ? "جاري الحفظ..." : "حفظ المخالفة"}
-                  </button>
-                </div>
-              </form>
-            ) : null}
           </div>
         </div>
       ) : null}

@@ -295,7 +295,7 @@ export function ManagementReportsOldClient({ filters, options, summary, rows }: 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            <ActionButton tone="green" onClick={() => router.push(`/projects/keeta/imports?dateFrom=${filters.dateFrom}&dateTo=${filters.dateTo}`)}>+ إضافة</ActionButton>
+            <ActionButton tone="green" onClick={() => router.push(`/projects?application=keeta&dateFrom=${filters.dateFrom}&dateTo=${filters.dateTo}`)}>+ إضافة</ActionButton>
             <ActionButton tone="blue" onClick={() => router.push("/imports")}>استيراد Excel / PDF</ActionButton>
             <ActionButton onClick={openSelectedReport}>تعديل</ActionButton>
             <ActionButton tone="red" onClick={() => (selectedCount ? router.push("/data-cleaning") : showNotice("اختر سجلًا أولًا."))}>حذف</ActionButton>

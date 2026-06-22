@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { NotificationRow, NotificationsData, NotificationSeverity } from "@/lib/notifications/getNotificationsData";
 
@@ -140,6 +140,21 @@ function usableRouteValue(value: string) {
   return clean && clean !== "-";
 }
 
+const resolvedStorageKey = "erp-resolved-notification-alerts";
+
+function isResolved(row: NotificationRow) {
+  return row.status === "APPROVED" || row.status === "LOCKED";
+}
+
+function buildLiveSummary(rows: NotificationRow[], resolvedCount: number) {
+  return {
+    critical: rows.filter((row) => row.severity === "CRITICAL" && !isResolved(row)).length,
+    warning: rows.filter((row) => row.severity === "WARNING" && !isResolved(row)).length,
+    info: rows.filter((row) => row.severity === "INFO" && !isResolved(row)).length,
+    resolved: resolvedCount,
+  };
+}
+
 export function NotificationsAlertsClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState("");
@@ -150,20 +165,48 @@ export function NotificationsAlertsClient({ data }: Props) {
   const [status, setStatus] = useState<FilterValue>("all");
   const [source, setSource] = useState<FilterValue>("all");
   const [selectedRow, setSelectedRow] = useState<NotificationRow | null>(null);
+  const [resolvedKeys, setResolvedKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(resolvedStorageKey) || "[]") as string[];
+      setResolvedKeys(new Set(saved));
+    } catch {
+      setResolvedKeys(new Set());
+    }
+  }, []);
+
+  function markResolved(row: NotificationRow) {
+    setResolvedKeys((current) => {
+      const next = new Set(current);
+      next.add(row.id);
+      try {
+        window.localStorage.setItem(resolvedStorageKey, JSON.stringify([...next]));
+      } catch {
+        // Local dismissal is only a UI convenience for generated alerts.
+      }
+      return next;
+    });
+    setSelectedRow(null);
+  }
+
+  const activeRows = useMemo(() => data.rows.filter((row) => !resolvedKeys.has(row.id) && !isResolved(row)), [data.rows, resolvedKeys]);
+  const resolvedCount = useMemo(() => data.rows.filter((row) => resolvedKeys.has(row.id) || isResolved(row)).length, [data.rows, resolvedKeys]);
+  const liveSummary = useMemo(() => buildLiveSummary(activeRows, resolvedCount), [activeRows, resolvedCount]);
 
   const options = useMemo(
     () => ({
-      cities: uniqueValues(data.rows, "cityName"),
-      apps: uniqueValues(data.rows, "appName"),
-      statuses: uniqueValues(data.rows, "statusLabel"),
-      sources: uniqueValues(data.rows, "sourceLabel"),
+      cities: uniqueValues(activeRows, "cityName"),
+      apps: uniqueValues(activeRows, "appName"),
+      statuses: uniqueValues(activeRows, "statusLabel"),
+      sources: uniqueValues(activeRows, "sourceLabel"),
     }),
-    [data.rows],
+    [activeRows],
   );
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return data.rows.filter((row) => {
+    return activeRows.filter((row) => {
       const matchesSearch = q ? `${row.title} ${row.detail} ${row.driverName} ${row.cityName} ${row.appName} ${row.projectName}`.toLowerCase().includes(q) : true;
       const matchesSeverity = severity === "all" ? true : row.severity === severity;
       const matchesCity = city === "all" ? true : row.cityName === city;
@@ -172,7 +215,7 @@ export function NotificationsAlertsClient({ data }: Props) {
       const matchesSource = source === "all" ? true : row.sourceLabel === source;
       return matchesSearch && matchesSeverity && matchesCity && matchesApp && matchesStatus && matchesSource;
     });
-  }, [appName, city, data.rows, query, severity, source, status]);
+  }, [activeRows, appName, city, query, severity, source, status]);
 
   function submitDates(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -200,15 +243,26 @@ export function NotificationsAlertsClient({ data }: Props) {
   }
 
   async function createTask(row: NotificationRow) {
-    const response = await fetch("/api/tasks", {
+    if (!row.cityId || !row.supervisorId) {
+      setToast("لا يمكن إنشاء مهمة: التنبيه غير مربوط بمدينة ومشرف. راجع ربط المندوب أولًا.");
+      return;
+    }
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 1);
+    const response = await fetch("/api/supervisor-tasks", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         title: row.title,
         description: `${row.detail}\n${row.recommendation}`,
+        category: "متابعة تنبيه",
+        cityId: row.cityId,
+        supervisorId: row.supervisorId,
         driverId: row.driverId || undefined,
         priority: row.severity,
         status: "PENDING",
+        dueDate: dueDate.toISOString().slice(0, 10),
+        notes: `تم إنشاؤها من تنبيه: ${row.sourceLabel}`,
       }),
     });
     if (!response.ok) {
@@ -259,7 +313,8 @@ export function NotificationsAlertsClient({ data }: Props) {
 
   async function resolveAlert(row: NotificationRow) {
     if (row.source !== "saved") {
-      setToast("هذا تنبيه مولد من البيانات، وسيختفي تلقائياً عند معالجة السبب في التقارير أو الحسابات.");
+      markResolved(row);
+      setToast("تم حل التنبيه وإخفاؤه من القائمة الحالية.");
       return;
     }
     const response = await fetch(`/api/notifications/${row.id}`, {
@@ -271,7 +326,8 @@ export function NotificationsAlertsClient({ data }: Props) {
       setToast("تعذر تحديث حالة التنبيه حالياً.");
       return;
     }
-    setToast("تم تعليم التنبيه كمحلول.");
+    markResolved(row);
+    setToast("تم تعليم التنبيه كمحلول وإخفاؤه من القائمة.");
     router.refresh();
   }
 
@@ -342,12 +398,12 @@ export function NotificationsAlertsClient({ data }: Props) {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="flex flex-wrap gap-2">
             <ActionButton onClick={() => void createManualNotification()} tone="green">+ إضافة</ActionButton>
-            <ActionButton onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template")} tone="blue">استيراد Excel / PDF</ActionButton>
+            <ActionButton onClick={() => router.push("/projects?application=keeta&type=keeta_period_report_template")} tone="blue">استيراد Excel / PDF</ActionButton>
             <ActionButton onClick={() => (selectedRow ? setSelectedRow(selectedRow) : setToast("افتح تفاصيل التنبيه من الجدول لتعديله أو حله."))}>تعديل</ActionButton>
             <ActionButton onClick={() => void deleteSelectedNotification()} tone="red">حذف</ActionButton>
             <ActionButton onClick={exportCsv} tone="amber">تصدير إكسل</ActionButton>
             <ActionButton onClick={() => window.print()}>طباعة / PDF</ActionButton>
-            <ActionButton onClick={() => router.push("/projects/keeta/imports?type=keeta_period_report_template")}>قالب Keeta</ActionButton>
+            <ActionButton onClick={() => router.push("/projects?application=keeta&type=keeta_period_report_template")}>قالب Keeta</ActionButton>
           </div>
 
           <form onSubmit={submitDates} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
@@ -367,10 +423,10 @@ export function NotificationsAlertsClient({ data }: Props) {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="حرج" value={data.summary.critical} tone="red" />
-        <SummaryCard title="تحذير" value={data.summary.warning} tone="amber" />
-        <SummaryCard title="معلومة" value={data.summary.info} tone="blue" />
-        <SummaryCard title="تم الحل" value={data.summary.resolved} tone="emerald" />
+        <SummaryCard title="حرج" value={liveSummary.critical} tone="red" />
+        <SummaryCard title="تحذير" value={liveSummary.warning} tone="amber" />
+        <SummaryCard title="معلومة" value={liveSummary.info} tone="blue" />
+        <SummaryCard title="تم الحل" value={liveSummary.resolved} tone="emerald" />
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

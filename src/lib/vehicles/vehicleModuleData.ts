@@ -22,9 +22,11 @@ export type VehicleColumn = {
 export type VehicleField = {
   key: string;
   label: string;
-  type: "text" | "number" | "date" | "select" | "textarea";
+  type: "text" | "number" | "date" | "select" | "textarea" | "file";
   required?: boolean;
   options?: string;
+  accept?: string;
+  multiple?: boolean;
 };
 
 export type VehicleModuleConfig = {
@@ -49,6 +51,10 @@ export type VehicleReference = {
   id: string;
   label: string;
   sub?: string;
+  driverId?: string;
+  driverLabel?: string;
+  cityId?: string;
+  cityLabel?: string;
 };
 
 export type VehicleModuleData =
@@ -67,6 +73,7 @@ export type VehicleModuleData =
         vehicles: VehicleReference[];
         drivers: VehicleReference[];
         cities: VehicleReference[];
+        rentalCompanies: VehicleReference[];
       };
     };
 
@@ -104,7 +111,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "brand", label: "العلامة", type: "text" },
       { key: "model", label: "الموديل", type: "text" },
       { key: "year", label: "سنة الصنع", type: "number" },
-      { key: "rentalCompany", label: "شركة التأجير", type: "text" },
+      { key: "rentalCompanyId", label: "شركة التأجير", type: "select", options: "rentalCompanies" },
       { key: "ownershipType", label: "نوع ملكية السيارة", type: "select", options: "vehicleOwnership" },
       { key: "dailyRent", label: "الإيجار اليومي", type: "number" },
       { key: "monthlyRent", label: "الإيجار الشهري", type: "number" },
@@ -154,6 +161,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "driver", label: "المندوب" },
       { key: "cleanDate", label: "تاريخ النظافة" },
       { key: "cost", label: "التكلفة" },
+      { key: "attachmentsCount", label: "صور السيارة" },
       { key: "statusLabel", label: "الحالة" },
       { key: "notes", label: "ملاحظات" },
     ],
@@ -162,6 +170,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "driverId", label: "المندوب", type: "select", options: "drivers" },
       { key: "cleanDate", label: "تاريخ النظافة", type: "date" },
       { key: "cost", label: "التكلفة", type: "number" },
+      { key: "attachments", label: "صور السيارة بعد النظافة", type: "file", required: true, accept: "image/*", multiple: true },
       { key: "status", label: "الحالة", type: "select", options: recordStatusOptions },
       { key: "notes", label: "ملاحظات", type: "textarea" },
     ],
@@ -244,7 +253,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
   {
     key: "vehicle-costs",
     title: "تكلفة السيارات",
-    description: "تكلفة السيارات الشهرية من إيجار وصيانة ونظافة وحوادث وتلفيات.",
+    description: "تكلفة السيارات الشهرية مجمعة تلقائيًا من الإيجار والصيانة والنظافة والحوادث والتلفيات.",
     route: "/vehicle-cost",
     apiResource: "vehicle-costs",
     addLabel: "إضافة تكلفة",
@@ -256,6 +265,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "cleaningCost", label: "النظافة" },
       { key: "accidentCost", label: "الحوادث" },
       { key: "damageCost", label: "التلفيات" },
+      { key: "otherCost", label: "أخرى/مخالفات" },
       { key: "totalCost", label: "الإجمالي" },
       { key: "statusLabel", label: "الحالة" },
     ],
@@ -287,6 +297,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "date", label: "التاريخ" },
       { key: "cost", label: "التكلفة" },
       { key: "liabilityPercent", label: "المسؤولية" },
+      { key: "attachmentsCount", label: "المرفقات" },
       { key: "statusLabel", label: "الحالة" },
     ],
     fields: [
@@ -297,6 +308,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "date", label: "تاريخ الحادث", type: "date" },
       { key: "cost", label: "التكلفة", type: "number" },
       { key: "liabilityPercent", label: "نسبة المسؤولية", type: "number" },
+      { key: "attachments", label: "مرفقات إثبات الحادث", type: "file", required: true, accept: "image/*,.pdf", multiple: true },
       { key: "status", label: "الحالة", type: "select", options: recordStatusOptions },
       { key: "notes", label: "ملاحظات", type: "textarea" },
     ],
@@ -315,6 +327,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "date", label: "التاريخ" },
       { key: "estimatedCost", label: "التكلفة التقديرية" },
       { key: "finalCost", label: "التكلفة النهائية" },
+      { key: "attachmentsCount", label: "المرفقات" },
       { key: "statusLabel", label: "الحالة" },
     ],
     fields: [
@@ -324,6 +337,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "date", label: "التاريخ", type: "date" },
       { key: "estimatedCost", label: "التكلفة التقديرية", type: "number" },
       { key: "finalCost", label: "التكلفة النهائية", type: "number" },
+      { key: "attachments", label: "مرفقات إثبات التلفيات", type: "file", required: true, accept: "image/*,.pdf", multiple: true },
       { key: "status", label: "الحالة", type: "select", options: recordStatusOptions },
       { key: "notes", label: "ملاحظات", type: "textarea" },
     ],
@@ -336,6 +350,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
     apiResource: "deductions",
     addLabel: "إضافة خصم",
     columns: [
+      { key: "vehicle", label: "السيارة" },
       { key: "driver", label: "المندوب" },
       { key: "type", label: "نوع الخصم" },
       { key: "month", label: "الشهر" },
@@ -344,6 +359,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "notes", label: "ملاحظات" },
     ],
     fields: [
+      { key: "vehicleId", label: "السيارة", type: "select", options: "vehicles" },
       { key: "driverId", label: "المندوب", type: "select", options: "drivers", required: true },
       { key: "type", label: "نوع الخصم", type: "text", required: true },
       { key: "month", label: "الشهر", type: "text" },
@@ -369,8 +385,8 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "notes", label: "ملاحظات" },
     ],
     fields: [
+      { key: "vehicleId", label: "السيارة", type: "select", options: "vehicles", required: true },
       { key: "driverId", label: "المندوب", type: "select", options: "drivers", required: true },
-      { key: "vehicleId", label: "السيارة", type: "select", options: "vehicles" },
       { key: "type", label: "نوع المخالفة", type: "text", required: true },
       { key: "occurredAt", label: "تاريخ المخالفة", type: "date" },
       { key: "amount", label: "المبلغ", type: "number" },
@@ -381,7 +397,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
   {
     key: "vehicle-finance",
     title: "مالية السيارات",
-    description: "ملخص مالي لتكلفة السيارات وربطها بالماليات والمسير.",
+    description: "ملخص مالي شهري مجمع تلقائيًا لكل سيارة: إيجار، صيانة، نظافة، حوادث، تلفيات، وأخرى.",
     route: "/vehicle-finance",
     apiResource: "vehicle-costs",
     addLabel: "إضافة تكلفة",
@@ -393,6 +409,7 @@ export const vehicleModules: VehicleModuleConfig[] = [
       { key: "cleaningCost", label: "النظافة" },
       { key: "accidentCost", label: "الحوادث" },
       { key: "damageCost", label: "التلفيات" },
+      { key: "otherCost", label: "أخرى/مخالفات" },
       { key: "totalCost", label: "الإجمالي" },
       { key: "statusLabel", label: "الحالة" },
     ],
@@ -465,6 +482,19 @@ function idText(input: unknown) {
   return value || "";
 }
 
+function attachmentCount(input: unknown) {
+  if (Array.isArray(input)) return String(input.length);
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      return Array.isArray(parsed) ? String(parsed.length) : "0";
+    } catch {
+      return input.trim() ? "1" : "0";
+    }
+  }
+  return "0";
+}
+
 function vehiclePlate(vehicle?: { plateArabic?: string | null; plateAr?: string | null; plateEnglish?: string | null; plateEn?: string | null; vehicleCode?: string | null } | null) {
   return vehicle?.plateArabic || vehicle?.plateAr || vehicle?.plateEnglish || vehicle?.plateEn || vehicle?.vehicleCode || "-";
 }
@@ -498,7 +528,7 @@ async function loadVehicleContext() {
     deductions,
     violations,
   ] = await Promise.all([
-    prisma.vehicle.findMany({ include: { city: true, currentDriver: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicle.findMany({ include: { city: true, currentDriver: true, rentalCompanyRef: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
     prisma.driver.findMany({ include: { city: true }, orderBy: { name: "asc" }, take: 1000 }),
     prisma.city.findMany({ orderBy: { nameAr: "asc" }, take: 200 }),
     prisma.vehicleMovement.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
@@ -618,7 +648,7 @@ function vehicleRows(ctx: DataContext): VehicleRow[] {
     values: {
       plate: vehiclePlate(row),
       model: [row.brand, row.model, row.year].filter(Boolean).join(" ") || "-",
-      rentalCompany: text(row.rentalCompany),
+      rentalCompany: text((row as any).rentalCompanyRef?.name || row.rentalCompany),
       statusLabel: statusLabel(row.status),
       driverName: effectiveVehicleDriverName(ctx, row),
       handoverDate: effectiveVehicleHandoverDate(ctx, row),
@@ -639,6 +669,7 @@ function vehicleRows(ctx: DataContext): VehicleRow[] {
       model: idText(row.model),
       year: row.year ?? null,
       rentalCompany: idText(row.rentalCompany),
+      rentalCompanyId: idText((row as any).rentalCompanyId),
       ownershipType: idText(row.ownershipType),
       dailyRent: Number(row.dailyRent ?? 0),
       monthlyRent: Number(row.monthlyRent ?? 0),
@@ -702,10 +733,11 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
         driver: driverName(ctx, idText(row.driverId)),
         cleanDate: dateText(row.cleanDate),
         cost: money(row.cost),
+        attachmentsCount: attachmentCount(row.attachments),
         statusLabel: statusLabel(row.status),
         notes: text(row.notes),
       },
-      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), cleanDate: rawDate(row.cleanDate), cost: Number(row.cost ?? 0), notes: idText(row.notes) },
+      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), cleanDate: rawDate(row.cleanDate), cost: Number(row.cost ?? 0), attachments: "", notes: idText(row.notes) },
     }));
   }
   if (module === "vehicle-maintenance") {
@@ -737,7 +769,11 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
   }
   if (module === "rental-companies") {
     return simpleVehicleRows(ctx, ctx.rentalCompanies, (row) => {
-      const companyVehicles = ctx.vehicles.filter((vehicle) => (vehicle.rentalCompany || "").trim() === String(row.name ?? "").trim());
+      const companyVehicles = ctx.vehicles.filter((vehicle) => {
+        const linkedId = idText((vehicle as any).rentalCompanyId);
+        if (linkedId && linkedId === row.id) return true;
+        return (vehicle.rentalCompany || "").trim() === String(row.name ?? "").trim();
+      });
       return {
         values: {
           name: text(row.name),
@@ -761,6 +797,7 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
         cleaningCost: money(row.cleaningCost),
         accidentCost: money(row.accidentCost),
         damageCost: money(row.damageCost),
+        otherCost: money(row.otherCost),
         totalCost: money(row.totalCost),
         statusLabel: statusLabel(row.status),
       },
@@ -787,9 +824,10 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
         date: dateText(row.date),
         cost: money(row.cost),
         liabilityPercent: `${numericText(row.liabilityPercent)}%`,
+        attachmentsCount: attachmentCount(row.attachments),
         statusLabel: statusLabel(row.status),
       },
-      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), cityId: idText(row.cityId), type: idText(row.type), date: rawDate(row.date), cost: Number(row.cost ?? 0), liabilityPercent: Number(row.liabilityPercent ?? 0), notes: idText(row.notes) },
+      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), cityId: idText(row.cityId), type: idText(row.type), date: rawDate(row.date), cost: Number(row.cost ?? 0), liabilityPercent: Number(row.liabilityPercent ?? 0), attachments: "", notes: idText(row.notes) },
     }));
   }
   if (module === "vehicle-damages") {
@@ -801,14 +839,19 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
         date: dateText(row.date),
         estimatedCost: money(row.estimatedCost),
         finalCost: money(row.finalCost),
+        attachmentsCount: attachmentCount(row.attachments),
         statusLabel: statusLabel(row.status),
       },
-      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), type: idText(row.type), date: rawDate(row.date), estimatedCost: Number(row.estimatedCost ?? 0), finalCost: Number(row.finalCost ?? 0), notes: idText(row.notes) },
+      raw: { vehicleId: idText(row.vehicleId), driverId: idText(row.driverId), type: idText(row.type), date: rawDate(row.date), estimatedCost: Number(row.estimatedCost ?? 0), finalCost: Number(row.finalCost ?? 0), attachments: "", notes: idText(row.notes) },
     }));
   }
   if (module === "vehicle-deductions") {
-    return simpleVehicleRows(ctx, ctx.deductions.filter((row) => /car|vehicle|سيارة|ايجار|إيجار/i.test(row.type || row.notes || "")), (row) => ({
+    return simpleVehicleRows(ctx, ctx.deductions.filter((row) => {
+      const vehicleId = idText((row as any).vehicleId);
+      return Boolean(vehicleId) || /car|vehicle|سيارة|ايجار|إيجار|user deduction|personal/i.test(row.type || row.notes || "");
+    }), (row) => ({
       values: {
+        vehicle: vehicleName(ctx, idText((row as any).vehicleId)),
         driver: driverName(ctx, idText(row.driverId)),
         type: text(row.type),
         month: text(row.month),
@@ -816,7 +859,7 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
         statusLabel: statusLabel(row.status),
         notes: text(row.notes),
       },
-      raw: { driverId: idText(row.driverId), type: idText(row.type), month: idText(row.month), amount: Number(row.amount ?? 0), notes: idText(row.notes) },
+      raw: { vehicleId: idText((row as any).vehicleId), driverId: idText(row.driverId), type: idText(row.type), month: idText(row.month), amount: Number(row.amount ?? 0), notes: idText(row.notes) },
     }));
   }
   return simpleVehicleRows(ctx, ctx.violations.filter((row) => row.vehicleId), (row) => ({
@@ -834,7 +877,8 @@ function rowsForModule(module: VehicleModuleKey, ctx: DataContext): VehicleRow[]
 }
 
 function summaryFor(ctx: DataContext) {
-  const totalRent = ctx.vehicles.reduce((sum, row) => sum + Number(row.monthlyRent ?? 0), 0);
+  const totalRent = ctx.costs.reduce((sum, row) => sum + Number(row.rentCost ?? 0), 0);
+  const totalMaintenance = ctx.costs.reduce((sum, row) => sum + Number(row.maintenanceCost ?? 0), 0);
   const openAccidents = ctx.accidents.filter((row) => String(row.status) !== "APPROVED" && String(row.status) !== "LOCKED").length;
   const totalCosts = ctx.costs.reduce((sum, row) => sum + Number(row.totalCost ?? 0), 0);
 
@@ -843,10 +887,10 @@ function summaryFor(ctx: DataContext) {
     { label: "متاحة", value: String(ctx.vehicles.filter((row) => String(row.status) === "AVAILABLE").length), tone: "emerald" as const },
     { label: "مع مندوب", value: String(ctx.vehicles.filter((row) => row.currentDriverId || String(row.status) === "ASSIGNED").length), tone: "blue" as const },
     { label: "في الصيانة", value: String(ctx.vehicles.filter((row) => String(row.status) === "MAINTENANCE").length), tone: "amber" as const },
-    { label: "إجمالي الإيجارات", value: money(totalRent), tone: "slate" as const },
+    { label: "إيجارات محسوبة", value: money(totalRent), tone: "slate" as const },
+    { label: "صيانة", value: money(totalMaintenance), tone: "amber" as const },
     { label: "تكلفة السيارات", value: money(totalCosts), tone: "slate" as const },
     { label: "حوادث مفتوحة", value: String(openAccidents), tone: openAccidents ? "red" as const : "emerald" as const },
-    { label: "حركات مسجلة", value: String(ctx.movements.length), tone: "slate" as const },
   ];
 }
 
@@ -862,9 +906,26 @@ export async function getVehicleModuleData(moduleKey: VehicleModuleKey): Promise
       rows: rowsForModule(moduleKey, ctx),
       summary: summaryFor(ctx),
       refs: {
-        vehicles: ctx.vehicles.map((vehicle) => ({ id: vehicle.id, label: vehiclePlate(vehicle), sub: [vehicle.model, statusLabel(vehicle.status)].filter(Boolean).join(" - ") })),
+        vehicles: ctx.vehicles.map((vehicle) => {
+          const driverId = effectiveVehicleDriverId(ctx, vehicle);
+          const cityId = idText(vehicle.cityId);
+          return {
+            id: vehicle.id,
+            label: vehiclePlate(vehicle),
+            sub: [vehicle.model, statusLabel(vehicle.status), effectiveVehicleDriverName(ctx, vehicle), vehicle.city?.nameAr || vehicle.city?.nameEn].filter(Boolean).join(" - "),
+            driverId,
+            driverLabel: driverId ? effectiveVehicleDriverName(ctx, vehicle) : "",
+            cityId,
+            cityLabel: vehicle.city?.nameAr || vehicle.city?.nameEn || "",
+          };
+        }),
         drivers: ctx.drivers.map((driver) => ({ id: driver.id, label: driver.name || driver.actualName || driver.internalCode || driver.id, sub: [driver.internalCode, driver.city?.nameAr].filter(Boolean).join(" - ") })),
         cities: ctx.cities.map((city) => ({ id: city.id, label: city.nameAr || city.nameEn || city.id })),
+        rentalCompanies: ctx.rentalCompanies.map((company) => ({
+          id: company.id,
+          label: company.name || company.id,
+          sub: [company.contact, company.phone, statusLabel(company.status)].filter(Boolean).join(" - "),
+        })),
       },
     };
   } catch (error) {

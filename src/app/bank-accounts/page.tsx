@@ -1,8 +1,14 @@
-import { ResourceModulePage } from "@/components/ui/ResourceModulePage";
-import { resources } from "@/lib/resources";
+import { FinanceModulePageClient } from "@/components/finance/FinanceModulePageClient";
+import { getFinanceModulePageData, resolveFinanceFilters } from "@/lib/finance/financePages";
 
 export const dynamic = "force-dynamic";
 
-export default async function BankAccountsPage() {
-  return <ResourceModulePage resource={resources["bank-accounts"]} analyticsKey="finance" backHref="/finance" backLabel="رجوع للماليات" />;
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function BankAccountsPage({ searchParams }: PageProps) {
+  const filters = resolveFinanceFilters(await searchParams);
+  const data = await getFinanceModulePageData("bank-accounts", filters);
+  return <FinanceModulePageClient data={data} />;
 }

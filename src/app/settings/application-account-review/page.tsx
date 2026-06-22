@@ -1,24 +1,63 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ApplicationAccountReviewClient } from "@/components/application-accounts/ApplicationAccountReviewClient";
 import { canReadResource, roleFromHeaders } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApplicationAccountReviewPage() {
-  const requestHeaders = await headers();
-  if (!canReadResource(roleFromHeaders(requestHeaders), "application-accounts")) redirect("/access-denied");
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-  const result = await prisma.applicationAccount.findMany({
-    where: {
+function one(params: Record<string, string | string[] | undefined>, key: string) {
+  const value = params[key];
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function buildWhere(params: Record<string, string | string[] | undefined>): Prisma.ApplicationAccountWhereInput {
+  const applicationProjectId = one(params, "applicationProjectId");
+  const cityId = one(params, "cityId");
+  const applicationId = one(params, "applicationId");
+  const q = one(params, "q").trim();
+
+  const and: Prisma.ApplicationAccountWhereInput[] = [
+    {
       OR: [
         { needsReview: true },
         { applicationProjectId: null },
         { cityId: null },
         { driverId: null },
+        { unmatchedReason: { not: null } },
       ],
     },
+  ];
+
+  if (applicationProjectId) and.push({ applicationProjectId });
+  if (cityId) and.push({ cityId });
+  if (applicationId) and.push({ applicationId });
+  if (q) {
+    and.push({
+      OR: [
+        { appName: { contains: q, mode: "insensitive" } },
+        { appUserId: { contains: q, mode: "insensitive" } },
+        { appUsername: { contains: q, mode: "insensitive" } },
+        { username: { contains: q, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  return { AND: and };
+}
+
+export default async function ApplicationAccountReviewPage({ searchParams }: PageProps) {
+  const requestHeaders = await headers();
+  if (!canReadResource(roleFromHeaders(requestHeaders), "application-accounts")) redirect("/access-denied");
+  const params = await searchParams;
+
+  const result = await prisma.applicationAccount.findMany({
+    where: buildWhere(params),
     include: {
       application: { select: { name: true } },
       applicationProject: { select: { name: true } },

@@ -19,6 +19,21 @@ export type AccountIdentifiers = {
   name?: string | null;
 };
 
+export type UpsertOperationalAccountInput = {
+  appName?: string | null;
+  applicationId?: string | null;
+  applicationProjectId?: string | null;
+  cityId?: string | null;
+  driverId?: string | null;
+  appUserId?: string | null;
+  appUsername?: string | null;
+  username?: string | null;
+  status?: RecordStatus | null;
+  source?: string | null;
+  existingId?: string | null;
+  updateDriverPrimaryAccount?: boolean;
+};
+
 const APP_ALIASES = [
   { canonical: "Keeta", code: "KEETA", aliases: ["keeta", "kita", "كيتا"] },
   { canonical: "HungerStation", code: "HUNGERSTATION", aliases: ["hungerstation", "hunger station", "hunger", "هنجر", "هنقر", "هنقرستيشن", "هنجرستيشن"] },
@@ -44,6 +59,18 @@ function codePart(value: string) {
     .slice(0, 36) || "PROJECT";
 }
 
+async function uniqueAccountUsername(db: Db, preferred: string, scopeKey?: string | null, existingId?: string | null) {
+  const base = preferred || `account-${scopeKey || "import"}`;
+  const current = await db.applicationAccount.findUnique({ where: { username: base }, select: { id: true } });
+  if (!current || current.id === existingId) return base;
+
+  const suffix = (scopeKey || "scoped").replace(/[^a-zA-Z0-9_-]/g, "").slice(-8) || "scoped";
+  const scoped = `${base}-${suffix}`;
+  const scopedCurrent = await db.applicationAccount.findUnique({ where: { username: scoped }, select: { id: true } });
+  if (!scopedCurrent || scopedCurrent.id === existingId) return scoped;
+  return `${base}-${suffix}-${Date.now().toString(36)}`;
+}
+
 export function canonicalApplication(value: unknown) {
   const raw = text(value);
   const key = compact(raw);
@@ -62,10 +89,16 @@ export function hasBadArabicEncoding(value: unknown) {
 export async function findOrCreateApplication(db: Db, appName: string) {
   const app = canonicalApplication(appName);
   const insensitive = "insensitive" as Prisma.QueryMode;
+  const byCode = await db.application.findFirst({
+    where: { code: app.code },
+    select: { id: true, code: true, name: true },
+  });
+  if (byCode) return byCode;
+
   const existing = await db.application.findFirst({
     where: {
       OR: [
-        { code: app.code },
+        { code: { equals: app.code, mode: insensitive } },
         { name: { equals: app.canonical, mode: insensitive } },
         ...app.aliases.map((alias) => ({ name: { equals: alias, mode: insensitive } })),
       ],
@@ -142,40 +175,77 @@ export async function findDriverByIdentifiers(db: Db, identifiers: AccountIdenti
   const appUsername = text(identifiers.appUsername || identifiers.username);
   const name = text(identifiers.name);
 
-  const account = appUserId || appUsername
-    ? await db.applicationAccount.findFirst({
-        where: {
-          ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
-          ...(scope.applicationProjectId ? { applicationProjectId: scope.applicationProjectId } : {}),
-          ...(scope.cityId ? { cityId: scope.cityId } : {}),
-          OR: [
-            appUserId ? { appUserId } : undefined,
-            appUserId ? { username: appUserId } : undefined,
-            appUserId ? { appUsername: appUserId } : undefined,
-            appUsername ? { appUsername } : undefined,
-            appUsername ? { username: appUsername } : undefined,
-          ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[],
-          driverId: { not: null },
-        },
-        select: { driverId: true },
-      })
-    : null;
+  const identityOr = [
+    appUserId ? { appUserId } : undefined,
+    appUserId ? { username: appUserId } : undefined,
+    appUserId ? { appUsername: appUserId } : undefined,
+    appUsername ? { appUsername } : undefined,
+    appUsername ? { username: appUsername } : undefined,
+  ].filter(Boolean) as Prisma.ApplicationAccountWhereInput[];
 
-  return db.driver.findFirst({
-    where: {
-      OR: [
-        account?.driverId ? { id: account.driverId } : undefined,
-        driverCode ? { internalCode: driverCode } : undefined,
-        driverCode ? { driverCode } : undefined,
-        nationalId ? { nationalId } : undefined,
-        mobile ? { mobile } : undefined,
-        mobile ? { phone: mobile } : undefined,
-        name ? { actualName: { equals: name, mode: "insensitive" } } : undefined,
-        name ? { name: { equals: name, mode: "insensitive" } } : undefined,
-      ].filter(Boolean) as Prisma.DriverWhereInput[],
-    },
-    select: { id: true, internalCode: true, driverCode: true, name: true, actualName: true, nationalId: true, cityId: true, projectId: true },
-  });
+  const account =
+    identityOr.length
+      ? await db.applicationAccount.findFirst({
+          where: {
+            ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
+            ...(scope.applicationProjectId ? { applicationProjectId: scope.applicationProjectId } : {}),
+            ...(scope.cityId ? { cityId: scope.cityId } : {}),
+            OR: identityOr,
+            driverId: { not: null },
+          },
+          select: { driverId: true },
+        })
+      : null;
+
+  // Important for Keeta city moves:
+  // If the account is not found in the selected city/project, look for the same
+  // account inside the same application without city/project restrictions.
+  // This prevents imports from saying "driver not found" when the rider already
+  // exists but the Keeta account is still linked to another city/project.
+  const accountInOtherScopeMatches =
+    !account && identityOr.length && scope.applicationId
+      ? await db.applicationAccount.findMany({
+          where: {
+            applicationId: scope.applicationId,
+            OR: identityOr,
+            driverId: { not: null },
+          },
+          select: { driverId: true },
+          take: 3,
+        })
+      : [];
+
+  const uniqueOtherScopeDriverIds = Array.from(new Set(accountInOtherScopeMatches.map((match) => match.driverId).filter(Boolean) as string[]));
+  const accountInOtherScopeDriverId = uniqueOtherScopeDriverIds.length === 1 ? uniqueOtherScopeDriverIds[0] : null;
+
+  const select = { id: true, internalCode: true, driverCode: true, name: true, actualName: true, nationalId: true, cityId: true, projectId: true };
+
+  const matchedAccountDriverId = account?.driverId || accountInOtherScopeDriverId;
+  if (matchedAccountDriverId) {
+    const driver = await db.driver.findUnique({ where: { id: matchedAccountDriverId }, select });
+    if (driver) return driver;
+  }
+
+  const stages: Prisma.DriverWhereInput[] = [
+    driverCode ? { internalCode: driverCode } : undefined,
+    driverCode ? { driverCode } : undefined,
+    mobile ? { mobile } : undefined,
+    mobile ? { phone: mobile } : undefined,
+    nationalId ? { nationalId } : undefined,
+    name ? { actualName: { equals: name, mode: "insensitive" } } : undefined,
+    name ? { name: { equals: name, mode: "insensitive" } } : undefined,
+  ].filter(Boolean) as Prisma.DriverWhereInput[];
+
+  for (const where of stages) {
+    const matches = await db.driver.findMany({ where, select, take: 2 });
+    if (matches.length === 1) return matches[0];
+    // National ID/Iqama can be shared across operational app accounts. Ambiguous
+    // matches are intentionally left for preview/manual linking instead of
+    // blocking new driver imports as duplicates.
+    if (matches.length > 1) return null;
+  }
+
+  return null;
 }
 
 export async function findOperationalAccount(db: Db, scope: OperationalScope, identifiers: AccountIdentifiers) {
@@ -194,11 +264,35 @@ export async function findOperationalAccount(db: Db, scope: OperationalScope, id
   const scoped = Boolean(scope.applicationId || scope.applicationProjectId || scope.cityId);
   const stagedWhere: Prisma.ApplicationAccountWhereInput[] = [];
 
+  if (scope.applicationProjectId) {
+    stagedWhere.push({
+      applicationProjectId: scope.applicationProjectId,
+      OR: identityOr,
+    });
+  }
+
   if (scoped) {
     stagedWhere.push({
       ...(scope.applicationId ? { applicationId: scope.applicationId } : {}),
       ...(scope.applicationProjectId ? { applicationProjectId: scope.applicationProjectId } : {}),
       ...(scope.cityId ? { cityId: scope.cityId } : {}),
+      OR: identityOr,
+    });
+  }
+
+  if (scope.applicationId && scope.cityId && scope.applicationProjectId) {
+    stagedWhere.push({
+      applicationId: scope.applicationId,
+      cityId: scope.cityId,
+      applicationProjectId: null,
+      OR: identityOr,
+    });
+  }
+
+  if (scope.applicationId && scope.cityId) {
+    stagedWhere.push({
+      applicationId: scope.applicationId,
+      cityId: scope.cityId,
       OR: identityOr,
     });
   }
@@ -211,6 +305,18 @@ export async function findOperationalAccount(db: Db, scope: OperationalScope, id
   }
 
   if (!scoped) stagedWhere.push({ OR: identityOr });
+
+  // Keeta reports can arrive under a different city/project while the account is
+  // already linked elsewhere. After trying the exact operational scope, fall back
+  // to the same application without project/city restrictions. If there is one
+  // unique match, upsertOperationalApplicationAccount will update that account
+  // into the current operational scope instead of creating a duplicate.
+  if (scope.applicationId && (scope.applicationProjectId || scope.cityId)) {
+    stagedWhere.push({
+      applicationId: scope.applicationId,
+      OR: identityOr,
+    });
+  }
 
   for (const where of stagedWhere) {
     const matches = await db.applicationAccount.findMany({
@@ -233,6 +339,114 @@ export async function findOperationalAccount(db: Db, scope: OperationalScope, id
     if (matches.length > 1) return { duplicate: true as const, matches };
   }
   return null;
+}
+
+export async function upsertOperationalApplicationAccount(db: Db, input: UpsertOperationalAccountInput) {
+  const rawAppName = text(input.appName);
+  const canonical = canonicalApplication(rawAppName);
+  let applicationId = input.applicationId || null;
+  let applicationProjectId = input.applicationProjectId || null;
+  let cityId = input.cityId || null;
+
+  let operationalProject = await resolveOperationalProject(db, {
+    applicationId,
+    applicationName: rawAppName || canonical.canonical,
+    applicationProjectId,
+    cityId,
+  });
+
+  if (operationalProject) {
+    applicationProjectId = operationalProject.id;
+    applicationId = applicationId || operationalProject.applicationId;
+    cityId = cityId || operationalProject.cityId;
+  }
+
+  if (!applicationId && canonical.canonical !== "Unknown") {
+    const application = await findOrCreateApplication(db, canonical.canonical);
+    applicationId = application.id;
+  }
+
+  if (!applicationProjectId && applicationId) {
+    operationalProject = await resolveOperationalProject(db, {
+      applicationId,
+      applicationName: rawAppName || canonical.canonical,
+      cityId,
+    });
+    applicationProjectId = operationalProject?.id ?? null;
+    cityId = cityId || operationalProject?.cityId || null;
+  }
+
+  const appUserId = text(input.appUserId);
+  const appUsername = text(input.appUsername || input.username);
+  const preferredUsername = appUsername || text(input.username) || appUserId;
+
+  let existing: { id: string; username?: string | null; linkedAt?: Date | null; driverId?: string | null } | null = input.existingId
+    ? await db.applicationAccount.findUnique({
+        where: { id: input.existingId },
+        select: { id: true, username: true, linkedAt: true, driverId: true },
+      })
+    : null;
+
+  if (!existing && (appUserId || appUsername)) {
+    const found = await findOperationalAccount(db, { applicationId, applicationProjectId, cityId }, { appUserId, appUsername, username: input.username });
+    if (found && "duplicate" in found) {
+      const preferred =
+        found.matches.find((match) => match.applicationProjectId === applicationProjectId && match.cityId === cityId) ??
+        found.matches.find((match) => !match.applicationProjectId && match.applicationId === applicationId && match.cityId === cityId) ??
+        found.matches.find((match) => match.driverId && match.driverId === input.driverId) ??
+        null;
+      existing = preferred ? { id: preferred.id, username: preferred.username, driverId: preferred.driverId } : null;
+    } else if (found) {
+      existing = { id: found.id, username: found.username, driverId: found.driverId };
+    }
+  }
+
+  const username = await uniqueAccountUsername(db, preferredUsername, applicationProjectId || cityId || applicationId, existing?.id);
+  const badEncoding = [appUsername, username].some(hasBadArabicEncoding);
+  const unmatchedReason = reviewReason({
+    applicationProjectId,
+    cityId,
+    driverId: input.driverId,
+    badEncoding,
+  });
+  const needsReview = Boolean(unmatchedReason);
+  const appName = canonical.canonical === "Unknown" ? rawAppName || "Unknown" : canonical.canonical;
+
+  const accountData = {
+    appName,
+    username,
+    appUserId: appUserId || null,
+    appUsername: appUsername || username,
+    applicationId,
+    applicationProjectId,
+    projectId: null,
+    cityId,
+    driverId: input.driverId || null,
+    isEmpty: !input.driverId,
+    needsReview,
+    unmatchedReason,
+    source: input.source || "IMPORT",
+    status: input.status ?? RecordStatus.ACTIVE,
+    linkedAt: input.driverId ? existing?.linkedAt ?? new Date() : null,
+  };
+
+  const wasCreated = !existing;
+  const account = existing
+    ? await db.applicationAccount.update({
+        where: { id: existing.id },
+        data: accountData,
+        select: { id: true, driverId: true, applicationProjectId: true, cityId: true, needsReview: true, unmatchedReason: true },
+      })
+    : await db.applicationAccount.create({
+        data: accountData,
+        select: { id: true, driverId: true, applicationProjectId: true, cityId: true, needsReview: true, unmatchedReason: true },
+      });
+
+  if (input.driverId && input.updateDriverPrimaryAccount !== false) {
+    await db.driver.update({ where: { id: input.driverId }, data: { accountId: account.id } }).catch(() => null);
+  }
+
+  return { ...account, wasCreated };
 }
 
 function reviewReason(args: { applicationProjectId?: string | null; cityId?: string | null; driverId?: string | null; badEncoding?: boolean }) {
@@ -309,9 +523,22 @@ export async function cleanupApplicationAccounts(dryRun = false) {
         counts.fixedApplicationId += 1;
       }
 
-      if (!applicationProjectId && applicationId && cityId) {
-        const project = await resolveOperationalProject(tx, { applicationId, cityId, applicationName: canonical.canonical });
+      if (!applicationProjectId && applicationId) {
+        let project: Awaited<ReturnType<typeof resolveOperationalProject>> | null = null;
+
+        if (cityId) {
+          project = await resolveOperationalProject(tx, { applicationId, cityId, applicationName: canonical.canonical });
+        } else {
+          const projects = await tx.applicationProject.findMany({
+            where: { applicationId },
+            select: { id: true, applicationId: true, cityId: true, name: true, code: true, projectId: true },
+            take: 2,
+          });
+          project = projects.length === 1 ? projects[0] : null;
+        }
+
         applicationProjectId = project?.id ?? null;
+        if (!cityId && project?.cityId) cityId = project.cityId;
         if (applicationProjectId) counts.fixedApplicationProjectId += 1;
       }
 

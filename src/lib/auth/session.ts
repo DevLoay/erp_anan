@@ -7,6 +7,9 @@ export type SessionPayload = {
   email: string;
   name: string;
   role: AppRole;
+  driverId?: string;
+  phone?: string;
+  cityId?: string;
   exp: number;
   iat: number;
 };
@@ -62,4 +65,3 @@ export async function verifySessionToken(token?: string | null): Promise<Session
     return null;
   }
 }
-

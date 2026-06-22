@@ -7,7 +7,12 @@ import { SmartAssistant } from "@/components/layout/SmartAssistant";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const authPage = pathname === "/login" || pathname === "/forgot-password" || pathname.startsWith("/reset-password");
+  const authPage =
+    pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname.startsWith("/reset-password") ||
+    pathname === "/rider-app" ||
+    pathname.startsWith("/rider-app");
 
   if (authPage) {
     return <main className="min-h-screen bg-slate-50">{children}</main>;
@@ -24,4 +29,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-

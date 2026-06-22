@@ -1,9 +1,15 @@
-import { ResourcePage } from "@/components/ui/ResourcePage";
-import { resources } from "@/lib/resources";
+import { headers } from "next/headers";
+import { DriverViolationsClient } from "@/components/violations/DriverViolationsClient";
+import { getDriverViolationsPageData, resolveDriverViolationFilters } from "@/lib/violations/driverViolations";
 
 export const dynamic = "force-dynamic";
 
-export default function ViolationsPage() {
-  return <ResourcePage resource={resources.violations} />;
-}
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
+export default async function ViolationsPage({ searchParams }: PageProps) {
+  const filters = resolveDriverViolationFilters(await searchParams);
+  const data = await getDriverViolationsPageData(filters, await headers());
+  return <DriverViolationsClient data={data} />;
+}

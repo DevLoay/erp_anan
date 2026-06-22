@@ -1,16 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { redirectLegacyProjectSlug } from "@/lib/projects/legacyProjectRedirect";
 import { getProjectWorkspace } from "@/lib/projects/projectWorkspace";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ProjectAccountsPage({ params }: PageProps) {
-  const { projectId } = await params;
+export default async function ProjectAccountsPage({ params, searchParams }: PageProps) {
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  redirectLegacyProjectSlug(projectId, query);
   const workspace = await getProjectWorkspace(projectId);
   if (workspace.status !== "online" || !workspace.project) notFound();
   const project = workspace.project;

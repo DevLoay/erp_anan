@@ -15,6 +15,7 @@ export type ReportFilters = {
   q: string;
   status: string;
   accessScope?: AccessScope;
+  effectivePeriodLabel?: string;
 };
 
 export type ReportFilterOptions = {
@@ -166,15 +167,20 @@ function pct(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function monthStart(month: string) {
+export function monthStart(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) return "";
   return `${month}-01`;
 }
 
-function monthEnd(month: string) {
+export function monthEnd(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) return "";
   const [year, monthNumber] = month.split("-").map(Number);
   return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+function monthFromDate(value: Date | null | undefined) {
+  if (!value) return "";
+  return value.toISOString().slice(0, 7);
 }
 
 function startOfDay(value: string) {
@@ -237,10 +243,7 @@ function scopeWhere(scope?: AccessScope): Prisma.DailyReportWhereInput {
   if (scope.cityIds.length) and.push({ OR: [{ cityId: { in: scope.cityIds } }, { driver: { is: { cityId: { in: scope.cityIds } } } }] });
   if (scope.projectIds.length) {
     and.push({
-      OR: [
-        { applicationProjectId: { in: scope.projectIds } },
-        { applicationProject: { is: { projectId: { in: scope.projectIds } } } },
-      ],
+      applicationProjectId: { in: scope.projectIds },
     });
   }
 
@@ -256,7 +259,7 @@ function scopedCityWhere(scope?: AccessScope): Prisma.CityWhereInput {
 function scopedApplicationProjectWhere(scope?: AccessScope): Prisma.ApplicationProjectWhereInput {
   if (!scope || scope.isGlobal) return {};
   const and: Prisma.ApplicationProjectWhereInput[] = [];
-  if (scope.projectIds.length) and.push({ OR: [{ id: { in: scope.projectIds } }, { projectId: { in: scope.projectIds } }] });
+  if (scope.projectIds.length) and.push({ id: { in: scope.projectIds } });
   if (scope.cityIds.length) and.push({ cityId: { in: scope.cityIds } });
   return and.length ? { AND: and } : {};
 }
@@ -307,6 +310,121 @@ export function resolveFilters(searchParams: Record<string, string | string[] | 
   };
 }
 
+const approvedTextStatuses = ["Approved", "APPROVED", "Locked", "LOCKED", "Paid", "PAID", "Reviewed", "REVIEWED", "approved", "locked", "paid", "reviewed"];
+
+function accessibleProjectWhere(filters: ReportFilters) {
+  if (!filters.projectId) return {};
+  const allowed =
+    !filters.accessScope ||
+    filters.accessScope.isGlobal ||
+    !filters.accessScope.projectIds.length ||
+    filters.accessScope.projectIds.includes(filters.projectId);
+  return allowed ? { applicationProjectId: filters.projectId } : { id: "__NO_ACCESS__" };
+}
+
+function accessibleCityWhere(filters: ReportFilters) {
+  if (filters.cityId) {
+    const allowed =
+      !filters.accessScope ||
+      filters.accessScope.isGlobal ||
+      !filters.accessScope.cityIds.length ||
+      filters.accessScope.cityIds.includes(filters.cityId);
+    return allowed ? { cityId: filters.cityId } : { id: "__NO_ACCESS__" };
+  }
+  if (filters.accessScope && !filters.accessScope.isGlobal && filters.accessScope.cityIds.length) {
+    return { cityId: { in: filters.accessScope.cityIds } };
+  }
+  return {};
+}
+
+function keetaPerformanceWhere(filters: ReportFilters): Prisma.KeetaPerformanceRecordWhereInput {
+  const and: Prisma.KeetaPerformanceRecordWhereInput[] = [];
+  const projectWhere = accessibleProjectWhere(filters);
+  const cityWhere = accessibleCityWhere(filters);
+  if (Object.keys(projectWhere).length) and.push(projectWhere as Prisma.KeetaPerformanceRecordWhereInput);
+  if (Object.keys(cityWhere).length) and.push(cityWhere as Prisma.KeetaPerformanceRecordWhereInput);
+  if (filters.appName && !filters.appName.toLowerCase().includes("keeta")) and.push({ id: "__NO_ACCESS__" });
+  if (filters.dateFrom || filters.dateTo) {
+    and.push({
+      reportDate: {
+        ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}),
+        ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}),
+      },
+    });
+  } else if (filters.month) {
+    and.push({ month: filters.month });
+  }
+  and.push({ status: { in: approvedTextStatuses } });
+  return { AND: and.filter((item) => Object.keys(item).length) };
+}
+
+function keetaInvoiceWhere(filters: ReportFilters): Prisma.KeetaInvoiceRecordWhereInput {
+  const and: Prisma.KeetaInvoiceRecordWhereInput[] = [];
+  const projectWhere = accessibleProjectWhere(filters);
+  const cityWhere = accessibleCityWhere(filters);
+  if (Object.keys(projectWhere).length) and.push(projectWhere as Prisma.KeetaInvoiceRecordWhereInput);
+  if (Object.keys(cityWhere).length) and.push(cityWhere as Prisma.KeetaInvoiceRecordWhereInput);
+  if (filters.appName && !filters.appName.toLowerCase().includes("keeta")) and.push({ id: "__NO_ACCESS__" });
+  if (filters.dateFrom || filters.dateTo) {
+    and.push({
+      OR: [
+        { periodStart: { ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}), ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}) } },
+        { approvedAt: { ...(filters.dateFrom ? { gte: startOfDay(filters.dateFrom) } : {}), ...(filters.dateTo ? { lte: endOfDay(filters.dateTo) } : {}) } },
+        ...(filters.month ? [{ month: filters.month }] : []),
+      ],
+    });
+  } else if (filters.month) {
+    and.push({ month: filters.month });
+  }
+  and.push({ status: { in: approvedTextStatuses } });
+  return { AND: and.filter((item) => Object.keys(item).length) };
+}
+
+export async function resolveEffectiveReportFilters(filters: ReportFilters): Promise<ReportFilters> {
+  if (filters.q || filters.driverId || filters.status) return filters;
+
+  const currentRows = await prisma.dailyReport.count({ where: dailyReportWhere(filters) }).catch(() => 0);
+  if (currentRows > 0) return filters;
+
+  const baseFilters = { ...filters, month: "", dateFrom: "", dateTo: "" };
+  const [latestDaily, latestKeetaPerformance, latestKeetaInvoice] = await Promise.all([
+    prisma.dailyReport.findFirst({
+      where: dailyReportWhere(baseFilters),
+      select: { month: true, reportDate: true },
+      orderBy: { reportDate: "desc" },
+    }).catch(() => null),
+    prisma.keetaPerformanceRecord.findFirst({
+      where: keetaPerformanceWhere(baseFilters),
+      select: { month: true, reportDate: true },
+      orderBy: { reportDate: "desc" },
+    }).catch(() => null),
+    prisma.keetaInvoiceRecord.findFirst({
+      where: keetaInvoiceWhere(baseFilters),
+      select: { month: true, periodEnd: true, approvedAt: true },
+      orderBy: [{ periodEnd: "desc" }, { approvedAt: "desc" }],
+    }).catch(() => null),
+  ]);
+
+  const candidates = [
+    latestDaily ? { month: latestDaily.month || monthFromDate(latestDaily.reportDate), date: latestDaily.reportDate } : null,
+    latestKeetaPerformance ? { month: latestKeetaPerformance.month || monthFromDate(latestKeetaPerformance.reportDate), date: latestKeetaPerformance.reportDate } : null,
+    latestKeetaInvoice ? { month: latestKeetaInvoice.month || monthFromDate(latestKeetaInvoice.periodEnd ?? latestKeetaInvoice.approvedAt), date: latestKeetaInvoice.periodEnd ?? latestKeetaInvoice.approvedAt ?? null } : null,
+  ]
+    .filter((item): item is { month: string; date: Date | null } => Boolean(item?.month))
+    .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
+
+  const latest = candidates[0];
+  if (!latest?.month || latest.month === filters.month) return filters;
+
+  return {
+    ...filters,
+    month: latest.month,
+    dateFrom: monthStart(latest.month),
+    dateTo: monthEnd(latest.month),
+    effectivePeriodLabel: `تم عرض آخر فترة بها بيانات معتمدة: ${latest.month}`,
+  };
+}
+
 function dailyReportWhere(filters: ReportFilters): Prisma.DailyReportWhereInput {
   const and: Prisma.DailyReportWhereInput[] = [scopeWhere(filters.accessScope)];
   if (filters.dateFrom || filters.dateTo) {
@@ -328,7 +446,7 @@ function dailyReportWhere(filters: ReportFilters): Prisma.DailyReportWhereInput 
     const allowed = !filters.accessScope || filters.accessScope.isGlobal || !filters.accessScope.projectIds.length || filters.accessScope.projectIds.includes(filters.projectId);
     and.push(
       allowed
-        ? { OR: [{ applicationProjectId: filters.projectId }, { applicationProject: { is: { projectId: filters.projectId } } }] }
+        ? { applicationProjectId: filters.projectId }
         : { id: "__NO_ACCESS__" },
     );
   }
@@ -408,6 +526,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       appName: true,
       reportDate: true,
       month: true,
+      updatedAt: true,
       orders: true,
       workingHours: true,
       onTimeRate: true,
@@ -436,8 +555,24 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     orderBy: [{ month: "desc" }, { reportDate: "desc" }],
   });
 
-  const groups = new Map<string, { reports: typeof reports; days: Set<string> }>();
+  const uniqueReportsByDriverDay = new Map<string, (typeof reports)[number]>();
   for (const report of reports) {
+    const dayKey = report.reportDate.toISOString().slice(0, 10);
+    const reportKey = [
+      report.driverId ?? `unassigned:${report.id}`,
+      report.applicationProjectId ?? report.projectId ?? report.appName ?? "",
+      report.cityId ?? report.driver?.cityId ?? "",
+      dayKey,
+    ].join(":");
+    const existing = uniqueReportsByDriverDay.get(reportKey);
+    if (!existing || report.updatedAt.getTime() >= existing.updatedAt.getTime()) {
+      uniqueReportsByDriverDay.set(reportKey, report);
+    }
+  }
+
+  const uniqueReports = [...uniqueReportsByDriverDay.values()];
+  const groups = new Map<string, { reports: typeof uniqueReports; days: Set<string> }>();
+  for (const report of uniqueReports) {
     const key = report.driverId ?? `unassigned:${report.id}`;
     if (!groups.has(key)) groups.set(key, { reports: [], days: new Set<string>() });
     const bucket = groups.get(key);
@@ -449,7 +584,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
   const rows = Array.from(groups.entries()).map(([driverId, bucket]) => {
     const first = bucket.reports[0];
     const driver = first.driver;
-    const appName = first.appName || first.applicationProject?.application.name || driver?.project?.appName || first.project?.appName || "غير محدد";
+    const appName = first.applicationProject?.application.name || first.appName || "غير محدد";
     const target = getRulesForApp(appName, settings);
     const count = bucket.reports.length || 1;
     const orders = bucket.reports.reduce((sum, report) => sum + report.orders, 0);
@@ -470,7 +605,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     if (!driver?.accountId) reasons.push("لا يوجد حساب تطبيق");
     if (!driver?.supervisorId) reasons.push("لا يوجد مشرف");
     if (!driver?.cityId && !first.cityId) reasons.push("لا توجد مدينة");
-    if (!first.applicationProjectId && !driver?.projectId && !first.projectId) reasons.push("لا يوجد مشروع");
+    if (!first.applicationProjectId) reasons.push("لا يوجد مشروع تشغيل");
 
     const dailyTargetHours = target.minActiveDays ? target.workingHours / target.minActiveDays : 8;
     const dailyReports = bucket.reports
@@ -522,8 +657,8 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       phone: driver?.phone ?? "-",
       cityId: driver?.cityId ?? first.cityId ?? "",
       cityName: driver?.city?.nameAr ?? first.city?.nameAr ?? "غير محدد",
-      projectId: first.applicationProjectId ?? driver?.projectId ?? first.projectId ?? "",
-      projectName: first.applicationProject?.name ?? driver?.project?.name ?? first.project?.name ?? "غير محدد",
+      projectId: first.applicationProjectId ?? "",
+      projectName: first.applicationProject?.name ?? "غير محدد",
       appName,
       supervisorId: driver?.supervisorId ?? "",
       supervisorName: driver?.supervisor?.name ?? "غير محدد",

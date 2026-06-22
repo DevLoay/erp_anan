@@ -13,6 +13,80 @@ type Props = {
   scopeTitle?: string;
 };
 
+
+type KeetaSalaryMode = "PER_ORDER" | "FIXED_PRORATED_BY_PAID_DAYS";
+
+type KeetaSalarySlab = {
+  minOrders: number;
+  maxOrders: number | null;
+  salaryMode: KeetaSalaryMode;
+  fixedSalary: number;
+  bonus: number;
+  perOrderRate: number;
+  extraOrderThreshold: number | null;
+  extraOrderRate: number;
+};
+
+const DEFAULT_KEETA_SALARY_SLABS: KeetaSalarySlab[] = [
+  { minOrders: 0, maxOrders: 349, salaryMode: "PER_ORDER", fixedSalary: 0, bonus: 0, perOrderRate: 8, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 350, maxOrders: 409, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 4500, bonus: 0, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 410, maxOrders: 459, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 800, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 460, maxOrders: 509, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1100, perOrderRate: 0, extraOrderThreshold: null, extraOrderRate: 0 },
+  { minOrders: 510, maxOrders: null, salaryMode: "FIXED_PRORATED_BY_PAID_DAYS", fixedSalary: 5200, bonus: 1800, perOrderRate: 0, extraOrderThreshold: 510, extraOrderRate: 8 },
+];
+
+const DEFAULT_KEETA_META = {
+  payrollMonthDays: 30,
+  paidLeaveDaysAllowed: 2,
+  prorateBaseSalaryByPaidDays: true,
+  bonusProratedByWorkingDays: false,
+  paidLeaveCountsForTarget: false,
+  expectedExperienceIncentiveAmount: 2000,
+  experienceIncentiveDeductionEnabled: true,
+  markMissingExperienceIncentiveAsReview: true,
+  allowManualExperienceIncentiveOverride: false,
+};
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function boolValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value === "true" || value === "on" || value === "1";
+  return fallback;
+}
+
+function numberOrDefault(value: unknown, fallback: number) {
+  const numeric = Number(value ?? fallback);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeSalaryMode(value: unknown): KeetaSalaryMode {
+  return value === "PER_ORDER" ? "PER_ORDER" : "FIXED_PRORATED_BY_PAID_DAYS";
+}
+
+function normalizeKeetaSalarySlabs(value: unknown): KeetaSalarySlab[] {
+  if (!Array.isArray(value)) return DEFAULT_KEETA_SALARY_SLABS;
+  const normalized = value.map((item, index) => {
+    const row = objectRecord(item);
+    const fallback = DEFAULT_KEETA_SALARY_SLABS[index] ?? DEFAULT_KEETA_SALARY_SLABS[DEFAULT_KEETA_SALARY_SLABS.length - 1];
+    const rawMax = row.maxOrders;
+    const rawExtraThreshold = row.extraOrderThreshold;
+    return {
+      minOrders: numberOrDefault(row.minOrders, fallback.minOrders),
+      maxOrders: rawMax === null || rawMax === "" || rawMax === undefined ? null : numberOrDefault(rawMax, fallback.maxOrders ?? 0),
+      salaryMode: normalizeSalaryMode(row.salaryMode ?? fallback.salaryMode),
+      fixedSalary: numberOrDefault(row.fixedSalary, fallback.fixedSalary),
+      bonus: numberOrDefault(row.bonus, fallback.bonus),
+      perOrderRate: numberOrDefault(row.perOrderRate, fallback.perOrderRate),
+      extraOrderThreshold: rawExtraThreshold === null || rawExtraThreshold === "" || rawExtraThreshold === undefined ? null : numberOrDefault(rawExtraThreshold, fallback.extraOrderThreshold ?? 0),
+      extraOrderRate: numberOrDefault(row.extraOrderRate, fallback.extraOrderRate),
+    } satisfies KeetaSalarySlab;
+  });
+  return normalized.length ? normalized : DEFAULT_KEETA_SALARY_SLABS;
+}
+
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div className="fixed bottom-5 left-5 z-[90] flex max-w-sm items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-800 shadow-2xl">
@@ -69,56 +143,61 @@ function checkbox(form: FormData, key: string) {
   return form.has(key);
 }
 
+function numericNullable(form: FormData, key: string) {
+  const raw = String(form.get(key) ?? "").trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
 function buildPayload(form: FormData) {
+  const salarySlabs = DEFAULT_KEETA_SALARY_SLABS.map((fallback, index) => ({
+    minOrders: numeric(form, `slab_${index}_minOrders`),
+    maxOrders: numericNullable(form, `slab_${index}_maxOrders`),
+    salaryMode: normalizeSalaryMode(text(form, `slab_${index}_salaryMode`) || fallback.salaryMode),
+    fixedSalary: numeric(form, `slab_${index}_fixedSalary`),
+    bonus: numeric(form, `slab_${index}_bonus`),
+    perOrderRate: numeric(form, `slab_${index}_perOrderRate`),
+    extraOrderThreshold: numericNullable(form, `slab_${index}_extraOrderThreshold`),
+    extraOrderRate: numeric(form, `slab_${index}_extraOrderRate`),
+  }));
+
+  const payrollMonthDays = numeric(form, "payrollMonthDays") || DEFAULT_KEETA_META.payrollMonthDays;
+  const paidLeaveDaysAllowed = numeric(form, "paidLeaveDaysAllowed");
+  const expectedExperienceIncentiveAmount = numeric(form, "expectedExperienceIncentiveAmount");
+  const experienceIncentiveDeductionEnabled = checkbox(form, "experienceIncentiveDeductionEnabled");
+  const markMissingExperienceIncentiveAsReview = checkbox(form, "markMissingExperienceIncentiveAsReview");
+  const allowManualExperienceIncentiveOverride = checkbox(form, "allowManualExperienceIncentiveOverride");
+
   const levelRules = {
-    A: {
-      minimumOrders: numeric(form, "A_minimumOrders"),
-      minimumOnTime: numeric(form, "A_minimumOnTime"),
-      maxCancellation: numeric(form, "A_maxCancellation"),
-      maxRejection: numeric(form, "A_maxRejection"),
-      basicSalary: numeric(form, "A_basicSalary"),
-      extraOrderPrice: numeric(form, "A_extraOrderPrice"),
-      performanceBonus: numeric(form, "A_performanceBonus"),
-    },
-    B: {
-      minimumOrders: numeric(form, "B_minimumOrders"),
-      minimumOnTime: numeric(form, "B_minimumOnTime"),
-      maxCancellation: numeric(form, "B_maxCancellation"),
-      maxRejection: numeric(form, "B_maxRejection"),
-      basicSalary: numeric(form, "B_basicSalary"),
-      extraOrderPrice: numeric(form, "B_extraOrderPrice"),
-      performanceBonus: numeric(form, "B_performanceBonus"),
-    },
-    C: {
-      minimumOrders: numeric(form, "C_minimumOrders"),
-      minimumOnTime: numeric(form, "C_minimumOnTime"),
-      maxCancellation: numeric(form, "C_maxCancellation"),
-      maxRejection: numeric(form, "C_maxRejection"),
-      basicSalary: numeric(form, "C_basicSalary"),
-      extraOrderPrice: numeric(form, "C_extraOrderPrice"),
-      performanceBonus: numeric(form, "C_performanceBonus"),
-    },
+    A: { minimumOrders: 510, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 5200, extraOrderPrice: 8, performanceBonus: 1800 },
+    B: { minimumOrders: 460, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 5200, extraOrderPrice: 8, performanceBonus: 1100 },
+    C: { minimumOrders: 350, minimumOnTime: 0, maxCancellation: 100, maxRejection: 100, basicSalary: 4500, extraOrderPrice: 8, performanceBonus: 0 },
     meta: {
-      contractType: text(form, "contractType"),
-      minimumWorkingDays: numeric(form, "minimumWorkingDays"),
-      minimumWorkingHoursPerDay: numeric(form, "minimumWorkingHoursPerDay"),
+      contractType: text(form, "contractType") || "all",
+      keetaPayrollVersion: "v2_order_slabs_experience_shortfall",
+      salarySlabs,
+      payrollMonthDays,
+      paidLeaveDaysAllowed,
+      prorateBaseSalaryByPaidDays: checkbox(form, "prorateBaseSalaryByPaidDays"),
+      bonusProratedByWorkingDays: checkbox(form, "bonusProratedByWorkingDays"),
+      paidLeaveCountsForTarget: checkbox(form, "paidLeaveCountsForTarget"),
+      expectedExperienceIncentiveAmount,
+      experienceIncentiveDeductionEnabled,
+      markMissingExperienceIncentiveAsReview,
+      allowManualExperienceIncentiveOverride,
+      salaryProration: "fixedSalary / payrollMonthDays * paidSalaryDays",
     },
   };
 
   const bonusRules = {
-    extraOrdersBonus: checkbox(form, "extraOrdersBonus"),
-    performanceBonus: checkbox(form, "performanceBonus"),
-    targetAchievementBonus: numeric(form, "targetAchievementBonus"),
-    noCancellationBonus: numeric(form, "noCancellationBonus"),
-    highOnTimeBonus: numeric(form, "highOnTimeBonus"),
-    customBonuses: text(form, "customBonuses")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [name, amount] = line.split(":");
-        return { name: name?.trim() || "Custom Bonus", amount: Number(amount ?? 0) || 0 };
-      }),
+    extraOrdersBonus: true,
+    performanceBonus: true,
+    targetAchievementBonus: 0,
+    noCancellationBonus: 0,
+    highOnTimeBonus: 0,
+    bonusPaidInFullWhenTargetReached: !checkbox(form, "bonusProratedByWorkingDays"),
+    customBonuses: [],
   };
 
   const deductionRules = {
@@ -129,6 +208,13 @@ function buildPayload(form: FormData) {
     damages: checkbox(form, "damages"),
     accidents: checkbox(form, "accidents"),
     absenceDeductions: checkbox(form, "absenceDeductions"),
+    experienceIncentive: {
+      enabled: experienceIncentiveDeductionEnabled,
+      expectedAmount: expectedExperienceIncentiveAmount,
+      markMissingAsReview: markMissingExperienceIncentiveAsReview,
+      allowManualOverride: allowManualExperienceIncentiveOverride,
+      formula: "max(expectedAmount - invoiceExperienceIncentiveAmount, 0)",
+    },
     customDeductions: text(form, "customDeductions")
       .split("\n")
       .map((line) => line.trim())
@@ -154,9 +240,19 @@ function buildPayload(form: FormData) {
     applicationProjectId: text(form, "applicationProjectId"),
     cityId: text(form, "cityId"),
     status: text(form, "status"),
-    basicSalary: numeric(form, "basicSalary"),
-    targetOrders: numeric(form, "targetOrders"),
-    extraOrderPrice: numeric(form, "extraOrderPrice"),
+    basicSalary: numeric(form, "basicSalary") || 5200,
+    targetOrders: numeric(form, "targetOrders") || 410,
+    extraOrderPrice: numeric(form, "extraOrderPrice") || 8,
+    salarySlabs,
+    payrollMonthDays,
+    paidLeaveDaysAllowed,
+    prorateBaseSalaryByPaidDays: checkbox(form, "prorateBaseSalaryByPaidDays"),
+    bonusProratedByWorkingDays: checkbox(form, "bonusProratedByWorkingDays"),
+    paidLeaveCountsForTarget: checkbox(form, "paidLeaveCountsForTarget"),
+    expectedExperienceIncentiveAmount,
+    experienceIncentiveDeductionEnabled,
+    markMissingExperienceIncentiveAsReview,
+    allowManualExperienceIncentiveOverride,
     levelRules,
     bonusRules,
     deductionRules,
@@ -165,10 +261,26 @@ function buildPayload(form: FormData) {
 }
 
 function defaultFormState(row: PayrollSettingRow | null) {
+  const levelRules = normalizeLevelRules(row?.levelRules);
+  const meta = objectRecord((row?.levelRules as Record<string, unknown> | null | undefined)?.meta);
+  const deductionRules = normalizeDeductionRules(row?.deductionRules);
+  const rawDeductionRules = objectRecord(row?.deductionRules);
+  const experienceRule = objectRecord(rawDeductionRules.experienceIncentive);
   return {
-    levelRules: normalizeLevelRules(row?.levelRules),
+    levelRules,
+    levelMeta: meta,
+    salarySlabs: normalizeKeetaSalarySlabs(meta.salarySlabs),
+    payrollMonthDays: numberOrDefault(meta.payrollMonthDays, DEFAULT_KEETA_META.payrollMonthDays),
+    paidLeaveDaysAllowed: numberOrDefault(meta.paidLeaveDaysAllowed, DEFAULT_KEETA_META.paidLeaveDaysAllowed),
+    prorateBaseSalaryByPaidDays: boolValue(meta.prorateBaseSalaryByPaidDays, DEFAULT_KEETA_META.prorateBaseSalaryByPaidDays),
+    bonusProratedByWorkingDays: boolValue(meta.bonusProratedByWorkingDays, DEFAULT_KEETA_META.bonusProratedByWorkingDays),
+    paidLeaveCountsForTarget: boolValue(meta.paidLeaveCountsForTarget, DEFAULT_KEETA_META.paidLeaveCountsForTarget),
+    expectedExperienceIncentiveAmount: numberOrDefault(meta.expectedExperienceIncentiveAmount ?? experienceRule.expectedAmount, DEFAULT_KEETA_META.expectedExperienceIncentiveAmount),
+    experienceIncentiveDeductionEnabled: boolValue(experienceRule.enabled, DEFAULT_KEETA_META.experienceIncentiveDeductionEnabled),
+    markMissingExperienceIncentiveAsReview: boolValue(experienceRule.markMissingAsReview, DEFAULT_KEETA_META.markMissingExperienceIncentiveAsReview),
+    allowManualExperienceIncentiveOverride: boolValue(experienceRule.allowManualOverride, DEFAULT_KEETA_META.allowManualExperienceIncentiveOverride),
     bonusRules: normalizeBonusRules(row?.bonusRules),
-    deductionRules: normalizeDeductionRules(row?.deductionRules),
+    deductionRules,
     carRentRule: normalizeCarRentRule(row?.carRentRule),
   };
 }
@@ -203,7 +315,6 @@ function PayrollSettingForm({
   onCancel: () => void;
 }) {
   const defaults = defaultFormState(row);
-  const levelKeys = ["A", "B", "C"] as const;
   const inputClass = "rounded-xl border border-slate-300 px-3 py-2";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -213,11 +324,11 @@ function PayrollSettingForm({
 
   return (
     <form onSubmit={submit} className="grid gap-4 md:grid-cols-4">
-      <SectionTitle title="Basic Information" />
-      <Field label="Setting Name">
-        <input name="name" defaultValue={row?.name ?? ""} required className={inputClass} />
+      <SectionTitle title="البيانات الأساسية" hint="هذه الإعدادات يمكن تطبيقها على كل مدن Keeta أو مدينة/مشروع محدد." />
+      <Field label="اسم الإعداد">
+        <input name="name" defaultValue={row?.name ?? "Keeta - إعدادات الرواتب الشهرية"} required className={inputClass} />
       </Field>
-      <Field label="Application">
+      <Field label="التطبيق">
         <select name="applicationId" defaultValue={row?.applicationId ?? data.filters.applicationId} required className={inputClass}>
           <option value="">اختر التطبيق</option>
           {data.applications.map((app) => (
@@ -227,7 +338,7 @@ function PayrollSettingForm({
           ))}
         </select>
       </Field>
-      <Field label="Application Project">
+      <Field label="المشروع">
         <select name="applicationProjectId" defaultValue={row?.applicationProjectId ?? data.filters.applicationProjectId} className={inputClass}>
           <option value="">Default / كل المشاريع</option>
           {data.projects.map((project) => (
@@ -237,7 +348,7 @@ function PayrollSettingForm({
           ))}
         </select>
       </Field>
-      <Field label="City">
+      <Field label="المدينة">
         <select name="cityId" defaultValue={row?.cityId ?? data.filters.cityId} className={inputClass}>
           <option value="">كل المدن</option>
           {data.cities.map((city) => (
@@ -247,10 +358,10 @@ function PayrollSettingForm({
           ))}
         </select>
       </Field>
-      <Field label="Contract Type">
-        <input name="contractType" defaultValue={defaults.levelRules.meta?.contractType ?? ""} className={inputClass} placeholder="Sponsorship / Ajeer / Freelancer" />
+      <Field label="نوع العقد">
+        <input name="contractType" defaultValue={defaults.levelRules.meta?.contractType ?? "all"} className={inputClass} placeholder="all / sponsorship / ajeer / freelancer" />
       </Field>
-      <Field label="Status">
+      <Field label="الحالة">
         <select name="status" defaultValue={row?.status === "غير نشط" ? "INACTIVE" : "ACTIVE"} className={inputClass}>
           <option value="ACTIVE">نشط</option>
           <option value="INACTIVE">غير نشط</option>
@@ -258,100 +369,120 @@ function PayrollSettingForm({
         </select>
       </Field>
 
-      <SectionTitle title="Base Salary" />
-      <Field label="Basic Salary">
-        <input name="basicSalary" type="number" step="0.01" defaultValue={row?.basicSalaryValue ?? 0} className={inputClass} />
-      </Field>
-      <Field label="Target Orders">
-        <input name="targetOrders" type="number" defaultValue={row?.targetOrders ?? 0} className={inputClass} />
-      </Field>
-      <Field label="Extra Order Price">
-        <input name="extraOrderPrice" type="number" step="0.01" defaultValue={row?.extraOrderPriceValue ?? 0} className={inputClass} />
-      </Field>
-      <Field label="Minimum Working Days">
-        <input name="minimumWorkingDays" type="number" defaultValue={defaults.levelRules.meta?.minimumWorkingDays ?? 0} className={inputClass} />
-      </Field>
-      <Field label="Minimum Working Hours / Day">
-        <input name="minimumWorkingHoursPerDay" type="number" step="0.01" defaultValue={defaults.levelRules.meta?.minimumWorkingHoursPerDay ?? 0} className={inputClass} />
-      </Field>
+      <input type="hidden" name="basicSalary" value={row?.basicSalaryValue || 5200} />
+      <input type="hidden" name="targetOrders" value={row?.targetOrders ?? 410} />
+      <input type="hidden" name="extraOrderPrice" value={row?.extraOrderPriceValue || 8} />
 
-      <SectionTitle title="Level A / B / C Rules" hint="الألوان في الجدول تعتمد على Level المتوقع، والحساب التجريبي يستخدم هذه القواعد مباشرة." />
-      {levelKeys.map((level) => (
-        <div key={level} className={`rounded-2xl border p-4 md:col-span-4 ${level === "A" ? "border-emerald-200 bg-emerald-50" : level === "B" ? "border-blue-200 bg-blue-50" : "border-red-200 bg-red-50"}`}>
-          <h5 className="mb-3 text-sm font-black text-slate-950">Level {level}</h5>
-          <div className="grid gap-3 md:grid-cols-7">
-            {[
-              ["minimumOrders", "Minimum Orders"],
-              ["minimumOnTime", "Minimum On Time"],
-              ["maxCancellation", "Max Cancellation"],
-              ["maxRejection", "Max Rejection"],
-              ["basicSalary", "Basic Salary"],
-              ["extraOrderPrice", "Extra Order Price"],
-              ["performanceBonus", "Performance Bonus"],
-            ].map(([key, label]) => (
-              <Field key={key} label={label}>
-                <input name={`${level}_${key}`} type="number" step="0.01" defaultValue={(defaults.levelRules[level] as unknown as Record<string, number>)[key] ?? 0} className={inputClass} />
+      <SectionTitle title="شرائح رواتب Keeta حسب عدد الطلبات" hint="القيم التالية قابلة للتغيير شهريًا، والحساب الفعلي يتم من Backend وليس من الواجهة." />
+      {DEFAULT_KEETA_SALARY_SLABS.map((fallback, index) => {
+        const slab = defaults.salarySlabs[index] ?? fallback;
+        return (
+          <div key={index} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h5 className="text-sm font-black text-slate-950">شريحة {index + 1}</h5>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600">
+                {slab.maxOrders === null ? `${slab.minOrders}+ طلب` : `${slab.minOrders} - ${slab.maxOrders} طلب`}
+              </span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-8">
+              <Field label="من طلب">
+                <input name={`slab_${index}_minOrders`} type="number" defaultValue={slab.minOrders} className={inputClass} />
               </Field>
-            ))}
+              <Field label="إلى طلب">
+                <input name={`slab_${index}_maxOrders`} type="number" defaultValue={slab.maxOrders ?? ""} placeholder="مفتوح" className={inputClass} />
+              </Field>
+              <Field label="نوع الحساب">
+                <select name={`slab_${index}_salaryMode`} defaultValue={slab.salaryMode} className={inputClass}>
+                  <option value="PER_ORDER">بالطلب</option>
+                  <option value="FIXED_PRORATED_BY_PAID_DAYS">راتب ثابت حسب الأيام</option>
+                </select>
+              </Field>
+              <Field label="راتب ثابت">
+                <input name={`slab_${index}_fixedSalary`} type="number" step="0.01" defaultValue={slab.fixedSalary} className={inputClass} />
+              </Field>
+              <Field label="البونص">
+                <input name={`slab_${index}_bonus`} type="number" step="0.01" defaultValue={slab.bonus} className={inputClass} />
+              </Field>
+              <Field label="سعر الطلب">
+                <input name={`slab_${index}_perOrderRate`} type="number" step="0.01" defaultValue={slab.perOrderRate} className={inputClass} />
+              </Field>
+              <Field label="حد الطلبات الزائدة">
+                <input name={`slab_${index}_extraOrderThreshold`} type="number" defaultValue={slab.extraOrderThreshold ?? ""} placeholder="لا يوجد" className={inputClass} />
+              </Field>
+              <Field label="سعر الطلب الزائد">
+                <input name={`slab_${index}_extraOrderRate`} type="number" step="0.01" defaultValue={slab.extraOrderRate} className={inputClass} />
+              </Field>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
-      <SectionTitle title="Bonus Rules" />
-      <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-        <input name="extraOrdersBonus" type="checkbox" defaultChecked={defaults.bonusRules.extraOrdersBonus} /> Extra Orders Bonus
+      <SectionTitle title="إعدادات الأيام والإجازة" hint="الإجازة المدفوعة تدخل في أيام الراتب الأساسي فقط، ولا تزود الطلبات ولا تحقق التارجت." />
+      <Field label="عدد أيام الشهر المعتمد">
+        <input name="payrollMonthDays" type="number" defaultValue={defaults.payrollMonthDays} className={inputClass} />
+      </Field>
+      <Field label="أيام الإجازة المدفوعة">
+        <input name="paidLeaveDaysAllowed" type="number" defaultValue={defaults.paidLeaveDaysAllowed} className={inputClass} />
+      </Field>
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="prorateBaseSalaryByPaidDays" type="checkbox" defaultChecked={defaults.prorateBaseSalaryByPaidDays} /> احتساب الراتب الأساسي حسب الأيام المدفوعة
       </label>
-      <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-        <input name="performanceBonus" type="checkbox" defaultChecked={defaults.bonusRules.performanceBonus} /> Performance Bonus
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="bonusProratedByWorkingDays" type="checkbox" defaultChecked={defaults.bonusProratedByWorkingDays} /> تقسيم البونص على الأيام
       </label>
-      <Field label="Target Achievement Bonus">
-        <input name="targetAchievementBonus" type="number" step="0.01" defaultValue={defaults.bonusRules.targetAchievementBonus} className={inputClass} />
-      </Field>
-      <Field label="No Cancellation Bonus">
-        <input name="noCancellationBonus" type="number" step="0.01" defaultValue={defaults.bonusRules.noCancellationBonus} className={inputClass} />
-      </Field>
-      <Field label="High On Time Bonus">
-        <input name="highOnTimeBonus" type="number" step="0.01" defaultValue={defaults.bonusRules.highOnTimeBonus} className={inputClass} />
-      </Field>
-      <Field label="Custom Bonuses JSON-like lines">
-        <textarea name="customBonuses" defaultValue={defaults.bonusRules.customBonuses.map((item) => `${item.name}:${item.amount}`).join("\n")} className={inputClass} placeholder="Bonus Name:100" />
-      </Field>
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="paidLeaveCountsForTarget" type="checkbox" defaultChecked={defaults.paidLeaveCountsForTarget} /> الإجازة تدخل في تحقيق التارجت
+      </label>
 
-      <SectionTitle title="Deduction Rules" />
+      <SectionTitle title="إعدادات خصم فرق Experience Incentive" hint="الخصم = القيمة الأساسية المتوقعة - Experience Incentive من فاتورة Keeta، ولا يتم استخدام Level A/B/C/D كخصم ثابت." />
+      <Field label="قيمة Experience Incentive الأساسية">
+        <input name="expectedExperienceIncentiveAmount" type="number" step="0.01" defaultValue={defaults.expectedExperienceIncentiveAmount} className={inputClass} />
+      </Field>
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="experienceIncentiveDeductionEnabled" type="checkbox" defaultChecked={defaults.experienceIncentiveDeductionEnabled} /> تفعيل خصم الفرق
+      </label>
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="markMissingExperienceIncentiveAsReview" type="checkbox" defaultChecked={defaults.markMissingExperienceIncentiveAsReview} /> عدم وجود Experience يحتاج مراجعة
+      </label>
+      <label className="flex items-center gap-2 self-end text-sm font-black text-slate-700">
+        <input name="allowManualExperienceIncentiveOverride" type="checkbox" defaultChecked={defaults.allowManualExperienceIncentiveOverride} /> السماح بالتعديل اليدوي بصلاحية
+      </label>
+
+      <SectionTitle title="الخصومات الأخرى" hint="هذه الخصومات منفصلة عن فرق Experience Incentive." />
       {[
-        ["appDeductions", "App Deductions"],
-        ["advances", "Advances"],
-        ["violations", "Violations"],
-        ["fuel", "Fuel"],
-        ["damages", "Damages"],
-        ["accidents", "Accidents"],
-        ["absenceDeductions", "Absence Deductions"],
+        ["appDeductions", "خصومات التطبيق"],
+        ["advances", "السلف"],
+        ["violations", "المخالفات"],
+        ["fuel", "البنزين"],
+        ["damages", "التلفيات"],
+        ["accidents", "الحوادث"],
+        ["absenceDeductions", "خصومات الغياب"],
       ].map(([key, label]) => (
         <label key={key} className="flex items-center gap-2 text-sm font-black text-slate-700">
           <input name={key} type="checkbox" defaultChecked={Boolean(defaults.deductionRules[key as keyof typeof defaults.deductionRules])} /> {label}
         </label>
       ))}
-      <Field label="Custom Deductions">
+      <Field label="خصومات مخصصة">
         <textarea name="customDeductions" defaultValue={defaults.deductionRules.customDeductions.map((item) => `${item.name}:${item.amount}`).join("\n")} className={inputClass} placeholder="Deduction Name:100" />
       </Field>
 
-      <SectionTitle title="Car Rent Rule" />
+      <SectionTitle title="إيجار السيارة" />
       <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-        <input name="carRentEnabled" type="checkbox" defaultChecked={defaults.carRentRule.enabled} /> Enabled
+        <input name="carRentEnabled" type="checkbox" defaultChecked={defaults.carRentRule.enabled} /> مفعل
       </label>
       <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-        <input name="calculateByRentalDays" type="checkbox" defaultChecked={defaults.carRentRule.calculateByRentalDays} /> Calculate by Rental Days
+        <input name="calculateByRentalDays" type="checkbox" defaultChecked={defaults.carRentRule.calculateByRentalDays} /> حسب أيام الإيجار
       </label>
       <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-        <input name="fixedMonthlyDeduction" type="checkbox" defaultChecked={defaults.carRentRule.fixedMonthlyDeduction} /> Fixed Monthly Deduction
+        <input name="fixedMonthlyDeduction" type="checkbox" defaultChecked={defaults.carRentRule.fixedMonthlyDeduction} /> خصم شهري ثابت
       </label>
-      <Field label="Default Monthly Rent">
+      <Field label="الإيجار الشهري الافتراضي">
         <input name="defaultMonthlyRent" type="number" step="0.01" defaultValue={defaults.carRentRule.defaultMonthlyRent} className={inputClass} />
       </Field>
-      <Field label="Grace Days">
+      <Field label="أيام السماح">
         <input name="graceDays" type="number" defaultValue={defaults.carRentRule.graceDays} className={inputClass} />
       </Field>
-      <Field label="Max Monthly Deduction">
+      <Field label="أقصى خصم شهري">
         <input name="maxMonthlyDeduction" type="number" step="0.01" defaultValue={defaults.carRentRule.maxMonthlyDeduction} className={inputClass} />
       </Field>
 
@@ -423,6 +554,8 @@ function TestCalculationModal({
           ["advancesTotal", "السلف"],
           ["violationsTotal", "المخالفات"],
           ["fuelTotal", "البنزين"],
+          ["paidLeaveDaysUsed", "أيام الإجازة المدفوعة"],
+          ["invoiceExperienceIncentiveAmount", "Experience Incentive من الفاتورة"],
           ["appDeductionsTotal", "خصومات التطبيق"],
           ["damagesTotal", "التلفيات"],
           ["accidentDeduction", "الحوادث"],
@@ -659,13 +792,15 @@ export function PayrollSettingsClient({ data, basePath = "/payroll/settings", sc
       {scopeTitle ? <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-900">{scopeTitle}</div> : null}
 
       {data.summary.keeta ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-950 shadow-sm">
-          <div className="text-base font-black">سياسة Keeta المعتمدة من الصورة</div>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-950 shadow-sm">
+          <div className="text-base font-black">سياسة Keeta الحالية</div>
           <div className="mt-2 grid gap-2 md:grid-cols-2">
-            <p>Target 560: راتب أساسي 2000 ريال على 28 يوم، بنزين 1100، سكن 300، اتصال 100، وبدل أداء A/B/C = 1800 / 1300 / 800.</p>
-            <p>Target 460: راتب أساسي 1500 ريال على 28 يوم، بنزين 900، سكن 300، اتصال 100، وبدل أداء A/B/C = 1200 / 700 / 200.</p>
-            <p>سيارة الشركة: خصم الإيجار اليومي × عدد أيام الإيجار، والحد الشهري 1500 ريال.</p>
-            <p>السيارة الشخصية: لا يوجد خصم سيارة، ويظهر بدل السيارة الشخصية حسب الخطة. نقص الطلبات أقل من 460 يخصم 8 ريال لكل طلب ناقص.</p>
+            <p>0 - 349 طلب: الراتب = عدد الطلبات × 8 ريال، ولا يوجد بونص.</p>
+            <p>350 - 409 طلب: راتب ثابت 4500 ريال محسوب حسب الأيام المدفوعة.</p>
+            <p>410 - 459 طلب: راتب ثابت 5200 ريال حسب الأيام المدفوعة + بونص 800 ريال كامل.</p>
+            <p>460 - 509 طلب: راتب ثابت 5200 ريال حسب الأيام المدفوعة + بونص 1100 ريال كامل.</p>
+            <p>510 طلب فأكثر: راتب ثابت 5200 ريال + بونص 1800 ريال + كل طلب فوق 510 × 8 ريال.</p>
+            <p>Experience Incentive: الخصم = القيمة الأساسية المتوقعة 2000 - القيمة الموجودة في فاتورة Keeta، والفرق فقط هو الذي يخصم.</p>
           </div>
         </div>
       ) : null}

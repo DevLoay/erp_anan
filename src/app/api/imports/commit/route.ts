@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as CommitBody;
     if (!body.preview?.summary || !Array.isArray(body.preview.rows)) {
-      return NextResponse.json({ error: "بيانات المعاينة غير مكتملة. أعد رفع الملف ثم اعتمد الحفظ." }, { status: 400 });
+      return NextResponse.json({ error: "بيانات المعاينة غير مكتملة. ارفع الملف مرة أخرى ثم اضغط اعتماد الحفظ." }, { status: 400 });
     }
 
     if (importTypeRequiresProject(body.preview.summary.importType) && (!body.preview.summary.applicationId || !body.preview.summary.applicationProjectId)) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     if (importTypeRequiresProject(body.preview.summary.importType) && !body.preview.summary.cityId) {
-      return NextResponse.json({ error: "لا يمكن اعتماد ملف مشروع بدون cityId واضح. أعد المعاينة من داخل مساحة المشروع والمدينة الصحيحة." }, { status: 400 });
+      return NextResponse.json({ error: "لا يمكن اعتماد ملف مشروع بدون cityId واضح. افتح الرفع من داخل مشروع المدينة الصحيح." }, { status: 400 });
     }
 
     const data = await commitImportPreview(body.preview, body.userId ?? null);

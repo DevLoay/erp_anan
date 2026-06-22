@@ -6,6 +6,7 @@ import { generateKeetaPayroll, isKeetaPayrollRequest } from "@/lib/payroll/keeta
 
 type GenerateBody = Partial<ReportFilters> & {
   month?: string;
+  applicationProjectId?: string;
 };
 
 function numberValue(value: unknown) {
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
 
   const [legacyProject, applicationProject] = filters.projectId
     ? await Promise.all([
-        prisma.project.findUnique({ where: { id: filters.projectId }, select: { name: true, appName: true } }).catch(() => null),
+        prisma.project.findUnique({ where: { id: filters.projectId }, select: { id: true, name: true, appName: true } }).catch(() => null),
         prisma.applicationProject
           .findFirst({
             where: { OR: [{ id: filters.projectId }, { projectId: filters.projectId }] },
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
     const result = await generateKeetaPayroll({
       month: filters.month,
       cityId: filters.cityId || undefined,
+      applicationProjectId: body.applicationProjectId || applicationProject?.id || filters.projectId || undefined,
       requestedBy: "Admin",
     });
 
@@ -99,7 +101,14 @@ export async function POST(request: Request) {
       select: { id: true, projectId: true, vehicleId: true, housingStatus: true },
     }),
     prisma.advance.findMany({
-      where: { driverId: { in: driverIds }, deductionMonth: filters.month, status: "APPROVED" },
+      where: {
+        driverId: { in: driverIds },
+        deductionMonth: filters.month,
+        status: "APPROVED",
+        isDeducted: false,
+        payrollItemId: null,
+        deductedPayrollRunId: null,
+      },
       select: { driverId: true, amount: true },
     }),
     prisma.deduction.findMany({
@@ -112,6 +121,7 @@ export async function POST(request: Request) {
   const advanceMap = mapAmounts(advances);
   const deductionMap = mapAmounts(deductions);
   const payrollRules = settings.payrollRules as Record<string, unknown>;
+  const legacyProjectId = applicationProject?.projectId || legacyProject?.id || null;
 
   let created = 0;
   let updated = 0;
@@ -155,7 +165,7 @@ export async function POST(request: Request) {
     totalNet += netSalary;
 
     const data = {
-      projectId: row.projectId || driver.projectId || null,
+      projectId: legacyProjectId,
       basicSalary,
       bonus,
       deductions: totalDeductions,

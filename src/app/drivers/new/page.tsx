@@ -1,9 +1,7 @@
-import { ResourcePage } from "@/components/ui/ResourcePage";
-import { resources } from "@/lib/resources";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function NewDriverPage() {
-  return <ResourcePage resource={resources.drivers} />;
+  redirect("/drivers?newDriver=1");
 }
-

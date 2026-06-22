@@ -50,7 +50,7 @@ const operationLinks: OperationLink[] = [
   {
     title: "استيراد تقارير التطبيقات",
     description: "رفع Keeta / HungerStation / Talabat مع Preview قبل الحفظ.",
-    route: "/projects/keeta/imports?type=keeta_period_report_template",
+    route: "/projects?application=keeta&type=keeta_period_report_template",
     tone: "amber",
   },
   {
@@ -68,13 +68,13 @@ const operationLinks: OperationLink[] = [
   {
     title: "Rank Keeta",
     description: "استيراد وتحليل وربط رانك كيتا بالمناديب.",
-    route: "/projects/keeta/imports?type=keeta_rank_template",
+    route: "/projects?application=keeta&type=keeta_rank_template",
     tone: "emerald",
   },
   {
     title: "قالب Keeta",
     description: "القالب الأساسي الحالي لتقارير كيتا اليومية.",
-    route: "/projects/keeta/invoices?type=keeta_driver_invoice_template",
+    route: "/projects?application=keeta&type=keeta_driver_invoice_template",
     tone: "amber",
   },
   {
@@ -296,7 +296,7 @@ export function ApplicationsCenterClient({ data }: Props) {
   function handleApplicationAction(action: string, app: ApplicationCenterApp) {
     const keeta = isKeetaApp(app);
     if (action === "التقارير") {
-      router.push(keeta ? "/projects/keeta/reports" : `/reports?${appQuery(app)}`);
+      router.push(keeta ? "/projects?application=keeta" : `/reports?${appQuery(app)}`);
       return;
     }
     if (action === "قواعد KPI") {
@@ -304,11 +304,11 @@ export function ApplicationsCenterClient({ data }: Props) {
       return;
     }
     if (action === "Rank Keeta") {
-      router.push(keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings`);
+      router.push(keeta ? "/projects?application=keeta&type=keeta_rank_template" : `/applications/${app.id}/rank-settings`);
       return;
     }
     if (action === "استيراد تقرير" || action === "الاستيراد") {
-      router.push(keeta ? "/projects/keeta/imports?type=keeta_period_report_template" : `/imports/preview?${appQuery(app)}`);
+      router.push(keeta ? "/projects?application=keeta&type=keeta_period_report_template" : `/imports/preview?${appQuery(app)}`);
       return;
     }
     if (action === "قوالب الاستيراد") {
@@ -328,7 +328,7 @@ export function ApplicationsCenterClient({ data }: Props) {
       return;
     }
     if (action === "عرض المسيرات" || action === "المسيرات") {
-      router.push(keeta ? "/projects/keeta/payroll" : `/payroll?${appQuery(app)}`);
+      router.push(keeta ? "/projects?application=keeta" : `/payroll?${appQuery(app)}`);
       return;
     }
 
@@ -378,11 +378,11 @@ export function ApplicationsCenterClient({ data }: Props) {
       return;
     }
     if (isPayrollRunRow && ["عرض المسير", "إعادة حساب", "اعتماد", "إلغاء اعتماد", "إرسال للماليات"].includes(action)) {
-      router.push(keeta ? `/projects/keeta/payroll${row.id ? `?runId=${encodeURIComponent(row.id)}` : ""}` : `/payroll${row.id ? `?runId=${encodeURIComponent(row.id)}` : `?${query}`}`);
+      router.push(keeta ? `/projects?application=keeta${row.id ? `&runId=${encodeURIComponent(row.id)}` : ""}` : `/payroll${row.id ? `?runId=${encodeURIComponent(row.id)}` : `?${query}`}`);
       return;
     }
     if (isRankSettingRow && ["إضافة Rank", "تعديل", "اختبار", "تعطيل", "استيراد Rank Keeta"].includes(action)) {
-      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects?application=keeta&type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
       return;
     }
     if (isPayrollSettingRow && ["إضافة إعداد مسير", "تعديل", "نسخ من مشروع آخر", "اختبار حساب الراتب", "تعطيل"].includes(action)) {
@@ -394,7 +394,7 @@ export function ApplicationsCenterClient({ data }: Props) {
       return;
     }
     if (["إضافة Rank", "اختبار", "استيراد Rank Keeta"].includes(action)) {
-      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects/keeta/imports?type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
+      router.push(action === "استيراد Rank Keeta" && keeta ? "/projects?application=keeta&type=keeta_rank_template" : `/applications/${app.id}/rank-settings${row.id ? `?id=${encodeURIComponent(row.id)}` : ""}`);
       return;
     }
     if (["إضافة إعداد مسير", "اختبار حساب الراتب"].includes(action)) {

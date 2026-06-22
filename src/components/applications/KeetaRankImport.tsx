@@ -189,7 +189,7 @@ export function KeetaRankImport({ data, onToast }: Props) {
             <button type="button" onClick={() => setPreview(null)} className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-black text-slate-700">Cancel Import</button>
             <button type="button" onClick={downloadErrors} className="rounded-xl border border-red-200 bg-red-50 px-5 py-2 text-sm font-black text-red-700">Download Error Report</button>
             <button type="button" onClick={downloadPreview} className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-2 text-sm font-black text-blue-700">Download Preview</button>
-            <button type="button" onClick={() => window.location.assign("/projects/keeta/imports?type=keeta_rank_template")} className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-black text-slate-700">Go back and change column mapping</button>
+            <button type="button" onClick={() => window.location.assign("/projects?application=keeta&type=keeta_rank_template")} className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-black text-slate-700">Go back and change column mapping</button>
           </div>
           <ImportPreviewTable rows={preview.rows} />
         </div>

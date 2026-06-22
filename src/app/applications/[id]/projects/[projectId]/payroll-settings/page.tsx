@@ -1,38 +1,12 @@
-import Link from "next/link";
-import { PayrollSettingsClient } from "@/components/payroll/PayrollSettingsClient";
-import { getPayrollSettingsData, resolvePayrollSettingFilters } from "@/lib/payroll/payrollSettings";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string; projectId: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ApplicationProjectPayrollSettingsPage({ params, searchParams }: PageProps) {
-  const [{ id, projectId }, query] = await Promise.all([params, searchParams]);
-  const filters = resolvePayrollSettingFilters({ ...query, applicationId: id, applicationProjectId: projectId });
-  const data = await getPayrollSettingsData(filters);
-  return (
-    <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <nav className="mb-2 flex flex-wrap items-center gap-2 text-xs font-black text-slate-500">
-            <Link href="/" className="hover:text-slate-950">الرئيسية</Link>
-            <span>/</span>
-            <Link href="/applications" className="hover:text-slate-950">مركز التطبيقات</Link>
-            <span>/</span>
-            <span className="text-slate-800">إعدادات مسير المشروع</span>
-          </nav>
-          <h1 className="text-3xl font-black text-slate-950">إعدادات مسير مشروع التطبيق</h1>
-          <p className="mt-2 max-w-4xl text-sm font-bold text-slate-600">
-            لا توجد إعدادات مسير لهذا المشروع؟ سيتم استخدام الإعدادات الافتراضية للتطبيق إن وجدت.
-          </p>
-        </div>
-        <Link href={`/applications/${id}/payroll-settings`} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">إعدادات التطبيق</Link>
-      </div>
-      <PayrollSettingsClient data={data} basePath={`/applications/${id}/projects/${projectId}/payroll-settings`} scopeTitle="هذه الصفحة مخصصة لإعدادات مسير المشروع المحدد فقط." />
-    </main>
-  );
+export default async function LegacyApplicationProjectPayrollSettingsPage({ params }: PageProps) {
+  const { id, projectId } = await params;
+  redirect(`/payroll/settings?applicationId=${encodeURIComponent(id)}&applicationProjectId=${encodeURIComponent(projectId)}`);
 }
-

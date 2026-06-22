@@ -53,7 +53,10 @@ async function findUserFromHeaders(headers: Headers) {
   if (userId) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { driver: true, supervisor: true },
+      include: {
+        driver: { include: { applicationAccounts: { select: { applicationProjectId: true } } } },
+        supervisor: true,
+      },
     });
     if (user) return user;
   }
@@ -61,7 +64,10 @@ async function findUserFromHeaders(headers: Headers) {
   if (email) {
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { driver: true, supervisor: true },
+      include: {
+        driver: { include: { applicationAccounts: { select: { applicationProjectId: true } } } },
+        supervisor: true,
+      },
     });
     if (user) return user;
   }
@@ -80,7 +86,16 @@ export async function getAccessScope(headers: Headers): Promise<AccessScope> {
   return scopeFromUser(user);
 }
 
-export function scopeFromUser(user: User & { driver?: { cityId: string | null; projectId: string | null; supervisorId: string | null } | null; supervisor?: { cityId: string | null } | null }): AccessScope {
+export function scopeFromUser(
+  user: User & {
+    driver?: {
+      cityId: string | null;
+      supervisorId: string | null;
+      applicationAccounts?: { applicationProjectId: string | null }[];
+    } | null;
+    supervisor?: { cityId: string | null } | null;
+  },
+): AccessScope {
   const role = user.role as AppRole;
   if (role === "ADMIN" || role === "OPERATION_MANAGER") {
     return { ...globalScope, role, userId: user.id };
@@ -89,7 +104,8 @@ export function scopeFromUser(user: User & { driver?: { cityId: string | null; p
   const supervisorId = user.supervisorId || user.driver?.supervisorId || "";
   const driverId = user.driverId || "";
   const cityIds = unique([user.cityId, user.driver?.cityId, user.supervisor?.cityId, ...splitScope(user.cityScope)]);
-  const projectIds = unique([user.driver?.projectId, ...splitScope(user.projectScope)]);
+  const accountProjectIds = user.driver?.applicationAccounts?.map((account) => account.applicationProjectId) ?? [];
+  const projectIds = unique([...accountProjectIds, ...splitScope(user.projectScope)]);
 
   return {
     role,
