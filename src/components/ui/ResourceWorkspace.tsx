@@ -366,6 +366,10 @@ export function ResourceWorkspace({ resource, compact = false }: { resource: Res
     }
   }
 
+  function printWorkspace() {
+    if (typeof window !== "undefined") window.print();
+  }
+
   const pageSize = compact ? 8 : 15;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pageCount);

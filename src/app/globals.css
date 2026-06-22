@@ -33,3 +33,45 @@ textarea {
   background: #bae6fd;
   color: #0f172a;
 }
+
+
+/* HOME_DASHBOARD_CLOSEOUT_PRINT_AND_LAYOUT */
+@media print {
+  aside, nav, header button, [data-print-hide="true"], .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  main, section, article {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  [data-home-dashboard-grid="true"],
+  [data-home-reports-grid="true"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.home-dashboard-closeout-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.home-dashboard-closeout-scroll table {
+  min-width: 960px;
+}

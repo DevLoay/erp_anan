@@ -12,7 +12,7 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
   return (
     <form className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" dir="rtl">
       {filters.driverId ? <input type="hidden" name="driverId" value={filters.driverId} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
         <label htmlFor="month-filter" className="grid gap-1 text-sm font-bold text-slate-700">
           الشهر
           <select id="month-filter" name="month" defaultValue={filters.month} className="rounded-md border border-slate-300 px-3 py-2">
@@ -22,6 +22,30 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
               </option>
             ))}
           </select>
+        </label>
+
+
+
+        <label htmlFor="date-from-filter" className="grid gap-1 text-sm font-bold text-slate-700">
+          من تاريخ
+          <input
+            id="date-from-filter"
+            type="date"
+            name="dateFrom"
+            defaultValue={filters.dateFrom}
+            className="rounded-md border border-slate-300 px-3 py-2"
+          />
+        </label>
+
+        <label htmlFor="date-to-filter" className="grid gap-1 text-sm font-bold text-slate-700">
+          إلى تاريخ
+          <input
+            id="date-to-filter"
+            type="date"
+            name="dateTo"
+            defaultValue={filters.dateTo}
+            className="rounded-md border border-slate-300 px-3 py-2"
+          />
         </label>
 
         <label htmlFor="app-filter" className="grid gap-1 text-sm font-bold text-slate-700">
@@ -106,7 +130,7 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
       <div className="mt-4 flex flex-wrap gap-2">
         <button className="rounded-md bg-slate-950 px-4 py-2 text-sm font-black text-white">تطبيق الفلاتر</button>
         <Link href={resetHref} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700">
-          مسح الفلاتر
+          عرض الكل
         </Link>
       </div>
     </form>

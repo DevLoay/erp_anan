@@ -18,6 +18,11 @@ export const roleLabels: Record<AppRole, string> = {
 };
 
 export const permissionModules = [
+  { section: "الرئيسية والتقارير", resource: "dashboard", label: "لوحة الإدارة", route: "/dashboard" },
+  { section: "الرئيسية والتقارير", resource: "reports", label: "التقارير العامة", route: "/reports" },
+  { section: "الرئيسية والتقارير", resource: "management-reports", label: "التقارير الإدارية", route: "/management-reports" },
+  { section: "الرئيسية والتقارير", resource: "operations-alerts", label: "تنبيهات العمليات", route: "/operations-alerts" },
+  { section: "الرئيسية والتقارير", resource: "uploaded-reports", label: "التقارير المرفوعة", route: "/uploaded-reports" },
   { section: "الإدارة العامة", resource: "users", label: "المستخدمون والصلاحيات", route: "/users" },
   { section: "الإدارة العامة", resource: "permissions", label: "مصفوفة الصلاحيات", route: "/permissions" },
   { section: "الإدارة العامة", resource: "audit-logs", label: "سجل العمليات", route: "/audit-log" },
@@ -140,6 +145,7 @@ export function canReadResource(role: AppRole, resource: string) {
   if (role === "ADMIN") return true;
   if (adminOnlyResources.has(resource)) return false;
   if (role === "OPERATION_MANAGER") return true;
+  if (reportResources.has(resource)) return true;
   if (role === "ACCOUNTANT") return financeResources.has(resource) || resource === "daily-reports";
   if (role === "HR") return hrResources.has(resource) || resource === "cities" || resource === "projects";
   if (role === "SUPERVISOR") return supervisorResources.has(resource);
