@@ -35,9 +35,12 @@ export const permissionModules = [
   { section: "التشغيل", resource: "daily-reports", label: "التقارير اليومية", route: "/daily-reports" },
   { section: "التشغيل", resource: "tasks", label: "مهام المشرفين", route: "/supervisor-tasks" },
   { section: "التشغيل", resource: "attendance", label: "الحضور والانصراف", route: "/attendance" },
+  { section: "التشغيل", resource: "shifts", label: "الشفتات", route: "/shifts" },
   { section: "المناديب والموارد البشرية", resource: "drivers", label: "المناديب", route: "/drivers" },
   { section: "المناديب والموارد البشرية", resource: "supervisors", label: "المشرفون", route: "/supervisors" },
+  { section: "المناديب والموارد البشرية", resource: "interviews", label: "المقابلات", route: "/interviews" },
   { section: "المناديب والموارد البشرية", resource: "driver-documents", label: "مستندات المناديب", route: "/rider-documents" },
+  { section: "المناديب والموارد البشرية", resource: "driver-housing", label: "سكن المناديب", route: "/rider-housing" },
   { section: "المناديب والموارد البشرية", resource: "driver-contracts", label: "العقود والكفالة", route: "/contracts-sponsorship" },
   { section: "السيارات والحركة", resource: "vehicles", label: "السيارات", route: "/vehicles" },
   { section: "السيارات والحركة", resource: "vehicle-movements", label: "حركة السيارات", route: "/vehicle-movements" },
@@ -105,6 +108,10 @@ const hrResources = new Set([
   "driver-housing",
   "driver-warnings",
   "advances",
+
+  "shifts",
+
+
 ]);
 
 const supervisorResources = new Set([
@@ -116,6 +123,21 @@ const supervisorResources = new Set([
   "driver-warnings",
   "attendance",
   "shifts",
+
+
+
+]);
+
+
+const reportResources = new Set([
+  "dashboard",
+  "reports",
+  "management-reports",
+  "daily-reports",
+  "notifications",
+  "operations-alerts",
+  "uploaded-reports",
+  "report-templates",
 ]);
 
 const viewerResources = new Set(["home", "notifications"]);
@@ -211,7 +233,11 @@ const routeResourceMap: Array<[string, string]> = [
   ["/drivers", "drivers"],
   ["/supervisors", "supervisors"],
   ["/attendance", "attendance"],
-  ["/supervisor-tasks", "tasks"],
+  ["/supervisor-tasks", "tasks"],  ["/shifts", "shifts"],  ["/interviews", "interviews"],  ["/rider-housing", "driver-housing"],  ["/rider-documents", "driver-documents"],
+
+
+
+
   ["/violations", "violations"],
   ["/notifications", "notifications"],
 ];
@@ -246,6 +272,10 @@ const apiResourceAliases: Record<string, string> = {
   "supervisors": "supervisors",
   "attendance": "attendance",
   "supervisor-tasks": "tasks",
+  "rider-documents": "driver-documents",
+  "rider-housing": "driver-housing",
+  "interviews": "interviews",
+  "shifts": "shifts",
 };
 
 export function resourceFromPath(pathname: string): string | null {

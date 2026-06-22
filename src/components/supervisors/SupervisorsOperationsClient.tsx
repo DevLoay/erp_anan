@@ -321,7 +321,7 @@ export function SupervisorsOperationsClient({ report }: Props) {
           Print / PDF
         </button>
         <button type="button" onClick={() => downloadCsv(rows)} className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-800">
-          تصدير Excel
+          تصدير Excel / CSV / CSV
         </button>
       </div>
 
@@ -465,7 +465,7 @@ export function SupervisorsOperationsClient({ report }: Props) {
                         KPI
                       </button>
                       <button type="button" onClick={() => setProfileRow(row)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-50">
-                        خصائص
+                        تفاصيل / خصائص
                       </button>
                       <button type="button" onClick={() => setProfileRow(row)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-50">
                         ربط مناديب

@@ -122,6 +122,10 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
   URL.revokeObjectURL(url);
 }
 
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  exportCsv(filename, headers, rows);
+}
+
 function field(form: FormData, key: string) {
   return String(form.get(key) || "").trim();
 }
@@ -357,8 +361,7 @@ export function DriverManagementClient({ data }: Props) {
 
   function exportCurrentDrivers() {
     const headers = ["internalCode", "name", "phone", "nationalId", "city", "applicationProject", "application", "supervisor", "vehicle", "vehicleOwnershipType", "appUserId", "status"];
-    exportCsv(
-      `drivers-${new Date().toISOString().slice(0, 10)}.csv`,
+    downloadCsv(`drivers-${new Date().toISOString().slice(0, 10)}.csv`,
       headers,
       rows.map((row) => [row.driverCode, row.name, row.mobile, row.nationalId, row.city, row.project, row.application, row.supervisor, row.vehiclePlate, vehicleLabel(row.vehicleOwnershipType), row.appUserId, row.statusLabel]),
     );
@@ -366,7 +369,7 @@ export function DriverManagementClient({ data }: Props) {
   }
 
   function exportDriverTemplate() {
-    exportCsv("drivers-template.csv", driverTemplateColumns, []);
+    downloadCsv("drivers-template.csv", driverTemplateColumns, []);
     setToast("تم تجهيز قالب المناديب بنفس حقول الإضافة اليدوية.");
   }
 

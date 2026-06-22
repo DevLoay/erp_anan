@@ -61,9 +61,12 @@ export const moduleSections: ModuleSection[] = [
     items: [
       { href: "/drivers", label: "إدارة المناديب", oldKey: "drivers", status: connected, resource: "drivers", description: "المناديب وربطهم بالمدينة والمشرف وحسابات التطبيقات والسيارات." },
       { href: "/supervisors", label: "المشرفين", oldKey: "supervisors", status: connected, resource: "supervisors", description: "المشرفون وفرقهم وتقييم الأداء والمهام." },
+      { href: "/interviews", label: "المقابلات", oldKey: "interviews", status: connected, resource: "interviews", description: "مقابلات المرشحين وحالة التوظيف والمتابعة." },
       { href: "/hr", label: "الموارد البشرية", oldKey: "hr", status: connected, resource: "drivers", description: "العقود، المستندات، السكن، السلف، والإنذارات." },
       { href: "/rider-housing", label: "سكن المناديب", oldKey: "driverHousing", status: connected, resource: "driver-housing", description: "سكن الشركة والسكن الخارجي وتأثير بدل السكن على المسير." },
+      { href: "/rider-documents", label: "مستندات المناديب", oldKey: "driverDocuments", status: connected, resource: "driver-documents", description: "مستندات المناديب والإقامات والرخص وتواريخ الانتهاء." },
       { href: "/attendance", label: "الحضور والانصراف", oldKey: "attendance", status: connected, resource: "attendance", description: "تسجيل حضور وانصراف المناديب والمشرفين." },
+      { href: "/shifts", label: "الشفتات", oldKey: "shifts", status: connected, resource: "shifts", description: "إدارة الشفتات ومواعيد العمل وربطها بالتشغيل." },
       { href: "/supervisor-tasks", label: "مهام المشرفين", oldKey: "tasks", status: connected, resource: "tasks", description: "مهام ومتابعات مرتبطة بالتنبيهات والتقارير." },
       { href: "/rider-kpi", label: "KPI المناديب", oldKey: "riderKpi", status: connected, resource: "daily-reports", description: "مؤشرات أداء المناديب." },
       { href: "/rider-reports", label: "تقارير المناديب", oldKey: "riderReports", status: connected, resource: "daily-reports", description: "تقرير المندوب المفصل." },
