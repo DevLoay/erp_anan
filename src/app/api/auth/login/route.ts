@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SESSION_COOKIE, signSession } from "@/lib/auth/session";
 import { verifyPassword } from "@/lib/users/userManagementMutations";
-import { canReadResource, permissionModules, resourceFromPath, type AppRole } from "@/lib/permissions";
+import {
+  canReadResource,
+  permissionModules,
+  resourceFromPath,
+  type AppRole,
+} from "@/lib/permissions";
 import {
   loadUserPermissionProfile,
   profileAllows,
@@ -19,59 +24,173 @@ function normalizedInternalPath(value: unknown) {
   return path.startsWith("/") && !path.startsWith("//") ? path : "";
 }
 
-function canOpenPath(path: string, role: AppRole, profile: UserPermissionProfile | null) {
+function canOpenPath(
+  path: string,
+  role: AppRole,
+  profile: UserPermissionProfile | null
+) {
   const pathname = path.split(/[?#]/, 1)[0] || "/";
   const resource = resourceFromPath(pathname);
+
   if (!resource) return false;
-  return profile ? profileAllows(profile, resource, "view") : canReadResource(role, resource);
+
+  return profile
+    ? profileAllows(profile, resource, "view")
+    : canReadResource(role, resource);
 }
 
-function resolveLandingPath(requestedPath: unknown, role: AppRole, profile: UserPermissionProfile | null) {
+function resolveLandingPath(
+  requestedPath: unknown,
+  role: AppRole,
+  profile: UserPermissionProfile | null
+) {
   const requested = normalizedInternalPath(requestedPath);
-  if (requested && canOpenPath(requested, role, profile)) return requested;
+
+  if (requested && canOpenPath(requested, role, profile)) {
+    return requested;
+  }
 
   const preferredRoutes: Partial<Record<AppRole, string[]>> = {
     ADMIN: ["/dashboard"],
-    OPERATION_MANAGER: ["/dashboard", "/projects", "/drivers"],
-    SUPERVISOR: ["/dashboard", "/drivers", "/daily-reports", "/supervisor-tasks"],
-    ACCOUNTANT: ["/finance", "/payroll", "/advances"],
-    HR: ["/drivers", "/rider-documents", "/rider-housing"],
-    VIEWER: ["/notifications"],
+
+    OPERATION_MANAGER: [
+      "/dashboard",
+      "/projects",
+      "/drivers",
+    ],
+
+    SUPERVISOR: [
+      "/dashboard",
+      "/drivers",
+      "/daily-reports",
+      "/supervisor-tasks",
+    ],
+
+    ACCOUNTANT: [
+      "/finance",
+      "/payroll",
+      "/advances",
+    ],
+
+    HR: [
+      "/drivers",
+      "/rider-documents",
+      "/rider-housing",
+    ],
+
+    VIEWER: [
+      "/notifications",
+    ],
   };
-  const candidates = [...(preferredRoutes[role] ?? []), ...permissionModules.map((item) => item.route)];
-  return candidates.find((path) => canOpenPath(path, role, profile)) ?? "/access-denied";
+
+  const candidates = [
+    ...(preferredRoutes[role] ?? []),
+    ...permissionModules.map((item) => item.route),
+  ];
+
+  return (
+    candidates.find((path) =>
+      canOpenPath(path, role, profile)
+    ) ?? "/access-denied"
+  );
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; nextPath?: string };
-  const email = String(body.email ?? "").trim().toLowerCase();
+  const body = (await request
+    .json()
+    .catch(() => ({}))) as {
+    email?: string;
+    password?: string;
+    nextPath?: string;
+  };
+
+  const email = String(body.email ?? "")
+    .trim()
+    .toLowerCase();
+
   const password = String(body.password ?? "");
 
   if (!email || !password) {
-    return NextResponse.json({ error: "البريد الإلكتروني وكلمة المرور مطلوبان." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "البريد الإلكتروني وكلمة المرور مطلوبان.",
+      },
+      {
+        status: 400,
+      }
+    );
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.isActive || user.status === "inactive" || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
-    return NextResponse.json({ error: "بيانات الدخول غير صحيحة أو الحساب غير نشط." }, { status: 401 });
+  const user = await prisma.user.findUnique({
+    where: {
+      email,
+    },
+  });
+
+  if (
+    !user ||
+    !user.isActive ||
+    user.status === "inactive" ||
+    !user.passwordHash ||
+    !verifyPassword(password, user.passwordHash)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "بيانات الدخول غير صحيحة أو الحساب غير نشط.",
+      },
+      {
+        status: 401,
+      }
+    );
   }
 
+
+  /**
+   * Session should stay small.
+   * Do not put large scopes/arrays here.
+   */
   const token = await signSession({
     userId: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
-    driverId: user.driverId ?? undefined,
-    cityId: user.cityId ?? undefined,
-    cityScope: user.cityScope ?? undefined,
-    projectScope: user.projectScope ?? undefined,
-    supervisorId: user.supervisorId ?? undefined,
+
+    driverId:
+      user.driverId ?? undefined,
+
+    cityId:
+      user.cityId ?? undefined,
+
+    supervisorId:
+      user.supervisorId ?? undefined,
   });
-  const permissionProfile = await loadUserPermissionProfile(user.id).catch(() => null);
+
+
+  const permissionProfile =
+    await loadUserPermissionProfile(user.id)
+      .catch(() => null);
+
+
   const navResources = permissionProfile
     ? readableResources(permissionProfile)
-    : permissionModules.filter((item) => canReadResource(user.role, item.resource)).map((item) => item.resource);
-  const redirectTo = resolveLandingPath(body.nextPath, user.role, permissionProfile);
+    : permissionModules
+        .filter((item) =>
+          canReadResource(
+            user.role,
+            item.resource
+          )
+        )
+        .map((item) => item.resource);
+
+
+  const redirectTo = resolveLandingPath(
+    body.nextPath,
+    user.role,
+    permissionProfile
+  );
+
 
   await prisma.auditLog
     .create({
@@ -81,34 +200,90 @@ export async function POST(request: Request) {
         action: "LOGIN",
         entityType: "User",
         entityId: user.id,
-        after: jsonValue({ email: user.email, role: user.role }),
-        newValue: jsonValue({ email: user.email, role: user.role }),
+
+        after: jsonValue({
+          email: user.email,
+          role: user.role,
+        }),
+
+        newValue: jsonValue({
+          email: user.email,
+          role: user.role,
+        }),
       },
     })
     .catch(() => null);
 
+
+
   const response = NextResponse.json({
     ok: true,
+
     redirectTo,
+
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+
       cityId: user.cityId,
       cityScope: user.cityScope,
       projectScope: user.projectScope,
       supervisorId: user.supervisorId,
     },
   });
-  response.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 10,
-  });
-  response.cookies.set("erp-user-role", permissionProfile && user.role !== "ADMIN" ? "VIEWER" : user.role, { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
-  response.cookies.set("erp-nav-resources", navResources.join(","), { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
+
+
+
+  const isHttps =
+    request.headers.get("x-forwarded-proto") ===
+      "https" ||
+    new URL(request.url).protocol === "https:";
+
+
+
+  response.cookies.set(
+    SESSION_COOKIE,
+    token,
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isHttps,
+      path: "/",
+      maxAge: 60 * 60 * 10,
+    }
+  );
+
+
+
+  /**
+   * UI cookies only.
+   * Never use these for authentication.
+   */
+  response.cookies.set(
+    "erp-user-role",
+    user.role,
+    {
+      sameSite: "lax",
+      secure: isHttps,
+      path: "/",
+      maxAge: 60 * 60 * 10,
+    }
+  );
+
+
+  response.cookies.set(
+    "erp-nav-resources",
+    navResources.join(","),
+    {
+      sameSite: "lax",
+      secure: isHttps,
+      path: "/",
+      maxAge: 60 * 60 * 10,
+    }
+  );
+
+
   return response;
 }
