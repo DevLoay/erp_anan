@@ -54,7 +54,7 @@ const operationLinks: OperationLink[] = [
     tone: "amber",
   },
   {
-    title: "تقارير مرفوعة",
+    title: "سجل الملفات والاستيراد",
     description: "متابعة الملفات والدفعات وحالات المعالجة.",
     route: "/imports/history",
     tone: "blue",
@@ -296,7 +296,7 @@ export function ApplicationsCenterClient({ data }: Props) {
   function handleApplicationAction(action: string, app: ApplicationCenterApp) {
     const keeta = isKeetaApp(app);
     if (action === "التقارير") {
-      router.push(keeta ? "/projects?application=keeta" : `/reports?${appQuery(app)}`);
+      router.push(keeta ? "/projects?application=keeta" : `/management-reports?${appQuery(app)}`);
       return;
     }
     if (action === "قواعد KPI") {

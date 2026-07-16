@@ -19,10 +19,7 @@ export const roleLabels: Record<AppRole, string> = {
 
 export const permissionModules = [
   { section: "الرئيسية والتقارير", resource: "dashboard", label: "لوحة الإدارة", route: "/dashboard" },
-  { section: "الرئيسية والتقارير", resource: "reports", label: "التقارير العامة", route: "/reports" },
   { section: "الرئيسية والتقارير", resource: "management-reports", label: "التقارير الإدارية", route: "/management-reports" },
-  { section: "الرئيسية والتقارير", resource: "operations-alerts", label: "تنبيهات العمليات", route: "/operations-alerts" },
-  { section: "الرئيسية والتقارير", resource: "uploaded-reports", label: "التقارير المرفوعة", route: "/uploaded-reports" },
   { section: "الإدارة العامة", resource: "users", label: "المستخدمون والصلاحيات", route: "/users" },
   { section: "الإدارة العامة", resource: "permissions", label: "مصفوفة الصلاحيات", route: "/permissions" },
   { section: "الإدارة العامة", resource: "audit-logs", label: "سجل العمليات", route: "/audit-log" },
@@ -68,7 +65,6 @@ export const permissionModules = [
   { section: "الماليات", resource: "profit-loss", label: "الأرباح والخسائر", route: "/profit-loss" },
   { section: "الماليات", resource: "financial-reports", label: "التقارير المالية", route: "/financial-reports" },
   { section: "التقارير", resource: "notifications", label: "الإشعارات والتنبيهات", route: "/notifications" },
-  { section: "التقارير", resource: "report-templates", label: "قوالب التقارير", route: "/report-templates" },
 ] as const;
 
 const adminOnlyResources = new Set([
@@ -115,7 +111,14 @@ const hrResources = new Set([
 ]);
 
 const supervisorResources = new Set([
+  "dashboard",
+  "management-reports",
+  "applications",
+  "application-accounts",
+  "projects",
+  "cities",
   "drivers",
+  "supervisors",
   "daily-reports",
   "tasks",
   "notifications",
@@ -123,21 +126,30 @@ const supervisorResources = new Set([
   "driver-warnings",
   "attendance",
   "shifts",
-
-
-
+  "driver-documents",
+  "driver-housing",
+  "driver-contracts",
+  "interviews",
+  "vehicles",
+  "vehicle-movements",
+  "vehicle-maintenance",
+  "vehicle-authorizations",
+  "vehicle-accidents",
+  "vehicle-damages",
+  "vehicle-cleaning",
+  "vehicle-costs",
+  "payroll",
+  "advances",
+  "deductions",
+  "invoices",
 ]);
 
 
 const reportResources = new Set([
   "dashboard",
-  "reports",
   "management-reports",
   "daily-reports",
   "notifications",
-  "operations-alerts",
-  "uploaded-reports",
-  "report-templates",
 ]);
 
 const viewerResources = new Set(["home", "notifications"]);
@@ -205,6 +217,19 @@ const routeResourceMap: Array<[string, string]> = [
   ["/users", "users"],
   ["/permissions", "permissions"],
   ["/audit-log", "audit-logs"],
+  ["/dashboard", "dashboard"],
+  ["/management-reports", "management-reports"],
+  ["/operations-alerts", "notifications"],
+  ["/uploaded-reports", "import-batches"],
+  ["/report-templates", "system-settings"],
+  ["/reports", "management-reports"],
+  ["/projects", "projects"],
+  ["/applications", "applications"],
+  ["/cities", "cities"],
+  ["/imports/templates", "import-templates"],
+  ["/imports/history", "import-batches"],
+  ["/imports", "import-batches"],
+  ["/daily-reports", "daily-reports"],
   ["/finance", "finance"],
   ["/financial-reports", "financial-reports"],
   ["/profit-loss", "profit-loss"],
@@ -276,6 +301,25 @@ const apiResourceAliases: Record<string, string> = {
   "rider-housing": "driver-housing",
   "interviews": "interviews",
   "shifts": "shifts",
+  "payroll": "payroll",
+  "payroll-runs": "payroll",
+  "payroll-items": "payroll",
+  "payroll-settings": "payroll-settings",
+  "imports": "import-batches",
+  "import-templates": "import-templates",
+  "applications": "applications",
+  "application-projects": "projects",
+  "application-accounts": "application-accounts",
+  "account-usages": "application-accounts",
+  "driver-warnings": "driver-warnings",
+  "notifications": "notifications",
+  "data-cleaning": "system-settings",
+  "details": "dashboard",
+  "hr": "drivers",
+  "invoice-settings": "system-settings",
+  "rank-settings": "system-settings",
+  "reference-data": "dashboard",
+  "rental-companies": "vehicles",
 };
 
 export function resourceFromPath(pathname: string): string | null {

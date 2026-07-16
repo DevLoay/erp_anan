@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import {
+  USER_PERMISSION_PROFILE_PREFIX,
+  parseUserPermissionProfile,
+} from "@/lib/auth/userPermissionProfile";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -162,12 +166,22 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
     const from = new Date(`${filters.fromDate}T00:00:00.000Z`);
     const to = new Date(`${filters.toDate}T23:59:59.999Z`);
 
-    const [users, cities, supervisors, drivers, projects, auditLogs] = await Promise.all([
+    const [users, cities, supervisors, drivers, projects, auditLogs, permissionSettings] = await Promise.all([
       prisma.user.findMany({
         where: buildWhere(filters),
         include: {
           city: true,
-          driver: { include: { city: true, project: true, supervisor: true } },
+          driver: {
+            include: {
+              city: true,
+              supervisor: true,
+              applicationAccounts: {
+                take: 1,
+                orderBy: { updatedAt: "desc" },
+                include: { applicationProject: { include: { application: true, city: true } } },
+              },
+            },
+          },
           supervisor: { include: { city: true, drivers: { select: { id: true } } } },
         },
         orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
@@ -175,12 +189,32 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
       prisma.city.findMany({ orderBy: { nameAr: "asc" } }),
       prisma.supervisor.findMany({ include: { city: true, users: true, drivers: { select: { id: true } } }, orderBy: { name: "asc" } }),
       prisma.driver.findMany({ select: { id: true, internalCode: true, name: true, cityId: true, supervisorId: true } }),
-      prisma.project.findMany({ orderBy: { name: "asc" } }),
+      prisma.applicationProject.findMany({
+        include: { application: true, city: true },
+        orderBy: [{ application: { name: "asc" } }, { name: "asc" }],
+      }),
       prisma.auditLog.findMany({ where: { createdAt: { gte: from, lte: to } }, orderBy: { createdAt: "desc" }, take: 500 }),
+      prisma.systemSetting.findMany({
+        where: { key: { startsWith: USER_PERMISSION_PROFILE_PREFIX } },
+        select: { key: true, value: true },
+      }),
     ]);
 
     const cityLookup = new Map(cities.map((city) => [city.id, city.nameAr || city.nameEn || city.id]));
-    const projectLookup = new Map(projects.map((project) => [project.id, project.name]));
+    const projectLookup = new Map(
+      projects.map((project) => [
+        project.id,
+        project.name || `${project.application.name} - ${project.city?.nameAr || project.city?.nameEn || ""}`.trim(),
+      ]),
+    );
+    const permissionProfiles = new Map(
+      permissionSettings
+        .map((setting) => [
+          setting.key.slice(USER_PERMISSION_PROFILE_PREFIX.length),
+          parseUserPermissionProfile(setting.value),
+        ] as const)
+        .filter((entry) => Boolean(entry[1])),
+    );
     const auditByUser = new Map<string, Date>();
     for (const log of auditLogs) {
       if (log.userId && !auditByUser.has(log.userId)) auditByUser.set(log.userId, log.createdAt);
@@ -191,7 +225,9 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
       .map((user): UserManagementRow => {
         const status = displayStatus(user.status, user.isActive);
         const cityName = user.city?.nameAr || user.driver?.city?.nameAr || user.supervisor?.city?.nameAr || resolveScope(user.cityScope, cityLookup);
-        const projectScope = user.driver?.project?.name || resolveScope(user.projectScope, projectLookup);
+        const permissionProfile = permissionProfiles.get(user.id);
+        const linkedApplicationProject = user.driver?.applicationAccounts[0]?.applicationProject;
+        const projectScope = linkedApplicationProject?.name || resolveScope(user.projectScope, projectLookup);
         const supervisorName = user.supervisor?.name || user.driver?.supervisor?.name || "-";
         const scopedCityIds = new Set([user.cityId, user.driver?.cityId, user.supervisor?.cityId, ...splitScope(user.cityScope)].filter(Boolean) as string[]);
         const linkedDriversCount =
@@ -220,7 +256,9 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
           projectScope,
           supervisorName,
           linkedDriversCount,
-          permissionsSummary: permissionLabels[user.role] ?? "صلاحيات مخصصة",
+          permissionsSummary: permissionProfile
+            ? `${permissionProfile.labelAr} (${permissionProfile.permissions.length} صلاحية)`
+            : permissionLabels[user.role] ?? "صلاحيات مخصصة",
           cityId: user.cityId || user.driver?.cityId || user.supervisor?.cityId || "",
           supervisorId: user.supervisorId || user.driver?.supervisorId || "",
           driverId: user.driverId || "",
@@ -249,7 +287,7 @@ export async function getUserManagementOldPageData(filters: UserManagementFilter
       cities: cities.map((city) => ({ id: city.id, name: city.nameAr || city.nameEn || city.id })),
       supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name, cityName: supervisor.city?.nameAr || "-", cityId: supervisor.cityId || "" })),
       drivers: drivers.map((driver) => ({ id: driver.id, name: driver.name, code: driver.internalCode, cityId: driver.cityId || "", supervisorId: driver.supervisorId || "" })),
-      projects: projects.map((project) => ({ id: project.id, name: project.name })),
+      projects: projects.map((project) => ({ id: project.id, name: projectLookup.get(project.id) || project.name })),
       summary: {
         users: rows.length,
         active: rows.filter((row) => row.statusTone === "emerald").length,

@@ -1,8 +1,14 @@
-import { ResourceModulePage } from "@/components/ui/ResourceModulePage";
-import { resources } from "@/lib/resources";
+import { InterviewsClient } from "@/components/interviews/InterviewsClient";
+import { getInterviewsPageData, resolveInterviewFilters } from "@/lib/interviews/getInterviewsPageData";
 
 export const dynamic = "force-dynamic";
 
-export default async function InterviewsPage() {
-  return <ResourceModulePage resource={resources.interviews} analyticsKey="drivers" backHref="/hr" backLabel="رجوع للموارد البشرية" />;
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function InterviewsPage({ searchParams }: PageProps) {
+  const filters = resolveInterviewFilters(await searchParams);
+  const data = await getInterviewsPageData(filters);
+  return <InterviewsClient data={data} />;
 }

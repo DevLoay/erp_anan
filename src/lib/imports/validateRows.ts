@@ -1,4 +1,4 @@
-﻿import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findOperationalAccount, hasBadArabicEncoding, type OperationalScope } from "@/lib/application-accounts/accountLinking";
 import { matchVehicleFromMappedData, type MatchedVehicle } from "./matchVehicles";
@@ -71,6 +71,17 @@ function normalizeHeader(value: unknown) {
 
 function valueOf(row: Record<string, unknown>, key: string) {
   return String(row[key] ?? "").trim();
+}
+
+function applicationNameFromProjectText(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.includes("hungerstation") || raw.includes("hunger") || raw.includes("هنجر") || raw.includes("هنقر")) return "HungerStation";
+  if (raw.includes("keeta") || raw.includes("kita") || raw.includes("كيتا")) return "Keeta";
+  if (raw.includes("talabat") || raw.includes("طلبات")) return "Talabat";
+  if (raw.includes("ninja") || raw.includes("نينجا")) return "Ninja";
+  if (raw.includes("toyou") || raw.includes("تويو") || raw.includes("توي")) return "ToYou";
+  return "";
 }
 
 function rawValueByAliases(row: Record<string, unknown>, aliases: string[]) {
@@ -178,6 +189,10 @@ function isDailyReportImport(fileType: string) {
     "hungerstation_performance",
     "talabat_invoice",
   ].includes(fileType);
+}
+
+function isHungerStationAccountBasedImport(fileType: string) {
+  return fileType === "hungerstation_invoice" || fileType === "hungerstation_performance";
 }
 
 function isDriverImport(fileType: string) {
@@ -319,7 +334,8 @@ async function matchDriver(mappedData: Record<string, unknown>, scope: (Operatio
 
   if (!driverCode && !nationalId && !appUserId && !appUsername && !mobile && !courierName) return { status: "not_required" };
 
-  const accountMatch = await findOperationalAccount(prisma, scope ?? {}, { appUserId, appUsername });
+  const generalDriverImport = isDriverImport(fileType) && !scope?.applicationProjectId;
+  const accountMatch = generalDriverImport ? null : await findOperationalAccount(prisma, scope ?? {}, { appUserId, appUsername });
 
   if (accountMatch && "duplicate" in accountMatch) {
     return { status: "duplicate_match", message: "يوجد أكثر من حساب تطبيق بنفس المعرف داخل نطاق التشغيل. راجع ربط الحسابات قبل الاعتماد." };
@@ -469,6 +485,7 @@ export async function validateImportRows(args: {
   projectId: string;
   cityId: string;
   templateId: string;
+  staticMappedData?: Record<string, unknown>;
 }): Promise<{ summary: ImportPreviewSummary; rows: ImportPreviewRow[]; columns: string[]; missingColumns: ImportColumn[] }> {
   const allColumns = [...args.requiredColumns, ...args.optionalColumns];
   const missingColumns = missingRequiredColumns(args.sourceColumns, args.requiredColumns);
@@ -476,10 +493,16 @@ export async function validateImportRows(args: {
   const seenMainIdentifiers = new Set<string>();
 
   for (const [index, rawData] of args.rawRows.entries()) {
-    const mappedData =
-      args.fileType === "vehicles"
+    const mappedData = {
+      ...(args.fileType === "vehicles"
         ? enrichVehicleMappedData(rawData, mapRawRow(rawData, allColumns, args.columnMapping))
-        : mapRawRow(rawData, allColumns, args.columnMapping);
+        : mapRawRow(rawData, allColumns, args.columnMapping)),
+      ...(args.staticMappedData ?? {}),
+    };
+    if (isDriverImport(args.fileType)) {
+      const applicationFromProject = applicationNameFromProjectText(mappedData.project);
+      if (applicationFromProject) mappedData.applicationName = applicationFromProject;
+    }
     const primaryIdentifier = primaryIdentifierForFileType(args.fileType, mappedData, index + 2);
     const mainIdentifier =
       isDailyReportImport(args.fileType)
@@ -509,19 +532,22 @@ export async function validateImportRows(args: {
             applicationProjectId: args.applicationProjectId,
             cityId: args.cityId,
           }, args.fileType);
+    const isHsAccountBased = isHungerStationAccountBasedImport(args.fileType);
     if (driverMatch.status === "missing_driver") {
       if (!isDriverImport(args.fileType)) {
         errors.push({
-          type: args.fileType === "vehicles" ? "missing_driver_vehicle" : "missing_driver",
+          type: isHsAccountBased ? "unlinked_account" : args.fileType === "vehicles" ? "missing_driver_vehicle" : "missing_driver",
           message:
             driverMatch.message ??
             (args.fileType === "vehicles"
               ? "لم يتم العثور على مندوب مطابق للسيارة، سيتم حفظ السيارة بدون مندوب حتى تتم مراجعتها."
-              : "لم يتم العثور على المندوب."),
+              : isHsAccountBased
+                ? "حساب HungerStation موجود/مقروء لكن لا يوجد مندوب داخلي مؤكد. سيتم حفظ الصف وإرساله لمراجعة استخدام الحساب."
+                : "لم يتم العثور على المندوب."),
         });
       }
     }
-    if (driverMatch.status === "duplicate_match") errors.push({ type: "duplicate_match", message: driverMatch.message ?? "نتائج ربط متعددة." });
+    if (driverMatch.status === "duplicate_match") errors.push({ type: isHsAccountBased ? "unlinked_account" : "duplicate_match", message: driverMatch.message ?? "نتائج ربط متعددة." });
 
     const vehicleMatch = ["vehicles", "violations", "fuel"].includes(args.fileType) ? await matchVehicleFromMappedData(mappedData) : { status: "not_required" as const };
     if (vehicleMatch.status === "missing_vehicle" && ["violations", "fuel"].includes(args.fileType) && valueOf(mappedData, "vehiclePlate")) {
@@ -529,7 +555,8 @@ export async function validateImportRows(args: {
     }
     if (vehicleMatch.status === "duplicate_match") errors.push({ type: "duplicate_match", message: vehicleMatch.message ?? "نتائج ربط سيارة متعددة." });
 
-    const hardErrors = errors.filter((error) => error.type !== "new_vehicle" && error.type !== "missing_driver_vehicle");
+    const softErrorTypes = new Set(["new_vehicle", "missing_driver_vehicle", ...(isHsAccountBased ? ["unlinked_account"] : [])]);
+    const hardErrors = errors.filter((error) => !softErrorTypes.has(error.type));
     const severity: ImportPreviewRow["severity"] = hardErrors.length ? "error" : errors.length ? "warning" : "ready";
     const rowStatus =
       isDriverImport(args.fileType) && severity === "ready"

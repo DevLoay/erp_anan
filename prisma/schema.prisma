@@ -84,6 +84,7 @@ model User {
   approvedAdvances      Advance[]                @relation("AdvanceApprovedBy")
   attendanceRecords    AttendanceRecord[]       @relation("UserAttendanceRecords")
   auditLogs            AuditLog[]               @relation("AuditLogUser")
+  approvedAccountUsages AccountUsage[]           @relation("AccountUsageApprovedBy")
 }
 
 model City {
@@ -110,6 +111,10 @@ model City {
   keetaRankRecords    KeetaRankRecord[]
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
+  hungerStationAccountUsages HungerStationAccountUsage[]
+  accountUsages       AccountUsage[]
   advances            Advance[]
 }
 
@@ -206,6 +211,11 @@ model Driver {
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
   keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
+  hungerStationAccountUsages HungerStationAccountUsage[]
+  ownedAccountUsages  AccountUsage[]            @relation("AccountUsageOwnerDriver")
+  actualAccountUsages AccountUsage[]            @relation("AccountUsageActualDriver")
 
   @@index([driverCode])
   @@index([nationalId])
@@ -272,6 +282,10 @@ model Application {
   dailyReports    DailyReport[]
   templateConfigs TemplateConfig[]
   payrollFieldRules PayrollFieldRule[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
+  hungerStationAccountUsages HungerStationAccountUsage[]
+  accountUsages AccountUsage[]
 }
 
 model ApplicationProject {
@@ -308,6 +322,10 @@ model ApplicationProject {
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
   keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
+  hungerStationAccountUsages HungerStationAccountUsage[]
+  accountUsages AccountUsage[]
 
   @@index([applicationId])
   @@index([projectId])
@@ -460,6 +478,8 @@ model ApplicationImportBatch {
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
   keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
 
   @@index([applicationId])
   @@index([applicationProjectId])
@@ -782,6 +802,10 @@ model ApplicationAccount {
   keetaPerformanceRecords KeetaPerformanceRecord[]
   keetaInvoiceRecords KeetaInvoiceRecord[]
   keetaInvoiceDetailRecords KeetaInvoiceDetailRecord[]
+  hungerStationDailyPerformanceRecords HungerStationDailyPerformanceRecord[]
+  hungerStationInvoiceRecords HungerStationInvoiceRecord[]
+  hungerStationAccountUsages HungerStationAccountUsage[]
+  accountUsages AccountUsage[]
 
   @@index([applicationId])
   @@index([applicationProjectId])
@@ -820,6 +844,202 @@ model DailyReport {
   @@index([applicationId])
   @@index([applicationProjectId])
   @@index([month, cityId, applicationProjectId])
+}
+
+
+model HungerStationDailyPerformanceRecord {
+  id                   String   @id @default(cuid())
+  reportDate           DateTime
+  month                String
+  applicationId        String?
+  applicationProjectId String?
+  cityId               String?
+  riderIdFromFile      String
+  applicationAccountId String?
+  driverId             String?
+  contractName         String?
+  vehicleName          String?
+  batchNumber          String?
+  tgaStatus            String?
+  errorCodes           String?
+  shifts               Int?
+  workingDays          Decimal? @db.Decimal(8, 2)
+  plannedWorkingHours  Decimal? @db.Decimal(10, 2)
+  actualWorkingHours   Decimal? @db.Decimal(10, 2)
+  avgWorkingHoursPerDay Decimal? @db.Decimal(10, 2)
+  attendanceRate       Decimal? @db.Decimal(8, 4)
+  breakHours           Decimal? @db.Decimal(10, 2)
+  lostHours            Decimal? @db.Decimal(10, 2)
+  acceptanceRate       Decimal? @db.Decimal(8, 4)
+  contactRate          Decimal? @db.Decimal(8, 4)
+  noShows              Int?
+  noShowRate           Decimal? @db.Decimal(8, 4)
+  notifiedDeliveries   Int?
+  completedDeliveries  Int?
+  acceptedDeliveries   Int?
+  stackedDeliveries    Int?
+  declinedDeliveries   Int?
+  cancelledDeliveries  Int?
+  deductionDeliveries  Int?
+  notAcceptedDeliveries Int?
+  manualUndispatched   Int?
+  matchingStatus       String   @default("NEEDS_REVIEW")
+  reviewReason         String?
+  rawData              Json?
+  importBatchId        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  application        Application?           @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?    @relation(fields: [applicationProjectId], references: [id])
+  city               City?                  @relation(fields: [cityId], references: [id])
+  applicationAccount ApplicationAccount?    @relation(fields: [applicationAccountId], references: [id])
+  driver             Driver?                @relation(fields: [driverId], references: [id])
+  importBatch        ApplicationImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@unique([applicationProjectId, cityId, reportDate, riderIdFromFile])
+  @@index([month])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([riderIdFromFile])
+  @@index([matchingStatus])
+}
+
+model HungerStationInvoiceRecord {
+  id                              String   @id @default(cuid())
+  month                           String
+  applicationId                   String?
+  applicationProjectId            String?
+  cityId                          String?
+  riderIdFromFile                 String
+  applicationAccountId            String?
+  driverId                        String?
+  contractName                    String?
+  completedOrders                 Int?
+  cityPayment                     Decimal? @db.Decimal(12, 2)
+  basicPayment                    Decimal? @db.Decimal(12, 2)
+  acceptanceRatePenalties         Decimal? @db.Decimal(12, 2)
+  contactRatePenalties            Decimal? @db.Decimal(12, 2)
+  stackingDeduction               Decimal? @db.Decimal(12, 2)
+  declinedPenaltiesDayLogic       Decimal? @db.Decimal(12, 2)
+  latePenalty                     Decimal? @db.Decimal(12, 2)
+  noShowPenalty                   Decimal? @db.Decimal(12, 2)
+  noShowPenaltySpecialCities      Decimal? @db.Decimal(12, 2)
+  dailyAcceptanceRatePenalty      Decimal? @db.Decimal(12, 2)
+  distancePayment                 Decimal? @db.Decimal(12, 2)
+  missedDaysPenalty               Decimal? @db.Decimal(12, 2)
+  courierBasicPayment             Decimal? @db.Decimal(12, 2)
+  courierScoringPayment           Decimal? @db.Decimal(12, 2)
+  riderBalance                    Decimal? @db.Decimal(12, 2)
+  matchingStatus                  String   @default("NEEDS_REVIEW")
+  reviewReason                    String?
+  rawData                         Json?
+  importBatchId                   String?
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+
+  application        Application?           @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject?    @relation(fields: [applicationProjectId], references: [id])
+  city               City?                  @relation(fields: [cityId], references: [id])
+  applicationAccount ApplicationAccount?    @relation(fields: [applicationAccountId], references: [id])
+  driver             Driver?                @relation(fields: [driverId], references: [id])
+  importBatch        ApplicationImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([month])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([riderIdFromFile])
+  @@index([matchingStatus])
+}
+
+model HungerStationAccountUsage {
+  id                   String   @id @default(cuid())
+  month                String
+  applicationId        String?
+  applicationProjectId String?
+  cityId               String?
+  riderIdFromFile      String
+  applicationAccountId String?
+  driverId             String?
+  usageSource          String
+  usageDate            DateTime?
+  completedDeliveries  Int?
+  actualWorkingHours   Decimal? @db.Decimal(10, 2)
+  workingDays          Decimal? @db.Decimal(8, 2)
+  invoiceCompletedOrders Int?
+  invoiceRiderBalance  Decimal? @db.Decimal(12, 2)
+  status               String   @default("NEEDS_REVIEW")
+  riskLevel            String   @default("MEDIUM")
+  reviewReason         String?
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  application        Application?        @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  applicationAccount ApplicationAccount? @relation(fields: [applicationAccountId], references: [id])
+  driver             Driver?             @relation(fields: [driverId], references: [id])
+
+  @@index([month])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([driverId])
+  @@index([applicationAccountId])
+  @@index([riderIdFromFile])
+  @@index([status])
+  @@index([riskLevel])
+}
+
+model AccountUsage {
+  id                   String   @id @default(cuid())
+  applicationAccountId String
+  applicationId        String?
+  applicationProjectId String?
+  cityId               String?
+  ownerDriverId        String?
+  actualDriverId       String?
+  month                String
+  usageDate            DateTime?
+  dateFrom             DateTime?
+  dateTo               DateTime?
+  source               String
+  status               String   @default("PENDING")
+  usageType            String   @default("NEEDS_REVIEW")
+  approvedById         String?
+  approvedAt           DateTime?
+  reviewReason         String?
+  rawData              Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  applicationAccount ApplicationAccount  @relation(fields: [applicationAccountId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  application        Application?        @relation(fields: [applicationId], references: [id])
+  applicationProject ApplicationProject? @relation(fields: [applicationProjectId], references: [id])
+  city               City?               @relation(fields: [cityId], references: [id])
+  ownerDriver        Driver?             @relation("AccountUsageOwnerDriver", fields: [ownerDriverId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actualDriver       Driver?             @relation("AccountUsageActualDriver", fields: [actualDriverId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  approvedBy         User?               @relation("AccountUsageApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([applicationAccountId])
+  @@index([applicationId])
+  @@index([applicationProjectId])
+  @@index([cityId])
+  @@index([ownerDriverId])
+  @@index([actualDriverId])
+  @@index([month])
+  @@index([status])
+  @@index([usageType])
+  @@index([applicationProjectId, month, applicationAccountId])
+  @@index([applicationProjectId, month, actualDriverId])
 }
 
 model Advance {

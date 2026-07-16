@@ -33,7 +33,7 @@ export default async function ImportTemplatesPage({ searchParams }: PageProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/imports" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-800">رفع ملف</Link>
-          <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">تاريخ الاستيراد</Link>
+          <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">سجل الملفات والاستيراد</Link>
         </div>
       </div>
       <ImportTemplatesClient data={globalData} />

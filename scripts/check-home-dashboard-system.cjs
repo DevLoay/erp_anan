@@ -31,13 +31,12 @@ console.log('==============================\n');
 console.log('1) Pages');
 [
   ['لوحة الإدارة /dashboard', 'src/app/dashboard/page.tsx'],
-  ['التقارير العامة /reports', 'src/app/reports/page.tsx'],
   ['الإشعارات والتنبيهات /notifications', 'src/app/notifications/page.tsx'],
-  ['التقارير الإدارية /management-reports', 'src/app/management-reports/page.tsx'],
+  ['التقارير العامة /management-reports', 'src/app/management-reports/page.tsx'],
   ['التقارير اليومية /daily-reports', 'src/app/daily-reports/page.tsx'],
   ['تنبيهات العمليات /operations-alerts', 'src/app/operations-alerts/page.tsx'],
-  ['التقارير المرفوعة /uploaded-reports', 'src/app/uploaded-reports/page.tsx'],
-  ['قوالب التقارير /report-templates', 'src/app/report-templates/page.tsx'],
+  ['سجل الملفات والاستيراد /imports/history', 'src/app/imports/history/page.tsx'],
+  ['إعدادات القوالب /settings/templates', 'src/app/settings/templates/page.tsx'],
 ].forEach(([label, rel]) => checkExists(label, rel));
 checkExists('الرئيسية /', 'src/app/page.tsx', false);
 
@@ -63,7 +62,7 @@ console.log('\n3) UI components');
 
 console.log('\n4) Prisma schema models');
 const schema = read('prisma/schema.prisma');
-['DailyReport', 'Task', 'Notification', 'UploadedReport', 'ReportTemplate', 'AuditLog'].forEach((model) => {
+['DailyReport', 'Task', 'Notification', 'ApplicationImportBatch', 'ApplicationImportTemplate', 'AuditLog'].forEach((model) => {
   schema.includes(`model ${model}`) ? ok(`model ${model}`) : fail(`model ${model} missing`);
 });
 
@@ -71,18 +70,17 @@ console.log('\n5) Sidebar/navigation mapping');
 const sidebarText = read('src/lib/modules.ts') + '\n' + read('src/lib/navigation.ts') + '\n' + read('src/components/layout/Sidebar.tsx');
 [
   ['لوحة الإدارة', '/dashboard'],
-  ['التقارير العامة', '/reports'],
+  ['التقارير العامة', '/management-reports'],
   ['الإشعارات والتنبيهات', '/notifications'],
-  ['التقارير الإدارية', '/management-reports'],
   ['التقارير اليومية', '/daily-reports'],
   ['تنبيهات العمليات', '/operations-alerts'],
-  ['التقارير المرفوعة', '/uploaded-reports'],
-  ['قوالب التقارير', '/report-templates'],
+  ['سجل الملفات والاستيراد', '/imports/history'],
+  ['إعدادات القوالب', '/settings/templates'],
 ].forEach(([label, route]) => sidebarText.includes(route) ? ok(`${label} in sidebar — ${route}`) : warn(`${label} not found in sidebar — ${route}`));
 
 console.log('\n6) Permission resources');
 const permissions = read('src/lib/permissions.ts');
-['/dashboard', '/reports', '/notifications'].forEach((route) => {
+['/dashboard', '/management-reports', '/notifications', '/imports/history', '/settings/templates'].forEach((route) => {
   permissions.includes(route) ? ok(`permission includes ${route}`) : warn(`permission missing ${route}`);
 });
 

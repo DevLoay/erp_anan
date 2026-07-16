@@ -10,6 +10,8 @@ function dbOffline(error: unknown) {
   return code === "P1001" || code === "P1002" || message.includes("Can't reach database server");
 }
 
+const MAX_IMPORT_FILE_SIZE = 25 * 1024 * 1024;
+
 export async function POST(request: Request) {
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, "applications")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -17,6 +19,9 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
+    if (file instanceof File && (file.size <= 0 || file.size > MAX_IMPORT_FILE_SIZE)) {
+      return NextResponse.json({ error: "حجم الملف غير صالح. الحد الأقصى 25 ميجابايت." }, { status: 413 });
+    }
     if (!(file instanceof File)) return NextResponse.json({ error: "يجب رفع ملف Excel أو CSV أولًا" }, { status: 400 });
 
     const lowerName = file.name.toLowerCase();

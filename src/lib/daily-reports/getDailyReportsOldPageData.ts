@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import type { AccessScope } from "@/lib/auth/accessScope";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
+import { calculateExpectedTarget } from "@/lib/performance/expectedTargets";
+import { getRulesForApp, getSystemRules } from "@/lib/reporting";
 import type { Prisma } from "@prisma/client";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -143,10 +145,15 @@ function scopedDriverWhere(scope?: AccessScope): Prisma.DriverWhereInput {
   return and.length ? { AND: and } : { id: "__NO_ACCESS__" };
 }
 
-function statusFromReport(row: { orders: number; workingHours: number; onTimeRate: number; cancellationRate: number; rejectionRate: number }) {
+function statusFromReport(
+  row: { orders: number; workingHours: number; onTimeRate: number; cancellationRate: number; rejectionRate: number },
+  expected?: { orders: number; workingHours: number },
+) {
   const warnings: string[] = [];
-  if (row.orders < 10) warnings.push("طلبات قليلة");
-  if (row.workingHours < 8) warnings.push("ساعات منخفضة");
+  const expectedOrders = expected?.orders ?? 10;
+  const expectedHours = expected?.workingHours ?? 8;
+  if (row.orders < expectedOrders) warnings.push(`طلبات أقل من المعدل المتوقع: ${row.orders} من ${expectedOrders}`);
+  if (row.workingHours < expectedHours) warnings.push(`ساعات أقل من المعدل المتوقع: ${Math.round(row.workingHours * 10) / 10} من ${Math.round(expectedHours * 10) / 10}`);
   if (row.onTimeRate < 95) warnings.push("On-Time منخفض");
   if (row.cancellationRate > 0) warnings.push("إلغاء");
   if (row.rejectionRate > 0) warnings.push("رفض");
@@ -322,17 +329,18 @@ function emptyData(filters: DailyReportsFilters, message?: string): DailyReports
 
 export async function getDailyReportsOldPageData(filters: DailyReportsFilters): Promise<DailyReportsOldData> {
   try {
+    const kpiSettings = await getSystemRules();
     const driverWhere: Prisma.DriverWhereInput = scopedDriverWhere(filters.accessScope);
     if (filters.supervisorId) driverWhere.supervisorId = filters.supervisorId;
     if (filters.q) {
       driverWhere.OR = [
-        { name: { contains: filters.q, mode: "insensitive" } },
-        { actualName: { contains: filters.q, mode: "insensitive" } },
-        { internalCode: { contains: filters.q, mode: "insensitive" } },
-        { driverCode: { contains: filters.q, mode: "insensitive" } },
-        { nationalId: { contains: filters.q, mode: "insensitive" } },
-        { phone: { contains: filters.q, mode: "insensitive" } },
-        { mobile: { contains: filters.q, mode: "insensitive" } },
+        { name: { contains: filters.q, mode: "insensitive" as const } },
+        { actualName: { contains: filters.q, mode: "insensitive" as const } },
+        { internalCode: { contains: filters.q, mode: "insensitive" as const } },
+        { driverCode: { contains: filters.q, mode: "insensitive" as const } },
+        { nationalId: { contains: filters.q, mode: "insensitive" as const } },
+        { phone: { contains: filters.q, mode: "insensitive" as const } },
+        { mobile: { contains: filters.q, mode: "insensitive" as const } },
       ];
     }
 
@@ -421,9 +429,100 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       prisma.dailyReport.findMany({ where: scopeReportWhere(filters.accessScope), select: { appName: true }, distinct: ["appName"], orderBy: { appName: "asc" } }),
     ]);
 
+    const hsScopeAnd: Prisma.HungerStationDailyPerformanceRecordWhereInput[] = [];
+    if (filters.accessScope && !filters.accessScope.isGlobal) {
+      if (filters.accessScope.driverId) hsScopeAnd.push({ driverId: filters.accessScope.driverId });
+      if (filters.accessScope.cityIds.length) hsScopeAnd.push({ cityId: { in: filters.accessScope.cityIds } });
+      if (filters.accessScope.projectIds.length) hsScopeAnd.push({ applicationProjectId: { in: filters.accessScope.projectIds } });
+      if (filters.accessScope.supervisorId) hsScopeAnd.push({ driver: { is: { supervisorId: filters.accessScope.supervisorId } } });
+    }
+    const includeHungerStationRows = !filters.appName || appDisplayName(filters.appName) === "HungerStation";
+    const hsWhere: Prisma.HungerStationDailyPerformanceRecordWhereInput = includeHungerStationRows
+      ? {
+          AND: [
+            ...hsScopeAnd,
+            {
+              reportDate: {
+                gte: startOfDay(filters.fromDate),
+                lte: endOfDay(filters.toDate),
+              },
+            },
+            filters.cityId ? { cityId: filters.cityId } : {},
+            filters.projectId ? { applicationProjectId: filters.projectId } : {},
+            filters.riderId ? { driverId: filters.riderId } : {},
+            filters.q
+              ? {
+                  OR: [
+                    { riderIdFromFile: { contains: filters.q, mode: "insensitive" as const } },
+                    { driver: { is: { name: { contains: filters.q, mode: "insensitive" as const } } } },
+                    { driver: { is: { actualName: { contains: filters.q, mode: "insensitive" as const } } } },
+                    { driver: { is: { internalCode: { contains: filters.q, mode: "insensitive" as const } } } },
+                    { driver: { is: { driverCode: { contains: filters.q, mode: "insensitive" as const } } } },
+                    { driver: { is: { phone: { contains: filters.q, mode: "insensitive" as const } } } },
+                    { driver: { is: { mobile: { contains: filters.q, mode: "insensitive" as const } } } },
+                  ],
+                }
+              : {},
+          ].filter((item) => Object.keys(item).length),
+        }
+      : { id: "__NO_HUNGERSTATION_ROWS__" };
+
+    const hsMonthWhere: Prisma.HungerStationDailyPerformanceRecordWhereInput = includeHungerStationRows
+      ? {
+          AND: [
+            ...hsScopeAnd,
+            { month: filters.month },
+            filters.cityId ? { cityId: filters.cityId } : {},
+            filters.projectId ? { applicationProjectId: filters.projectId } : {},
+          ].filter((item) => Object.keys(item).length),
+        }
+      : { id: "__NO_HUNGERSTATION_ROWS__" };
+
+    const [hsReports, hsMonthReports, hsMonthRows] = await Promise.all([
+      prisma.hungerStationDailyPerformanceRecord.findMany({
+        where: hsWhere,
+        include: {
+          city: { select: { nameAr: true, nameEn: true } },
+          applicationProject: { select: { id: true, name: true, application: { select: { name: true } } } },
+          applicationAccount: { select: { username: true, appUserId: true, appUsername: true } },
+          driver: {
+            select: {
+              id: true,
+              name: true,
+              actualName: true,
+              internalCode: true,
+              driverCode: true,
+              nationalId: true,
+              phone: true,
+              mobile: true,
+              cityId: true,
+              supervisorId: true,
+              supervisor: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ reportDate: "desc" }, { createdAt: "desc" }],
+        take: 600,
+      }),
+      prisma.hungerStationDailyPerformanceRecord.findMany({ where: hsMonthWhere, select: { completedDeliveries: true, driverId: true } }),
+      prisma.hungerStationDailyPerformanceRecord.findMany({ where: hsScopeAnd.length ? { AND: hsScopeAnd } : {}, select: { month: true }, distinct: ["month"], orderBy: { month: "desc" }, take: 12 }),
+    ]);
+
     const rows = reports.map((report) => {
       const driver = report.driver;
       const account = driver?.account ?? driver?.applicationAccounts[0] ?? null;
+      const appNameValue = appDisplayName(report.applicationProject?.application.name || report.appName || report.project?.appName);
+      const reportDay = isoDate(report.reportDate);
+      const reportMonth = report.month || monthFromDate(reportDay) || filters.month;
+      const rules = getRulesForApp(appNameValue, kpiSettings);
+      const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
+      const expectedWorkingHours = calculateExpectedTarget({
+        monthlyTarget: rules.workingHours,
+        month: reportMonth,
+        dateFrom: reportDay,
+        dateTo: reportDay,
+        precision: "decimal",
+      }).expected;
       const normalized = {
         orders: report.orders,
         workingHours: toNumber(report.workingHours),
@@ -431,7 +530,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         cancellationRate: normalizeRate(report.cancellationRate),
         rejectionRate: normalizeRate(report.rejectionRate),
       };
-      const status = statusFromReport(normalized);
+      const status = statusFromReport(normalized, { orders: expectedOrders, workingHours: expectedWorkingHours });
       return {
         id: report.id,
         reportDate: isoDate(report.reportDate),
@@ -444,7 +543,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         phone: driver?.phone || driver?.mobile || "-",
         city: cityName(report.city),
         project: report.applicationProject?.name || projectName(report.project, report.appName),
-        appName: appDisplayName(report.applicationProject?.application.name || report.appName || report.project?.appName),
+        appName: appNameValue,
         account: account?.appUserId || account?.appUsername || account?.username || "-",
         supervisor: driver?.supervisor?.name || "بدون مشرف",
         orders: normalized.orders,
@@ -459,6 +558,62 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       };
     });
 
+    const hsRows = hsReports.map((report) => {
+      const driver = report.driver;
+      const account = report.applicationAccount;
+      const reportDay = isoDate(report.reportDate);
+      const reportMonth = report.month || monthFromDate(reportDay) || filters.month;
+      const rules = getRulesForApp("HungerStation", kpiSettings);
+      const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
+      const expectedWorkingHours = calculateExpectedTarget({
+        monthlyTarget: rules.workingHours,
+        month: reportMonth,
+        dateFrom: reportDay,
+        dateTo: reportDay,
+        precision: "decimal",
+      }).expected;
+      const attendance = normalizeRate(report.attendanceRate);
+      const acceptance = normalizeRate(report.acceptanceRate);
+      const cancelled = toNumber(report.cancelledDeliveries);
+      const declined = toNumber(report.declinedDeliveries);
+      const warnings = [
+        report.matchingStatus !== "MATCHED" ? "يحتاج ربط حساب" : "طبيعي",
+        toNumber(report.completedDeliveries) < expectedOrders ? `طلبات أقل من المعدل المتوقع: ${toNumber(report.completedDeliveries)} من ${expectedOrders}` : "",
+        toNumber(report.actualWorkingHours) < expectedWorkingHours ? `ساعات أقل من المعدل المتوقع: ${Math.round(toNumber(report.actualWorkingHours) * 10) / 10} من ${expectedWorkingHours}` : "",
+        attendance && attendance < 85 ? "حضور منخفض" : "",
+        acceptance && acceptance < 85 ? "قبول منخفض" : "",
+        cancelled > 0 ? "طلبات ملغاة" : "",
+        declined > 0 ? "طلبات مرفوضة" : "",
+      ].filter(Boolean);
+      return {
+        id: report.id,
+        reportDate: isoDate(report.reportDate),
+        driverId: driver?.id ?? "",
+        cityId: report.cityId || driver?.cityId || "",
+        supervisorId: driver?.supervisorId || driver?.supervisor?.id || "",
+        driverName: driverName(driver),
+        driverCode: driver?.internalCode || driver?.driverCode || report.riderIdFromFile || "-",
+        nationalId: driver?.nationalId || "-",
+        phone: driver?.phone || driver?.mobile || "-",
+        city: cityName(report.city),
+        project: report.applicationProject?.name || "HungerStation",
+        appName: "HungerStation",
+        account: account?.appUserId || account?.appUsername || account?.username || report.riderIdFromFile || "-",
+        supervisor: driver?.supervisor?.name || "بدون مشرف",
+        orders: toNumber(report.completedDeliveries),
+        workingHours: Math.round(toNumber(report.actualWorkingHours) * 10) / 10,
+        onTimeRate: attendance,
+        cancellationRate: cancelled,
+        rejectionRate: declined,
+        statusLabel: report.matchingStatus === "MATCHED" ? "طبيعي" : "مراجعة حساب",
+        statusTone: report.matchingStatus === "MATCHED" ? ("green" as const) : ("red" as const),
+        warnings,
+        updatedAt: isoDate(report.updatedAt),
+      };
+    });
+
+    const allRows = [...rows, ...hsRows].sort((a, b) => b.reportDate.localeCompare(a.reportDate));
+
     const missingRows =
       latestBatch?.rows.map((row) => ({
         id: row.id,
@@ -470,7 +625,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         status: row.status,
       })) ?? [];
 
-    const allAppNames = Array.from(new Set(appRows.map((row) => appDisplayName(row.appName)).filter(Boolean)));
+    const allAppNames = Array.from(new Set([...appRows.map((row) => appDisplayName(row.appName)), ...(hsReports.length ? ["HungerStation"] : [])].filter(Boolean)));
     const uniqueProjects = Array.from(
       new Map(
         projects
@@ -488,7 +643,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       databaseStatus: "online",
       filters,
       options: {
-        months: Array.from(new Set([filters.month, ...monthRows.map((row) => row.month)].filter(Boolean))),
+        months: Array.from(new Set([filters.month, ...monthRows.map((row) => row.month), ...hsMonthRows.map((row) => row.month)].filter(Boolean))),
         appNames: allAppNames,
         cities: cities.map((city) => ({ id: city.id, name: cityName(city) })),
         projects: uniqueProjects,
@@ -496,18 +651,18 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         riders: riders.map((rider) => ({ id: rider.id, name: driverName(rider), code: rider.internalCode || rider.driverCode || "-" })),
       },
       summary: {
-        reportsCount: rows.length,
+        reportsCount: allRows.length,
         uploadedReports: uploadedReports.length,
-        totalOrders: rows.reduce((sum, row) => sum + row.orders, 0),
-        monthOrders: monthReports.reduce((sum, row) => sum + row.orders, 0),
-        activeDrivers: new Set(rows.map((row) => row.driverId).filter(Boolean)).size,
-        avgWorkingHours: avg(rows.map((row) => row.workingHours)),
-        avgOnTime: avg(rows.map((row) => row.onTimeRate)),
-        avgCancellation: avg(rows.map((row) => row.cancellationRate)),
-        avgRejection: avg(rows.map((row) => row.rejectionRate)),
+        totalOrders: allRows.reduce((sum, row) => sum + row.orders, 0),
+        monthOrders: monthReports.reduce((sum, row) => sum + row.orders, 0) + hsMonthReports.reduce((sum, row) => sum + toNumber(row.completedDeliveries), 0),
+        activeDrivers: new Set(allRows.map((row) => row.driverId).filter(Boolean)).size,
+        avgWorkingHours: avg(allRows.map((row) => row.workingHours)),
+        avgOnTime: avg(allRows.map((row) => row.onTimeRate)),
+        avgCancellation: avg(allRows.map((row) => row.cancellationRate)),
+        avgRejection: avg(allRows.map((row) => row.rejectionRate)),
         lastImport,
       },
-      rows,
+      rows: allRows,
       uploadedReports: uploadedReports.map((report) => ({
         id: report.id,
         fileName: report.fileName,

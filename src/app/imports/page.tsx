@@ -21,7 +21,7 @@ function Header() {
       </div>
       <div className="flex flex-wrap gap-2">
         <Link href="/imports/templates" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">قوالب الاستيراد</Link>
-        <Link href="/imports/history" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-800">تاريخ الاستيراد</Link>
+        <Link href="/imports/history" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-800">سجل الملفات والاستيراد</Link>
         <Link href="/applications/imports" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">استيراد التطبيقات</Link>
       </div>
     </div>

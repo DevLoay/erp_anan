@@ -139,7 +139,7 @@ function safeSelect(resource: string, fields: string[]) {
   return Object.fromEntries(selectedFields.map((field) => [field, true]));
 }
 
-function recordAllowed(resource: string, record: unknown, scope: AccessScope) {
+async function recordAllowed(resource: string, record: unknown, scope: AccessScope) {
   if (scope.isGlobal) return true;
   const row = (record ?? {}) as Record<string, unknown>;
   const id = String(row.id ?? "");
@@ -150,11 +150,44 @@ function recordAllowed(resource: string, record: unknown, scope: AccessScope) {
   const projectId = String(row.projectId ?? "");
 
   if (resource === "drivers" && scope.driverId && id === scope.driverId) return true;
-  if (resource === "supervisors" && scope.supervisorId && id === scope.supervisorId) return true;
+  if (resource === "supervisors" && scope.projectIds.length && scope.supervisorId) return id === scope.supervisorId;
   if (scope.driverId && (driverId === scope.driverId || currentDriverId === scope.driverId)) return true;
   if (scope.supervisorId && supervisorId === scope.supervisorId) return true;
-  if (cityId && scope.cityIds.includes(cityId)) return true;
+  if (cityId && scope.cityIds.length && !scope.cityIds.includes(cityId)) return false;
   if (projectId && scope.projectIds.includes(projectId)) return true;
+
+  const scopedDriverId = resource === "drivers" ? id : driverId || currentDriverId;
+  if (scopedDriverId) {
+    const allowedDriver = await prisma.driver.count({
+      where: {
+        id: scopedDriverId,
+        AND: [
+          scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+          scope.projectIds.length
+            ? { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } }
+            : {},
+        ],
+      },
+    });
+    return allowedDriver > 0;
+  }
+
+  if (resource === "vehicles") {
+    const allowedVehicle = await prisma.vehicle.count({
+      where: {
+        id,
+        AND: [
+          scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+          scope.projectIds.length
+            ? { currentDriver: { is: { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } } } }
+            : {},
+        ],
+      },
+    });
+    return allowedVehicle > 0;
+  }
+
+  if (cityId && scope.cityIds.includes(cityId) && !scope.projectIds.length) return true;
 
   return false;
 }
@@ -171,7 +204,7 @@ export async function GET(request: Request, context: { params: Promise<{ resourc
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const data = await delegate(config.delegate).findUnique({ where: { id }, select });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!recordAllowed(config.key, data, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!(await recordAllowed(config.key, data, scope))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json({ data });
 }
 
@@ -188,7 +221,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ resou
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const before = await delegate(config.delegate).findUnique({ where: { id }, select });
   if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!recordAllowed(config.key, before, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!(await recordAllowed(config.key, before, scope))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let data: unknown;
   try {
     data = config.key === "vehicles" ? await updateVehicleWithDriverSync(id, body, select) : await delegate(config.delegate).update({ where: { id }, data: body, select });
@@ -212,7 +245,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ reso
   const select = safeSelect(config.key, [...config.searchFields, ...config.columns.map((column) => column.key)]);
   const before = await delegate(config.delegate).findUnique({ where: { id }, select });
   if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!recordAllowed(config.key, before, scope)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!(await recordAllowed(config.key, before, scope))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let data: unknown;
   if (config.key === "drivers") {
     data = await delegate(config.delegate).update({ where: { id }, data: { status: "INACTIVE" }, select });

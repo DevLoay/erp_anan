@@ -1,4 +1,4 @@
-﻿import { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type ImportColumn = {
@@ -294,6 +294,42 @@ const keetaDriverInvoiceOptionalColumns: ImportColumn[] = [
   { key: "tgaDeductionVatExcluded", displayName: "TGA Deduction(VAT Excluded)", dataType: "number", aliases: ["TGA Deduction(VAT Excluded)"] },
 ];
 
+
+const hungerStationDailyRequiredColumns: ImportColumn[] = [
+  { key: "appUserId", displayName: "Rider Id", required: true, dataType: "string", aliases: ["Rider Id", "Rider ID", "rider_id", "riderId", "appUserId"] },
+  { key: "city", displayName: "City Name", required: true, dataType: "string", aliases: ["City Name", "city_name", "city", "City"] },
+  { key: "workingDays", displayName: "Working Days", required: true, dataType: "number", aliases: ["Working Days", "working_days", "workDays"] },
+  { key: "actualWorkingHours", displayName: "Actual Working Hours", required: true, dataType: "number", aliases: ["Actual Working Hours", "actual_working_hours", "actualWorkingHours"] },
+  { key: "attendanceRate", displayName: "Attendance Rate", required: true, dataType: "number", aliases: ["Attendance Rate", "attendance_rate", "attendanceRate"] },
+  { key: "acceptanceRate", displayName: "Acceptance Rate", required: true, dataType: "number", aliases: ["Acceptance Rate", "acceptance_rate", "acceptanceRate"] },
+  { key: "completedDeliveries", displayName: "Completed Deliveries", required: true, dataType: "number", aliases: ["Completed Deliveries", "completed_deliveries", "completedOrders", "completed_orders"] },
+  { key: "declinedDeliveries", displayName: "Declined Deliveries", required: true, dataType: "number", aliases: ["Declined Deliveries", "declined_deliveries", "declined"] },
+  { key: "cancelledDeliveries", displayName: "Cancelled Deliveries", required: true, dataType: "number", aliases: ["Cancelled Deliveries", "cancelled_deliveries", "cancelled", "canceled"] },
+];
+
+const hungerStationDailyOptionalColumns: ImportColumn[] = [
+  { key: "reportDate", displayName: "Report Date", dataType: "date", aliases: ["Report Date", "reportDate", "date"] },
+  { key: "contractName", displayName: "Contract Name", dataType: "string", aliases: ["Contract Name", "contract_name"] },
+  { key: "vehicleName", displayName: "Vehicle Name", dataType: "string", aliases: ["Vehicle Name", "vehicle_name"] },
+  { key: "batchNumber", displayName: "Batch Number", dataType: "string", aliases: ["Batch Number", "batch_number"] },
+  { key: "tgaStatus", displayName: "TGA Status", dataType: "string", aliases: ["TGA Status", "tga_status"] },
+  { key: "errorCodes", displayName: "Error Codes", dataType: "string", aliases: ["Error Codes", "error_codes"] },
+  { key: "shifts", displayName: "# Shifts", dataType: "number", aliases: ["# Shifts", "Shifts", "shifts"] },
+  { key: "plannedWorkingHours", displayName: "Planned Working Hours", dataType: "number", aliases: ["Planned Working Hours", "planned_working_hours"] },
+  { key: "avgWorkingHoursPerDay", displayName: "Avg. Working Hours/ Day", dataType: "number", aliases: ["Avg. Working Hours/ Day", "Avg Working Hours/ Day", "avg_working_hours_per_day"] },
+  { key: "breakHours", displayName: "Break Hours", dataType: "number", aliases: ["Break Hours", "break_hours"] },
+  { key: "lostHours", displayName: "Lost Hours", dataType: "number", aliases: ["Lost Hours", "lost_hours"] },
+  { key: "contactRate", displayName: "Contact Rate", dataType: "number", aliases: ["Contact Rate", "contact_rate"] },
+  { key: "noShows", displayName: "No Shows", dataType: "number", aliases: ["No Shows", "no_shows"] },
+  { key: "noShowRate", displayName: "No Show %", dataType: "number", aliases: ["No Show %", "No Show % ", "no_show_rate"] },
+  { key: "notifiedDeliveries", displayName: "Notified Deliveries", dataType: "number", aliases: ["Notified Deliveries", "notified_deliveries"] },
+  { key: "acceptedDeliveries", displayName: "Accepted Deliveries", dataType: "number", aliases: ["Accepted Deliveries", "accepted_deliveries"] },
+  { key: "stackedDeliveries", displayName: "Stacked Deliveries", dataType: "number", aliases: ["Stacked Deliveries", "stacked_deliveries"] },
+  { key: "deductionDeliveries", displayName: "Deduction Deliveries", dataType: "number", aliases: ["Deduction Deliveries", "deduction_deliveries"] },
+  { key: "notAcceptedDeliveries", displayName: "Not Accepted Deliveries", dataType: "number", aliases: ["Not Accepted Deliveries", "not_accepted_deliveries"] },
+  { key: "manualUndispatched", displayName: "Manual Undispatched", dataType: "number", aliases: ["Manual Undispatched", "manual_undispatched"] },
+];
+
 const hungerStationInvoiceRequiredColumns: ImportColumn[] = [
   { key: "appUserId", displayName: "rider_id", required: true, dataType: "string", aliases: ["rider_id", "Rider ID", "App Courier ID", "appUserId"] },
   { key: "orders", displayName: "completed_orders", required: true, dataType: "number", aliases: ["completed_orders", "orders"] },
@@ -402,15 +438,16 @@ export const importTemplateDefinitions: ImportTemplateDefinition[] = [
     uniqueKeys: ["billingCycle", "courierId"],
     matchingFields: ["courierId", "appUserId", "applicationAccountId", "driverCode", "nationalId"],
   }),
-  definition("hungerstation_invoice", "HungerStation Invoice Template", "applications", hungerStationInvoiceRequiredColumns, hungerStationInvoiceOptionalColumns, {
+  definition("hungerstation_invoice", "HungerStation Monthly Invoice Template", "applications", hungerStationInvoiceRequiredColumns, hungerStationInvoiceOptionalColumns, {
     applicationCode: "HUNGERSTATION",
-    uniqueKeys: ["appUserId"],
-    matchingFields: ["appUserId", "appUsername", "driverCode", "nationalId"],
+    uniqueKeys: ["month", "appUserId"],
+    matchingFields: ["appUserId", "appUsername", "driverCode", "internalCode"],
   }),
-  definition("hungerstation_performance", "HungerStation Performance Template", "applications", [...baseDriverColumns.slice(0, 1), ...commonPerformanceColumns], [
-    { key: "acceptanceRate", displayName: "Acceptance %", dataType: "number", aliases: ["acceptance"] },
-    { key: "reportDate", displayName: "تاريخ التقرير", dataType: "date", aliases: ["date"] },
-  ], { applicationCode: "HUNGERSTATION" }),
+  definition("hungerstation_performance", "HungerStation Daily Performance Template", "applications", hungerStationDailyRequiredColumns, hungerStationDailyOptionalColumns, {
+    applicationCode: "HUNGERSTATION",
+    uniqueKeys: ["reportDate", "appUserId", "city"],
+    matchingFields: ["appUserId", "appUsername", "driverCode", "internalCode"],
+  }),
   definition("talabat_invoice", "Talabat Invoice Template", "applications", [...baseDriverColumns.slice(0, 1), ...commonPerformanceColumns.slice(0, 1)], [
     ...commonPerformanceColumns.slice(1),
     { key: "collectionAmount", displayName: "التحصيل", dataType: "number", aliases: ["collection"] },
@@ -521,7 +558,7 @@ export function formatDate(value: unknown) {
 
 function normalizeTemplateColumns(fileType: string, requiredColumns: ImportColumn[], optionalColumns: ImportColumn[], columnMapping: ImportColumnMapping[]) {
   const definitionItem = getBuiltinTemplate(fileType);
-  if (fileType === "hungerstation_invoice" && definitionItem) {
+  if (["hungerstation_invoice", "hungerstation_performance"].includes(fileType) && definitionItem) {
     return {
       requiredColumns: definitionItem.requiredColumns,
       optionalColumns: definitionItem.optionalColumns,

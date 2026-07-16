@@ -1,4 +1,6 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { AccessScope } from "@/lib/auth/accessScope";
 
 export type VehicleModuleKey =
   | "vehicles"
@@ -511,37 +513,49 @@ function dbOffline(error: unknown) {
 
 type DataContext = Awaited<ReturnType<typeof loadVehicleContext>>;
 
-async function loadVehicleContext() {
-  const [
-    vehicles,
-    drivers,
-    cities,
-    movements,
-    cleanings,
-    maintenance,
-    authorizations,
-    assignments,
-    rentalCompanies,
-    costs,
-    accidents,
-    damages,
-    deductions,
-    violations,
-  ] = await Promise.all([
-    prisma.vehicle.findMany({ include: { city: true, currentDriver: true, rentalCompanyRef: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.driver.findMany({ include: { city: true }, orderBy: { name: "asc" }, take: 1000 }),
-    prisma.city.findMany({ orderBy: { nameAr: "asc" }, take: 200 }),
-    prisma.vehicleMovement.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleCleaning.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleMaintenance.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleAuthorization.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleAssignment.findMany({ orderBy: [{ startDate: "desc" }, { updatedAt: "desc" }], take: 1000 }),
+async function loadVehicleContext(accessScope?: AccessScope) {
+  const driverAnd: Prisma.DriverWhereInput[] = [];
+  const vehicleAnd: Prisma.VehicleWhereInput[] = [];
+  if (accessScope && !accessScope.isGlobal) {
+    if (accessScope.cityIds.length) {
+      driverAnd.push({ cityId: { in: accessScope.cityIds } });
+      vehicleAnd.push({ cityId: { in: accessScope.cityIds } });
+    }
+    if (accessScope.projectIds.length) {
+      const projectDriverWhere: Prisma.DriverWhereInput = {
+        applicationAccounts: { some: { applicationProjectId: { in: accessScope.projectIds } } },
+      };
+      driverAnd.push(projectDriverWhere);
+      vehicleAnd.push({ currentDriver: { is: projectDriverWhere } });
+    } else if (!accessScope.cityIds.length && accessScope.supervisorId) {
+      driverAnd.push({ supervisorId: accessScope.supervisorId });
+      vehicleAnd.push({ currentDriver: { is: { supervisorId: accessScope.supervisorId } } });
+    }
+  }
+
+  const [vehicles, drivers, cities, rentalCompanies] = await Promise.all([
+    prisma.vehicle.findMany({ where: vehicleAnd.length ? { AND: vehicleAnd } : {}, include: { city: true, currentDriver: true, rentalCompanyRef: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.driver.findMany({ where: driverAnd.length ? { AND: driverAnd } : {}, include: { city: true }, orderBy: { name: "asc" }, take: 1000 }),
+    prisma.city.findMany({
+      where: accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { id: { in: accessScope.cityIds } } : {},
+      orderBy: { nameAr: "asc" },
+      take: 200,
+    }),
     prisma.rentalCompany.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleCost.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleAccident.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.vehicleDamage.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.deduction.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
-    prisma.violation.findMany({ orderBy: { updatedAt: "desc" }, take: 500 }),
+  ]);
+  const vehicleIds = vehicles.map((vehicle) => vehicle.id);
+  const driverIds = drivers.map((driver) => driver.id);
+  const [movements, cleanings, maintenance, authorizations, assignments, costs, accidents, damages, deductions, violations] = await Promise.all([
+    prisma.vehicleMovement.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleCleaning.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleMaintenance.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleAuthorization.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleAssignment.findMany({ where: { vehicleId: { in: vehicleIds }, driverId: { in: driverIds } }, orderBy: [{ startDate: "desc" }, { updatedAt: "desc" }], take: 1000 }),
+    prisma.vehicleCost.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleAccident.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.vehicleDamage.findMany({ where: { vehicleId: { in: vehicleIds } }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.deduction.findMany({ where: { OR: [{ vehicleId: { in: vehicleIds } }, { driverId: { in: driverIds } }] }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.violation.findMany({ where: { OR: [{ vehicleId: { in: vehicleIds } }, { driverId: { in: driverIds } }] }, orderBy: { updatedAt: "desc" }, take: 500 }),
   ]);
 
   const vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
@@ -894,11 +908,11 @@ function summaryFor(ctx: DataContext) {
   ];
 }
 
-export async function getVehicleModuleData(moduleKey: VehicleModuleKey): Promise<VehicleModuleData> {
+export async function getVehicleModuleData(moduleKey: VehicleModuleKey, accessScope?: AccessScope): Promise<VehicleModuleData> {
   const module = getVehicleModuleConfig(moduleKey);
 
   try {
-    const ctx = await loadVehicleContext();
+    const ctx = await loadVehicleContext(accessScope);
     return {
       status: "online",
       module,

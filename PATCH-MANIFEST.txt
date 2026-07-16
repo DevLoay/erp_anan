@@ -1,0 +1,51 @@
+MOHAMED SHAWKI ERP Production Readiness Patch
+Date: 2026-07-06
+Files: 
+30
+
+Apply from PowerShell:
+Expand-Archive -LiteralPath <ZIP_PATH> -DestinationPath <TEMP_DIR> -Force
+Copy-Item -Path <TEMP_DIR>\* -Destination <ERP_APP_DIR> -Recurse -Force
+
+Run:
+npm install
+npx prisma validate
+npx prisma generate
+node scripts\audit-production-readiness.js
+node scripts\check-env-production.js
+node scripts\check-auth-permissions.js
+node scripts\check-mojibake.js
+npm run typecheck
+npm run build
+
+Files:
+.dockerignore
+.env.production.example
+.gitignore
+Dockerfile
+docker-compose.yml
+package.json
+package-lock.json
+README-PRODUCTION-DEPLOYMENT.md
+PRODUCTION_READINESS_REPORT.md
+prisma\migrations\20260521122212_init\migration.sql
+public\uploads\.gitkeep
+scripts\audit-production-readiness.js
+scripts\check-env-production.js
+scripts\check-auth-permissions.js
+scripts\check-mojibake.js
+scripts\fix-mojibake.ps1
+scripts\ensure-admin-user.mjs
+scripts\full-payroll-test-data-common.js
+scripts\cleanup-full-payroll-test-data.js
+scripts\reset-and-import-april-keeta.mjs
+src\lib\auth\session.ts
+src\lib\permissions.ts
+src\proxy.ts
+src\app\api\auth\login\route.ts
+src\app\api\auth\logout\route.ts
+src\app\api\health\route.ts
+src\app\api\imports\preview\route.ts
+src\app\api\imports\keeta-rank\preview\route.ts
+src\app\vehicles\VehicleLegacyClient.tsx
+src\lib\payroll\keetaPayroll.ts

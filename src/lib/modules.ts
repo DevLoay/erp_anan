@@ -25,11 +25,7 @@ export const moduleSections: ModuleSection[] = [
       { href: "/dashboard", label: "لوحة الإدارة", oldKey: "dashboard", status: connected, resource: "dashboard", description: "ملخص التشغيل والإيرادات والتنبيهات من البيانات المعتمدة." },
       { href: "/management-reports", label: "التقارير العامة", oldKey: "managementReports", status: connected, resource: "management-reports", description: "تقارير عامة تقرأ من البيانات المعتمدة فقط ولا تستقبل ملفات." },
       { href: "/notifications", label: "الإشعارات والتنبيهات", oldKey: "notifications", status: connected, resource: "notifications", description: "تنبيهات التشغيل والماليات والمطابقة." },
-      { href: "/reports", label: "التقارير العامة", oldKey: "reports", status: connected, resource: "reports", description: "مركز التقارير العامة والملخصات التنفيذية من البيانات المعتمدة." },
       { href: "/daily-reports", label: "التقارير اليومية", oldKey: "dailyReports", status: connected, resource: "daily-reports", description: "تقارير التشغيل اليومية ومتابعات المدن والمشرفين." },
-      { href: "/operations-alerts", label: "تنبيهات العمليات", oldKey: "operationsAlerts", status: connected, resource: "operations-alerts", description: "تنبيهات تشغيلية مجمعة للحالات التي تحتاج متابعة." },
-      { href: "/uploaded-reports", label: "التقارير المرفوعة", oldKey: "uploadedReports", status: connected, resource: "uploaded-reports", description: "ملفات وتقارير تم رفعها للنظام للرجوع والمراجعة." },
-      { href: "/report-templates", label: "قوالب التقارير", oldKey: "reportTemplates", status: connected, resource: "report-templates", description: "قوالب تقارير جاهزة للاستخدام والتصدير." },
     ],
   },
   {
@@ -52,7 +48,7 @@ export const moduleSections: ModuleSection[] = [
     items: [
       { href: "/imports", label: "استيراد البيانات العامة", oldKey: "imports", status: connected, resource: "import-batches", description: "للبيانات العامة فقط: مناديب، سيارات، مدن، مشرفين، HR، حسابات عامة." },
       { href: "/imports/templates", label: "قوالب الاستيراد العامة", oldKey: "importTemplates", status: connected, resource: "import-templates", description: "قوالب البيانات العامة. قوالب المشاريع تظهر داخل المشروع فقط." },
-      { href: "/imports/history", label: "تاريخ الاستيراد العام", oldKey: "importHistory", status: connected, resource: "import-batches", description: "سجل عمليات الاستيراد العامة." },
+      { href: "/imports/history", label: "سجل الملفات والاستيراد", oldKey: "importHistory", status: connected, resource: "import-batches", description: "السجل الموحد لملفات الاستيراد ودفعاتها وحالات الاعتماد والأخطاء." },
       { href: "/settings/templates", label: "إعدادات القوالب", oldKey: "templateSettings", status: connected, resource: "template-configs", description: "التحكم في ظهور القوالب حسب المشروع والصفحة والصلاحية." },
     ],
   },

@@ -3,9 +3,12 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const email = process.env.ADMIN_EMAIL || "admin@logistics-erp.com";
-const password = process.env.ADMIN_PASSWORD || "Admin@123456";
+const email = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+const password = String(process.env.ADMIN_PASSWORD || "");
 const name = process.env.ADMIN_NAME || "System Admin";
+const apply = process.argv.includes("--apply");
+const confirmed = process.argv.includes("--confirm=ENSURE_ADMIN_USER");
+const resetPassword = process.argv.includes("--reset-password");
 
 function hashPassword(value) {
   const salt = randomBytes(16).toString("hex");
@@ -14,28 +17,47 @@ function hashPassword(value) {
 }
 
 async function main() {
-  const user = await prisma.user.upsert({
-    where: { email },
-    create: {
+  if (!apply || !confirmed) {
+    console.log(JSON.stringify({
+      ok: true,
+      mode: "dry-run",
+      action: "No database changes",
+      command: "node scripts\\ensure-admin-user.mjs --apply --confirm=ENSURE_ADMIN_USER",
+    }, null, 2));
+    return;
+  }
+  if (!email || !email.includes("@")) throw new Error("ADMIN_EMAIL is required.");
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (!existing && !password) throw new Error("ADMIN_PASSWORD is required when creating a new Admin.");
+  if (resetPassword && !password) throw new Error("ADMIN_PASSWORD is required with --reset-password.");
+
+  const user = existing
+    ? await prisma.user.update({
+      where: { email },
+      data: {
+        name,
+        role: "ADMIN",
+        status: "active",
+        isActive: true,
+        ...(resetPassword ? { passwordHash: hashPassword(password) } : {}),
+      },
+      select: { id: true, name: true, email: true, role: true, status: true, isActive: true },
+    })
+    : await prisma.user.create({
+      data: {
       name,
       email,
       role: "ADMIN",
       status: "active",
       isActive: true,
       passwordHash: hashPassword(password),
-    },
-    update: {
-      name,
-      role: "ADMIN",
-      status: "active",
-      isActive: true,
-      passwordHash: hashPassword(password),
-    },
-    select: { id: true, name: true, email: true, role: true, status: true, isActive: true },
-  });
+      },
+      select: { id: true, name: true, email: true, role: true, status: true, isActive: true },
+    });
 
   console.log("Admin user is ready:");
-  console.log(JSON.stringify({ ...user, password }, null, 2));
+  console.log(JSON.stringify({ ...user, passwordChanged: Boolean(!existing || resetPassword) }, null, 2));
 }
 
 main()

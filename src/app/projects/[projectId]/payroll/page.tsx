@@ -1,8 +1,11 @@
 import { PayrollOldPageClient } from "@/components/payroll/PayrollOldPageClient";
+import { HungerStationPayrollClient } from "@/components/payroll/HungerStationPayrollClient";
 import { ProjectStateCard } from "@/components/projects/ProjectWorkspaceViews";
 import { getPayrollOldPageData, resolvePayrollOldFilters } from "@/lib/payroll/getPayrollOldPageData";
 import { redirectLegacyProjectSlug } from "@/lib/projects/legacyProjectRedirect";
 import { getProjectWorkspace, type ProjectWorkspaceFilters } from "@/lib/projects/projectWorkspace";
+import { getAccessScope } from "@/lib/auth/accessScope";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +23,20 @@ function filtersFromParams(params: Record<string, string | string[] | undefined>
 }
 
 export default async function ProjectPayrollPage({ params, searchParams }: PageProps) {
-  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  const [{ projectId }, query, accessScope] = await Promise.all([params, searchParams, getAccessScope(await headers())]);
   redirectLegacyProjectSlug(projectId, query);
   const data = await getProjectWorkspace(projectId, filtersFromParams(query));
   if (data.status !== "online") return <ProjectStateCard data={data} />;
+
+  if (data.project.applicationCode === "HUNGERSTATION") {
+    return (
+      <HungerStationPayrollClient
+        initialMonth={data.filters.month}
+        initialProjectCode={data.project.code}
+        initialApplicationProjectId={data.project.id}
+      />
+    );
+  }
 
   const payrollFilters = resolvePayrollOldFilters({
     ...query,
@@ -31,7 +44,7 @@ export default async function ProjectPayrollPage({ params, searchParams }: PageP
     cityId: query.cityId ?? data.project.cityId ?? "",
     month: query.month ?? data.filters.month,
   });
-  const payrollData = await getPayrollOldPageData(payrollFilters);
+  const payrollData = await getPayrollOldPageData(payrollFilters, accessScope);
 
   return <PayrollOldPageClient data={payrollData} />;
 }

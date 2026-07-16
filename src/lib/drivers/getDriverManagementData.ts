@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
+import type { AccessScope } from "@/lib/auth/accessScope";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -75,6 +76,7 @@ export type DriverManagementRow = {
   projectId: string;
   application: string;
   supervisorId: string;
+  accountId: string;
   appUserId: string;
   appUsername: string;
   supervisor: string;
@@ -149,13 +151,24 @@ function buildInsight(summary: DriverManagementData["summary"]) {
   return `يوجد ${issues.join("، ")}. يفضل معالجة الربط قبل اعتماد التقارير أو المسير.`;
 }
 
-export async function getDriverManagementData(filters: DriverManagementFilters): Promise<DriverManagementData> {
+export async function getDriverManagementData(filters: DriverManagementFilters, accessScope?: AccessScope): Promise<DriverManagementData> {
   try {
     const fromDate = parseDate(filters.fromDate, monthStart(new Date()));
     const toDate = parseDate(filters.toDate, new Date());
     toDate.setHours(23, 59, 59, 999);
 
-    const where: Prisma.DriverWhereInput = {
+    const scopeAnd: Prisma.DriverWhereInput[] = [];
+    if (accessScope && !accessScope.isGlobal) {
+      if (accessScope.cityIds.length) scopeAnd.push({ cityId: { in: accessScope.cityIds } });
+      if (accessScope.projectIds.length) {
+        scopeAnd.push({ applicationAccounts: { some: { applicationProjectId: { in: accessScope.projectIds } } } });
+      } else if (!accessScope.cityIds.length && accessScope.supervisorId) {
+        scopeAnd.push({ supervisorId: accessScope.supervisorId });
+      }
+      if (accessScope.driverId) scopeAnd.push({ id: accessScope.driverId });
+    }
+    const scopeWhere: Prisma.DriverWhereInput = scopeAnd.length ? { AND: scopeAnd } : {};
+    const filterWhere: Prisma.DriverWhereInput = {
       ...(filters.cityId ? { cityId: filters.cityId } : {}),
       ...(filters.projectId
         ? {
@@ -187,6 +200,36 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
           }
         : {}),
     };
+    const where: Prisma.DriverWhereInput = { AND: [scopeWhere, filterWhere] };
+
+    const cityWhere: Prisma.CityWhereInput =
+      accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { id: { in: accessScope.cityIds } } : {};
+    const projectWhere: Prisma.ApplicationProjectWhereInput = {
+      AND: [
+        accessScope && !accessScope.isGlobal && accessScope.projectIds.length ? { id: { in: accessScope.projectIds } } : {},
+        accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { cityId: { in: accessScope.cityIds } } : {},
+      ],
+    };
+    const supervisorWhere: Prisma.SupervisorWhereInput =
+      accessScope && !accessScope.isGlobal && accessScope.projectIds.length && accessScope.supervisorId
+        ? { id: accessScope.supervisorId }
+        : accessScope && !accessScope.isGlobal && accessScope.cityIds.length
+          ? { cityId: { in: accessScope.cityIds } }
+          : {};
+    const vehicleScopeAnd: Prisma.VehicleWhereInput[] = [];
+    if (accessScope && !accessScope.isGlobal) {
+      if (accessScope.cityIds.length) vehicleScopeAnd.push({ cityId: { in: accessScope.cityIds } });
+      if (accessScope.projectIds.length) {
+        vehicleScopeAnd.push({
+          currentDriver: { is: { applicationAccounts: { some: { applicationProjectId: { in: accessScope.projectIds } } } } },
+        });
+      }
+    }
+    const accountScopeAnd: Prisma.ApplicationAccountWhereInput[] = [];
+    if (accessScope && !accessScope.isGlobal) {
+      if (accessScope.cityIds.length) accountScopeAnd.push({ cityId: { in: accessScope.cityIds } });
+      if (accessScope.projectIds.length) accountScopeAnd.push({ applicationProjectId: { in: accessScope.projectIds } });
+    }
 
     const [drivers, cities, projects, supervisors, vehicles, accounts, allNationalities, totalDrivers, activeDrivers, suspendedDrivers] = await Promise.all([
       prisma.driver.findMany({
@@ -211,6 +254,9 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
             },
           },
           applicationAccounts: {
+            ...(accessScope && !accessScope.isGlobal && accessScope.projectIds.length
+              ? { where: { applicationProjectId: { in: accessScope.projectIds } } }
+              : {}),
             take: 1,
             orderBy: { updatedAt: "desc" },
             select: {
@@ -246,17 +292,17 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
           },
         },
       }),
-      prisma.city.findMany({ orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
-      prisma.applicationProject.findMany({ orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
-      prisma.supervisor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, cityId: true } }),
+      prisma.city.findMany({ where: cityWhere, orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
+      prisma.applicationProject.findMany({ where: projectWhere, orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
+      prisma.supervisor.findMany({ where: supervisorWhere, orderBy: { name: "asc" }, select: { id: true, name: true, cityId: true } }),
       prisma.vehicle.findMany({
-        where: { OR: [{ currentDriverId: null }, { status: "AVAILABLE" }] },
+        where: { AND: [{ OR: [{ currentDriverId: null }, { status: "AVAILABLE" }] }, ...vehicleScopeAnd] },
         orderBy: [{ plateAr: "asc" }, { plateEn: "asc" }],
         select: { id: true, plateAr: true, plateArabic: true, plateEn: true, plateEnglish: true, model: true, cityId: true, currentDriverId: true },
         take: 500,
       }),
       prisma.applicationAccount.findMany({
-        where: { OR: [{ driverId: null }, { isEmpty: true }] },
+        where: { AND: [{ OR: [{ driverId: null }, { isEmpty: true }] }, ...accountScopeAnd] },
         orderBy: [{ appName: "asc" }, { username: "asc" }],
         select: {
           id: true,
@@ -271,10 +317,10 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         },
         take: 500,
       }),
-      prisma.driver.findMany({ distinct: ["nationality"], where: { nationality: { not: null } }, select: { nationality: true }, take: 200 }),
-      prisma.driver.count(),
-      prisma.driver.count({ where: { status: "ACTIVE" } }),
-      prisma.driver.count({ where: { status: { in: ["SUSPENDED", "INACTIVE"] } } }),
+      prisma.driver.findMany({ distinct: ["nationality"], where: { AND: [scopeWhere, { nationality: { not: null } }] }, select: { nationality: true }, take: 200 }),
+      prisma.driver.count({ where: scopeWhere }),
+      prisma.driver.count({ where: { AND: [scopeWhere, { status: "ACTIVE" }] } }),
+      prisma.driver.count({ where: { AND: [scopeWhere, { status: { in: ["SUSPENDED", "INACTIVE"] } }] } }),
     ]);
 
     const rows = drivers.map<DriverManagementRow>((driver) => {
@@ -304,6 +350,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters):
         projectId: account?.applicationProjectId || "",
         application: account?.application?.name || account?.appName || driver.project?.appName || "-",
         supervisorId: driver.supervisorId || "",
+        accountId: account?.id || "",
         appUserId: account?.appUserId || account?.username || "-",
         appUsername: account?.appUsername || account?.username || "-",
         supervisor: driver.supervisor?.name || "-",

@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { AccessScope } from "@/lib/auth/accessScope";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
+import { ADMIN_PROFILE_PREFIX } from "@/lib/auth/userPermissionProfile";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -69,6 +71,17 @@ function attendanceStatus(record?: { checkIn: Date | null; checkOut: Date | null
 
 function textDate(value?: Date | null) {
   return value ? dateInput(value) : "-";
+}
+
+function objectValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function profileText(profile: Record<string, unknown> | undefined, key: string) {
+  const value = profile?.[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function emptyData(filters: HrFilters, message?: string): HumanResourcesData {
@@ -222,7 +235,7 @@ function buildInsight(summary: HumanResourcesData["summary"]) {
   return parts.length ? parts.join("، ") + "." : "بيانات الموارد البشرية مستقرة ولا توجد فجوات ظاهرة في الفلاتر الحالية.";
 }
 
-export async function getHumanResourcesData(filters: HrFilters): Promise<HumanResourcesData> {
+export async function getHumanResourcesData(filters: HrFilters, accessScope?: AccessScope): Promise<HumanResourcesData> {
   try {
     const fromDate = parseDate(filters.fromDate, monthStart(new Date()));
     const toDate = parseDate(filters.toDate, new Date());
@@ -232,7 +245,7 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
     const todayEnd = new Date(todayStart);
     todayEnd.setHours(23, 59, 59, 999);
 
-    const driverWhere: Prisma.DriverWhereInput = {
+    const driverFilterWhere: Prisma.DriverWhereInput = {
       ...(filters.cityId ? { cityId: filters.cityId } : {}),
       ...(filters.applicationProjectId ? { applicationAccounts: { some: { applicationProjectId: filters.applicationProjectId } } } : {}),
       ...(filters.supervisorId ? { supervisorId: filters.supervisorId } : {}),
@@ -258,9 +271,23 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
           }
         : {}),
     };
+    const driverScopeWhere: Prisma.DriverWhereInput =
+      accessScope && !accessScope.isGlobal
+        ? {
+            AND: [
+              accessScope.cityIds.length ? { cityId: { in: accessScope.cityIds } } : {},
+              accessScope.projectIds.length
+                ? { applicationAccounts: { some: { applicationProjectId: { in: accessScope.projectIds } } } }
+                : {},
+              accessScope.driverId ? { id: accessScope.driverId } : {},
+            ],
+          }
+        : {};
+    const driverWhere: Prisma.DriverWhereInput = { AND: [driverScopeWhere, driverFilterWhere] };
 
-    const userWhere: Prisma.UserWhereInput = {
+    const userFilterWhere: Prisma.UserWhereInput = {
       ...(filters.cityId ? { cityId: filters.cityId } : {}),
+      ...(filters.applicationProjectId ? { projectScope: { contains: filters.applicationProjectId } } : {}),
       ...(filters.status ? { status: filters.status.toLowerCase() } : {}),
       ...(filters.q
         ? {
@@ -271,8 +298,27 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
           }
         : {}),
     };
+    const userScopeWhere: Prisma.UserWhereInput =
+      accessScope && !accessScope.isGlobal
+        ? {
+            AND: [
+              accessScope.cityIds.length
+                ? { OR: [{ cityId: { in: accessScope.cityIds } }, { supervisor: { is: { cityId: { in: accessScope.cityIds } } } }] }
+                : {},
+              accessScope.projectIds.length
+                ? {
+                    OR: [
+                      { id: accessScope.userId },
+                      ...accessScope.projectIds.map((projectId) => ({ projectScope: { contains: projectId } })),
+                    ],
+                  }
+                : {},
+            ],
+          }
+        : {};
+    const userWhere: Prisma.UserWhereInput = { AND: [userScopeWhere, userFilterWhere] };
 
-    const supervisorWhere: Prisma.SupervisorWhereInput = {
+    const supervisorFilterWhere: Prisma.SupervisorWhereInput = {
       ...(filters.cityId ? { cityId: filters.cityId } : {}),
       ...(filters.status ? { status: filters.status as Prisma.EnumRecordStatusFilter["equals"] } : {}),
       ...(filters.q
@@ -285,8 +331,26 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
           }
         : {}),
     };
+    const supervisorScopeWhere: Prisma.SupervisorWhereInput =
+      accessScope && !accessScope.isGlobal
+        ? accessScope.projectIds.length && accessScope.supervisorId
+          ? { id: accessScope.supervisorId }
+          : accessScope.cityIds.length
+            ? { cityId: { in: accessScope.cityIds } }
+            : { id: "__NO_ACCESS__" }
+        : {};
+    const supervisorWhere: Prisma.SupervisorWhereInput = { AND: [supervisorScopeWhere, supervisorFilterWhere] };
 
-    const [drivers, users, supervisors, cities, projects, supervisorRefs, nationalities] = await Promise.all([
+    const cityWhere: Prisma.CityWhereInput =
+      accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { id: { in: accessScope.cityIds } } : {};
+    const projectWhere: Prisma.ApplicationProjectWhereInput = {
+      AND: [
+        accessScope && !accessScope.isGlobal && accessScope.projectIds.length ? { id: { in: accessScope.projectIds } } : {},
+        accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { cityId: { in: accessScope.cityIds } } : {},
+      ],
+    };
+
+    const [drivers, users, supervisors, cities, projects, supervisorRefs, nationalities, adminProfileSettings] = await Promise.all([
       prisma.driver.findMany({
         where: driverWhere,
         take: 700,
@@ -327,11 +391,22 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
           attendanceRecords: { take: 1, where: { workDate: { gte: todayStart, lte: todayEnd } }, orderBy: { workDate: "desc" }, select: { workDate: true, checkIn: true, checkOut: true, status: true } },
         },
       }),
-      prisma.city.findMany({ orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
-      prisma.applicationProject.findMany({ orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, cityId: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
-      prisma.supervisor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, cityId: true } }),
-      prisma.driver.findMany({ distinct: ["nationality"], where: { nationality: { not: null } }, select: { nationality: true }, take: 200 }),
+      prisma.city.findMany({ where: cityWhere, orderBy: { nameAr: "asc" }, select: { id: true, nameAr: true, nameEn: true } }),
+      prisma.applicationProject.findMany({ where: projectWhere, orderBy: [{ application: { name: "asc" } }, { name: "asc" }], select: { id: true, name: true, cityId: true, application: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } }),
+      prisma.supervisor.findMany({ where: supervisorScopeWhere, orderBy: { name: "asc" }, select: { id: true, name: true, cityId: true } }),
+      prisma.driver.findMany({ distinct: ["nationality"], where: { AND: [driverScopeWhere, { nationality: { not: null } }] }, select: { nationality: true }, take: 200 }),
+      prisma.systemSetting.findMany({
+        where: { key: { startsWith: ADMIN_PROFILE_PREFIX } },
+        select: { key: true, value: true },
+      }),
     ]);
+
+    const adminProfiles = new Map(
+      adminProfileSettings.map((setting) => [
+        setting.key.slice(ADMIN_PROFILE_PREFIX.length),
+        objectValue(setting.value),
+      ]),
+    );
 
     let rows: HrRow[] = [];
 
@@ -382,39 +457,44 @@ export async function getHumanResourcesData(filters: HrFilters): Promise<HumanRe
 
     if (!filters.personType || filters.personType === "user") {
       rows.push(
-        ...users.map((user) => ({
-          id: user.id,
-          type: "user" as const,
-          typeLabel: personTypeText("user"),
-          name: user.name,
-          internalCode: user.email,
-          driverCode: "-",
-          phone: "-",
-          nationalId: "-",
-          nationality: "-",
-          cityId: user.cityId || "",
-          city: user.city?.nameAr || user.city?.nameEn || "-",
-          project: "-",
-          applicationProjectId: "",
-          application: "-",
-          supervisorId: "",
-          supervisor: "-",
-          contractType: String(user.role),
-          sponsorshipType: "-",
-          housingStatus: "-",
-          attendanceStatus: attendanceStatus(user.attendanceRecords[0]),
-          documentStatus: "-",
-          status: user.status,
-          statusLabel: user.isActive ? "نشط" : "غير نشط",
-          statusTone: user.isActive ? ("emerald" as const) : ("red" as const),
-          joinDate: textDate(user.createdAt),
-          lastAttendanceDate: textDate(user.attendanceRecords[0]?.workDate),
-          payrollLink: "/payroll",
-          operationsLink: "/users",
-          adminLink: `/users?userId=${user.id}`,
-          canAssignSupervisor: false,
-          needsReview: !user.isActive,
-        })),
+        ...users.map((user) => {
+          const profile = adminProfiles.get(user.id);
+          const applicationProjectId = profileText(profile, "applicationProjectId") || user.projectScope?.split(",")[0]?.trim() || "";
+          const project = projects.find((item) => item.id === applicationProjectId);
+          return {
+            id: user.id,
+            type: "user" as const,
+            typeLabel: personTypeText("user"),
+            name: user.name,
+            internalCode: user.email,
+            driverCode: "-",
+            phone: profileText(profile, "phone") || "-",
+            nationalId: "-",
+            nationality: "-",
+            cityId: profileText(profile, "cityId") || user.cityId || project?.cityId || "",
+            city: user.city?.nameAr || user.city?.nameEn || project?.city?.nameAr || project?.city?.nameEn || "-",
+            project: profileText(profile, "applicationProjectName") || project?.name || "-",
+            applicationProjectId,
+            application: profileText(profile, "applicationName") || project?.application.name || "-",
+            supervisorId: user.supervisorId || "",
+            supervisor: "-",
+            contractType: profileText(profile, "jobTitle") || String(user.role),
+            sponsorshipType: "-",
+            housingStatus: "-",
+            attendanceStatus: attendanceStatus(user.attendanceRecords[0]),
+            documentStatus: "-",
+            status: user.status,
+            statusLabel: user.isActive ? "نشط" : "غير نشط",
+            statusTone: user.isActive ? ("emerald" as const) : ("red" as const),
+            joinDate: textDate(user.createdAt),
+            lastAttendanceDate: textDate(user.attendanceRecords[0]?.workDate),
+            payrollLink: "/payroll",
+            operationsLink: "/users",
+            adminLink: `/users?userId=${user.id}`,
+            canAssignSupervisor: false,
+            needsReview: !user.isActive || !profile,
+          };
+        }),
       );
     }
 

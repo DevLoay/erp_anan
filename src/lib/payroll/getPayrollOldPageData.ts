@@ -2,6 +2,7 @@ import type { PayrollStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
 import { getFilterOptions } from "@/lib/reporting";
+import type { AccessScope } from "@/lib/auth/accessScope";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -378,10 +379,10 @@ function matches(row: PayrollOldRow, filters: PayrollOldFilters) {
   return true;
 }
 
-export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise<PayrollOldData> {
+export async function getPayrollOldPageData(filters: PayrollOldFilters, accessScope?: AccessScope): Promise<PayrollOldData> {
   let options: Awaited<ReturnType<typeof getFilterOptions>>;
   try {
-    options = await getFilterOptions();
+    options = await getFilterOptions(accessScope);
   } catch (error) {
     const message = databaseOfflineMessage(error);
     options = { months: [], appNames: [], cities: [], projects: [], supervisors: [] };
@@ -393,17 +394,36 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
     const { safeMonth, start, end, year, monthNumber } = monthRange(filters.month);
     const payrollStatus = filters.status ? (filters.status as PayrollStatus) : undefined;
     const selectedMonthDays = monthDays(year, monthNumber);
+    const scopedCityIds = accessScope && !accessScope.isGlobal ? accessScope.cityIds : [];
+    const scopedProjectIds = accessScope && !accessScope.isGlobal ? accessScope.projectIds : [];
+    const payrollRunWhere: Prisma.PayrollRunWhereInput = {
+      year,
+      month: monthNumber,
+      ...(filters.cityId ? { cityId: filters.cityId } : scopedCityIds.length ? { cityId: { in: scopedCityIds } } : {}),
+      ...(filters.projectId
+        ? { applicationProjectId: filters.projectId }
+        : scopedProjectIds.length
+          ? { applicationProjectId: { in: scopedProjectIds } }
+          : {}),
+      ...(payrollStatus ? { status: payrollStatus } : {}),
+    };
+    const legacyDriverScope: Prisma.DriverWhereInput = {
+      ...(filters.cityId ? { cityId: filters.cityId } : scopedCityIds.length ? { cityId: { in: scopedCityIds } } : {}),
+      ...((filters.projectId || scopedProjectIds.length)
+        ? {
+            applicationAccounts: {
+              some: {
+                applicationProjectId: filters.projectId || { in: scopedProjectIds },
+              },
+            },
+          }
+        : {}),
+    };
 
     const [items, payrolls, advances, deductions, violations, fuelRecords] = await Promise.all([
       prisma.payrollItem.findMany({
         where: {
-          payrollRun: {
-            year,
-            month: monthNumber,
-            ...(filters.cityId ? { cityId: filters.cityId } : {}),
-            ...(filters.projectId ? { applicationProjectId: filters.projectId } : {}),
-            ...(payrollStatus ? { status: payrollStatus } : {}),
-          },
+          payrollRun: payrollRunWhere,
         },
         include: {
           payrollRun: { include: { application: { select: { name: true } }, applicationProject: { select: { name: true } }, city: { select: { nameAr: true, nameEn: true } } } },
@@ -434,8 +454,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters): Promise
         where: {
           month: safeMonth,
           ...(payrollStatus ? { status: payrollStatus } : {}),
-          ...(filters.projectId ? { projectId: filters.projectId } : {}),
-          ...(filters.cityId ? { driver: { cityId: filters.cityId } } : {}),
+          ...(Object.keys(legacyDriverScope).length ? { driver: legacyDriverScope } : {}),
         },
         include: {
           driver: {

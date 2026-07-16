@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getFilterOptions, getRulesForApp, getSystemRules, type ReportFilterOptions } from "./reporting";
+import type { AccessScope } from "./auth/accessScope";
+import { calculateExpectedTarget } from "@/lib/performance/expectedTargets";
 
 export type SupervisorPerformanceFilters = {
   month: string;
@@ -116,13 +118,6 @@ function monthBounds(month: string) {
   return { from: dateOnly(from), to: dateOnly(to) };
 }
 
-function daysBetween(from: string, to: string) {
-  const start = new Date(`${from}T00:00:00.000Z`);
-  const end = new Date(`${to}T00:00:00.000Z`);
-  const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-  return Math.max(1, diff || 1);
-}
-
 function weightedAverage(items: { score: number | null; weight: number }[]) {
   const valid = items.filter((item) => item.score !== null);
   const weight = valid.reduce((sum, item) => sum + item.weight, 0);
@@ -148,8 +143,9 @@ function textMatches(row: SupervisorPerformanceRow, q: string) {
 
 export async function getSupervisorPerformanceReport(
   searchParams: Record<string, string | string[] | undefined>,
+  accessScope?: AccessScope,
 ): Promise<SupervisorPerformanceReport> {
-  const options = await getFilterOptions();
+  const options = await getFilterOptions(accessScope);
   const selectedMonth = one(searchParams.month) || (options.months.includes("2026-04") ? "2026-04" : options.months[0]) || "2026-04";
   const bounds = monthBounds(selectedMonth);
   const filters: SupervisorPerformanceFilters = {
@@ -163,20 +159,50 @@ export async function getSupervisorPerformanceReport(
   };
 
   const settings = await getSystemRules();
-  const periodDays = daysBetween(filters.from, filters.to);
-  const reportWhere: Prisma.DailyReportWhereInput = {
+  const reportAnd: Prisma.DailyReportWhereInput[] = [{
     reportDate: {
       gte: new Date(`${filters.from}T00:00:00.000Z`),
       lte: new Date(`${filters.to}T23:59:59.999Z`),
     },
-  };
-  if (filters.appName) reportWhere.appName = filters.appName;
-  if (filters.cityId) reportWhere.cityId = filters.cityId;
-  if (filters.supervisorId) reportWhere.driver = { is: { supervisorId: filters.supervisorId } };
+  }];
+  if (filters.appName) reportAnd.push({ appName: filters.appName });
+  if (filters.cityId) reportAnd.push({ cityId: filters.cityId });
+  else if (accessScope && !accessScope.isGlobal && accessScope.cityIds.length) reportAnd.push({ cityId: { in: accessScope.cityIds } });
+  if (accessScope && !accessScope.isGlobal && accessScope.projectIds.length) reportAnd.push({ applicationProjectId: { in: accessScope.projectIds } });
+  if (filters.supervisorId) reportAnd.push({ driver: { is: { supervisorId: filters.supervisorId } } });
+  else if (accessScope && !accessScope.isGlobal && accessScope.projectIds.length && accessScope.supervisorId) {
+    reportAnd.push({ driver: { is: { supervisorId: accessScope.supervisorId } } });
+  }
+  const reportWhere: Prisma.DailyReportWhereInput = { AND: reportAnd };
 
-  const supervisorWhere: Prisma.SupervisorWhereInput = {};
-  if (filters.cityId) supervisorWhere.cityId = filters.cityId;
-  if (filters.supervisorId) supervisorWhere.id = filters.supervisorId;
+  const supervisorAnd: Prisma.SupervisorWhereInput[] = [];
+  if (filters.cityId) supervisorAnd.push({ cityId: filters.cityId });
+  else if (accessScope && !accessScope.isGlobal && accessScope.cityIds.length) supervisorAnd.push({ cityId: { in: accessScope.cityIds } });
+  if (filters.supervisorId) supervisorAnd.push({ id: filters.supervisorId });
+  else if (accessScope && !accessScope.isGlobal && accessScope.projectIds.length && accessScope.supervisorId) supervisorAnd.push({ id: accessScope.supervisorId });
+  const supervisorWhere: Prisma.SupervisorWhereInput = supervisorAnd.length ? { AND: supervisorAnd } : {};
+
+  const teamDriverWhere: Prisma.DriverWhereInput = {
+    AND: [
+      accessScope && !accessScope.isGlobal && accessScope.cityIds.length ? { cityId: { in: accessScope.cityIds } } : {},
+      accessScope && !accessScope.isGlobal && accessScope.projectIds.length
+        ? { applicationAccounts: { some: { applicationProjectId: { in: accessScope.projectIds } } } }
+        : {},
+    ],
+  };
+
+  const taskWhere: Prisma.TaskWhereInput = {
+    AND: [
+      filters.supervisorId
+        ? { supervisorId: filters.supervisorId }
+        : accessScope && !accessScope.isGlobal && accessScope.projectIds.length && accessScope.supervisorId
+          ? { supervisorId: accessScope.supervisorId }
+          : {},
+      !filters.supervisorId && accessScope && !accessScope.isGlobal && !accessScope.projectIds.length && accessScope.cityIds.length
+        ? { supervisor: { is: { cityId: { in: accessScope.cityIds } } } }
+        : {},
+    ],
+  };
 
   const [supervisors, reports, tasks] = await Promise.all([
     prisma.supervisor.findMany({
@@ -184,6 +210,7 @@ export async function getSupervisorPerformanceReport(
       include: {
         city: { select: { nameAr: true, nameEn: true } },
         drivers: {
+          where: teamDriverWhere,
           select: {
             id: true,
             internalCode: true,
@@ -231,7 +258,7 @@ export async function getSupervisorPerformanceReport(
       orderBy: { reportDate: "desc" },
     }),
     prisma.task.findMany({
-      where: filters.supervisorId ? { supervisorId: filters.supervisorId } : {},
+      where: taskWhere,
       select: {
         id: true,
         title: true,
@@ -287,14 +314,30 @@ export async function getSupervisorPerformanceReport(
     const monthlyTarget = teamDrivers.reduce((sum, driver) => {
       const appName = filters.appName || driver.applicationAccounts[0]?.application?.name || driver.project?.appName || "Keeta";
       const rules = getRulesForApp(appName, settings);
-      const target = filters.from || filters.to ? rules.dailyOrders * periodDays : rules.monthlyOrders;
-      return sum + target;
+      return (
+        sum +
+        calculateExpectedTarget({
+          monthlyTarget: rules.monthlyOrders,
+          month: filters.month,
+          dateFrom: filters.from,
+          dateTo: filters.to,
+        }).expected
+      );
     }, 0);
     const targetAchievement = monthlyTarget ? pct((totalOrders / monthlyTarget) * 100) : null;
     const hoursTarget = teamDrivers.reduce((sum, driver) => {
       const appName = filters.appName || driver.applicationAccounts[0]?.application?.name || driver.project?.appName || "Keeta";
       const rules = getRulesForApp(appName, settings);
-      return sum + (filters.from || filters.to ? (rules.workingHours / 30) * periodDays : rules.workingHours);
+      return (
+        sum +
+        calculateExpectedTarget({
+          monthlyTarget: rules.workingHours,
+          month: filters.month,
+          dateFrom: filters.from,
+          dateTo: filters.to,
+          precision: "decimal",
+        }).expected
+      );
     }, 0);
     const hoursScore = hoursTarget ? clamp((workingHours / hoursTarget) * 100) : null;
     const achievementScore = targetAchievement === null ? null : clamp(targetAchievement);

@@ -1,0 +1,94 @@
+{
+  "company_manager": {
+    "labelAr": "مدير الشركة",
+    "labelEn": "Company Manager",
+    "role": "ADMIN",
+    "scope": "ALL",
+    "permissions": ["*"]
+  },
+  "operations_manager": {
+    "labelAr": "مدير التشغيل",
+    "labelEn": "Operations Manager",
+    "role": "OPERATION_MANAGER",
+    "scope": "ALL",
+    "permissions": [
+      "dashboard.view", "reports.view", "reports.export", "managementReports.view", "managementReports.export",
+      "operationsAlerts.view", "operationsAlerts.edit", "projects.view", "projects.edit", "cities.view", "cities.edit",
+      "importBatches.view", "importBatches.create", "importBatches.edit", "importBatches.approve",
+      "dailyReports.view", "dailyReports.import", "dailyReports.edit", "dailyReports.export",
+      "applicationAccounts.view", "applicationAccounts.create", "applicationAccounts.edit", "applicationAccounts.review", "applicationAccounts.assignUsage",
+      "drivers.view", "drivers.create", "drivers.edit", "drivers.export",
+      "vehicles.view", "vehicles.edit", "vehicles.assign", "vehicleMovements.view", "vehicleMovements.create", "vehicleMovements.edit",
+      "payroll.view", "payroll.preview", "payroll.generate", "advances.view", "advances.create", "advances.edit",
+      "deductions.view", "deductions.create", "deductions.edit", "violations.view", "violations.create", "violations.edit",
+      "tasks.view", "tasks.create", "tasks.edit", "attendance.view", "attendance.create", "notifications.view", "notifications.edit"
+    ]
+  },
+  "finance_manager": {
+    "labelAr": "المدير المالي",
+    "labelEn": "Finance Manager",
+    "role": "ACCOUNTANT",
+    "scope": "ALL",
+    "permissions": [
+      "dashboard.view", "payroll.view", "payroll.preview", "payroll.edit", "payroll.generate", "payroll.approve", "payroll.export",
+      "advances.view", "advances.create", "advances.edit", "advances.approve", "advances.export",
+      "deductions.view", "deductions.create", "deductions.edit", "deductions.approve", "deductions.export",
+      "violations.view", "finance.view", "finance.edit", "financeReports.view", "financeReports.export",
+      "invoices.view", "invoices.edit", "receivables.view", "receivables.edit", "payments.view", "payments.edit",
+      "expenses.view", "expenses.edit", "revenues.view", "revenues.edit", "profitLoss.view", "vatRecords.view"
+    ]
+  },
+  "movement_manager": {
+    "labelAr": "مدير الحركة",
+    "labelEn": "Movement Manager",
+    "role": "OPERATION_MANAGER",
+    "scope": "ALL",
+    "permissions": [
+      "dashboard.view", "vehicles.view", "vehicles.create", "vehicles.edit", "vehicles.assign", "vehicles.export",
+      "vehicleMovements.view", "vehicleMovements.create", "vehicleMovements.edit", "vehicleMovements.export",
+      "vehicleReports.view", "vehicleReports.export", "vehicleMaintenance.view", "vehicleMaintenance.edit",
+      "vehicleAuthorizations.view", "vehicleAuthorizations.edit", "vehicleAccidents.view", "vehicleAccidents.edit",
+      "vehicleDamages.view", "vehicleDamages.edit", "vehicleCleaning.view", "vehicleCleaning.edit", "vehicleCosts.view"
+    ]
+  },
+  "city_supervisor": {
+    "labelAr": "مشرف المدينة",
+    "labelEn": "City Supervisor",
+    "role": "SUPERVISOR",
+    "scope": "CITY",
+    "permissions": [
+      "dashboard.view", "drivers.view", "vehicles.view", "vehicleMovements.view", "dailyReports.view",
+      "applicationAccounts.view", "advances.view", "deductions.view", "violations.view", "payroll.view",
+      "reports.view", "notifications.view", "tasks.view", "tasks.create", "tasks.edit", "attendance.view", "attendance.create"
+    ]
+  },
+  "app_supervisor": {
+    "labelAr": "مشرف تطبيق",
+    "labelEn": "Application Supervisor",
+    "role": "SUPERVISOR",
+    "scope": "APPLICATION_PROJECT",
+    "permissions": [
+      "dashboard.view", "projects.view", "drivers.view", "vehicles.view", "dailyReports.view", "dailyReports.import",
+      "applicationAccounts.view", "applicationAccounts.review", "advances.view", "deductions.view", "violations.view",
+      "payroll.view", "reports.view", "notifications.view", "tasks.view", "tasks.create", "tasks.edit", "attendance.view", "attendance.create"
+    ]
+  },
+  "hr_manager": {
+    "labelAr": "مدير الموارد البشرية",
+    "labelEn": "HR Manager",
+    "role": "HR",
+    "scope": "ALL",
+    "permissions": [
+      "dashboard.view", "drivers.view", "drivers.create", "drivers.edit", "drivers.export", "supervisors.view", "supervisors.edit",
+      "hr.view", "hr.edit", "driverDocuments.view", "driverDocuments.edit", "driverHousing.view", "driverHousing.edit",
+      "advances.view", "attendance.view", "attendance.edit", "reports.view"
+    ]
+  },
+  "viewer": {
+    "labelAr": "مشاهد فقط",
+    "labelEn": "Viewer",
+    "role": "VIEWER",
+    "scope": "CITY",
+    "permissions": ["dashboard.view", "notifications.view"]
+  }
+}

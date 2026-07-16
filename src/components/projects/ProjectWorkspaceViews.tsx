@@ -440,8 +440,7 @@ function ProjectToolLinks({ data, active }: { data: OnlineWorkspace; active: "im
   const suffix = query.toString();
   const items = active === "imports"
     ? [
-        { href: `/imports/history?${suffix}`, label: "تاريخ رفع المشروع" },
-        { href: `/uploaded-reports?${suffix}`, label: "تقارير مرفوعة" },
+        { href: `/imports/history?${suffix}`, label: "سجل ملفات المشروع" },
         { href: `/excel-column-mapping?${suffix}`, label: "ربط أعمدة Excel" },
         { href: `/account-movement?${suffix}`, label: "حركة الحسابات" },
       ]
@@ -449,7 +448,7 @@ function ProjectToolLinks({ data, active }: { data: OnlineWorkspace; active: "im
         { href: `/daily-reports?${suffix}`, label: "التقارير اليومية" },
         { href: `/rider-kpi?${suffix}`, label: "KPI المناديب" },
         { href: `/rider-reports?${suffix}`, label: "تقارير المناديب" },
-        { href: `/operations-alerts?${suffix}`, label: "تنبيهات المشروع" },
+        { href: `/notifications?${suffix}`, label: "تنبيهات المشروع" },
       ];
 
   return (

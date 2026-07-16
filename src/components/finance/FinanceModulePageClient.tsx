@@ -275,7 +275,7 @@ function FinanceForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!data.module.api) {
-      onDone("هذه الميزة قيد التطوير");
+      onDone("هذا التقرير محسوب من البيانات المعتمدة ولا يقبل إدخالًا مباشرًا.");
       return;
     }
     setSaving(true);
@@ -475,8 +475,13 @@ export function FinanceModulePageClient({ data }: ModuleProps) {
     setPage(1);
   }
 
-  function showUnderConstruction() {
-    setToast("هذه الميزة قيد التطوير");
+  function openImportCenter() {
+    const params = new URLSearchParams({
+      scope: "finance",
+      module: data.module.key,
+      returnTo: data.module.route,
+    });
+    router.push(`/imports?${params.toString()}`);
   }
 
   function exportRows() {
@@ -505,7 +510,7 @@ export function FinanceModulePageClient({ data }: ModuleProps) {
       return;
     }
     if (!data.module.api) {
-      showUnderConstruction();
+      setToast("هذا التقرير محسوب من البيانات المعتمدة ولا يقبل الحذف المباشر.");
       return;
     }
     if (!confirm(`حذف / تعطيل السجل: ${row.primary}؟`)) return;
@@ -558,10 +563,10 @@ export function FinanceModulePageClient({ data }: ModuleProps) {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
         <div className="flex flex-wrap gap-2">
-          <Button type="button" tone="green" onClick={() => (data.module.formFields.length ? setFormRow(null) : showUnderConstruction())}>+ إضافة</Button>
-          <Button type="button" tone="blue" onClick={showUnderConstruction}>استيراد Excel / PDF</Button>
-          <Button type="button" onClick={() => (selected ? setFormRow(selected) : setToast("اختر سجلًا للتعديل."))}>تعديل</Button>
-          <Button type="button" tone="red" onClick={() => void remove(selected)}>حذف</Button>
+          {data.module.api && data.module.formFields.length ? <Button type="button" tone="green" onClick={() => setFormRow(null)}>+ إضافة</Button> : null}
+          <Button type="button" tone="blue" onClick={openImportCenter}>استيراد Excel / PDF</Button>
+          {data.module.api ? <Button type="button" onClick={() => (selected ? setFormRow(selected) : setToast("اختر سجلًا للتعديل."))}>تعديل</Button> : null}
+          {data.module.api ? <Button type="button" tone="red" onClick={() => void remove(selected)}>حذف</Button> : null}
           <Button type="button" tone="orange" onClick={exportRows}>تصدير CSV</Button>
           <Button type="button" onClick={() => void copySummary()}>نسخ الملخص</Button>
           <Button type="button" onClick={() => window.print()}>طباعة / PDF</Button>

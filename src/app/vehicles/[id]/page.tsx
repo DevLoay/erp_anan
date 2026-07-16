@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { VehiclePrintButton } from "@/components/vehicles/VehiclePrintButton";
+import { getAccessScope } from "@/lib/auth/accessScope";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -86,11 +88,27 @@ function attachmentCount(input: unknown) {
 }
 
 export default async function VehicleDetailsPage({ params }: PageProps) {
-  const { id } = await params;
+  const [{ id }, accessScope] = await Promise.all([params, getAccessScope(await headers())]);
+  const scopeWhere = accessScope.isGlobal
+    ? {}
+    : {
+        ...(accessScope.cityIds.length ? { cityId: { in: accessScope.cityIds } } : {}),
+        ...(accessScope.projectIds.length
+          ? {
+              currentDriver: {
+                is: {
+                  applicationAccounts: {
+                    some: { applicationProjectId: { in: accessScope.projectIds } },
+                  },
+                },
+              },
+            }
+          : {}),
+      };
 
   const [vehicle, movements, cleanings, maintenance, authorizations, costs, accidents, damages] = await Promise.all([
-    prisma.vehicle.findUnique({
-      where: { id },
+    prisma.vehicle.findFirst({
+      where: { id, ...scopeWhere },
       include: {
         city: true,
         currentDriver: true,

@@ -2,6 +2,13 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { money } from "./format";
 import type { AccessScope } from "@/lib/auth/accessScope";
+import {
+  buildPerformanceWarning,
+  calculateExpectedTarget,
+  calculatePerformancePercentage,
+  getPerformanceStatus,
+  type ExpectedTargetContext,
+} from "@/lib/performance/expectedTargets";
 
 export type ReportFilters = {
   month: string;
@@ -36,6 +43,17 @@ export type KpiRules = {
   minActiveDays: number;
 };
 
+export type ExpectedKpiRules = KpiRules & {
+  expectedOrders: number;
+  expectedWorkingHours: number;
+  expectedActiveDays: number;
+  periodDays: number;
+  totalDaysInMonth: number;
+  isFinalPeriod: boolean;
+  periodLabel: string;
+  targetLabelSuffix: string;
+};
+
 export type KpiRow = {
   driverId: string;
   driverCode: string;
@@ -60,7 +78,7 @@ export type KpiRow = {
   status: "GOOD" | "WARNING" | "CRITICAL";
   valid: boolean;
   reasons: string[];
-  target: KpiRules;
+  target: ExpectedKpiRules;
   dailyReports: {
     id: string;
     date: string;
@@ -479,17 +497,54 @@ function statusMatch(row: KpiRow, status: string) {
 }
 
 function rowStatus(score: number, valid: boolean): KpiRow["status"] {
-  if (valid && score >= 75) return "GOOD";
-  if (score >= 55) return "WARNING";
+  if (valid && score >= 95) return "GOOD";
+  if (score >= 80) return "WARNING";
   return "CRITICAL";
 }
 
 function performanceStatus(score: number): CityRankingRow["status"] {
-  if (score >= 90) return "EXCELLENT";
-  if (score >= 75) return "GOOD";
+  if (score >= 95) return "EXCELLENT";
+  if (score >= 80) return "GOOD";
   if (score >= 60) return "AT_RISK";
   if (score >= 45) return "WEAK";
   return "CRITICAL";
+}
+
+function expectedRulesForPeriod(rules: KpiRules, filters: ReportFilters): { target: ExpectedKpiRules; context: ExpectedTargetContext } {
+  const base = {
+    month: filters.month,
+    dateFrom: filters.dateFrom || monthStart(filters.month),
+    dateTo: filters.dateTo || monthEnd(filters.month),
+  };
+  const orders = calculateExpectedTarget({ ...base, monthlyTarget: rules.monthlyOrders });
+  const hours = calculateExpectedTarget({ ...base, monthlyTarget: rules.workingHours, precision: "decimal" });
+  const activeDays = calculateExpectedTarget({ ...base, monthlyTarget: rules.minActiveDays });
+  const context = orders.context;
+
+  return {
+    context,
+    target: {
+      ...rules,
+      expectedOrders: orders.expected,
+      expectedWorkingHours: hours.expected,
+      expectedActiveDays: activeDays.expected,
+      periodDays: context.selectedDays,
+      totalDaysInMonth: context.totalDaysInMonth,
+      isFinalPeriod: context.isFinalPeriod,
+      periodLabel: context.periodLabel,
+      targetLabelSuffix: context.targetLabelSuffix,
+    },
+  };
+}
+
+function expectedRulesForDay(rules: KpiRules, reportDate: Date, month: string) {
+  const day = reportDate.toISOString().slice(0, 10);
+  const orders = calculateExpectedTarget({ month, dateFrom: day, dateTo: day, monthlyTarget: rules.monthlyOrders });
+  const hours = calculateExpectedTarget({ month, dateFrom: day, dateTo: day, monthlyTarget: rules.workingHours, precision: "decimal" });
+  return {
+    expectedOrders: orders.expected,
+    expectedWorkingHours: hours.expected,
+  };
 }
 
 function buildKpiSummary(rows: KpiRow[]): KpiSummary {
@@ -585,7 +640,7 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     const first = bucket.reports[0];
     const driver = first.driver;
     const appName = first.applicationProject?.application.name || first.appName || "غير محدد";
-    const target = getRulesForApp(appName, settings);
+    const { target, context: targetContext } = expectedRulesForPeriod(getRulesForApp(appName, settings), filters);
     const count = bucket.reports.length || 1;
     const orders = bucket.reports.reduce((sum, report) => sum + report.orders, 0);
     const workingHours = bucket.reports.reduce((sum, report) => sum + numberValue(report.workingHours), 0);
@@ -593,11 +648,9 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     const cancellationRate = bucket.reports.reduce((sum, report) => sum + numberValue(report.cancellationRate), 0) / count;
     const rejectionRate = bucket.reports.reduce((sum, report) => sum + numberValue(report.rejectionRate), 0) / count;
     const activeDays = bucket.days.size;
-    const achievement = target.monthlyOrders ? Math.round((orders / target.monthlyOrders) * 1000) / 10 : 0;
+    const achievement = calculatePerformancePercentage(orders, target.expectedOrders);
 
     const reasons: string[] = [];
-    if (orders < target.monthlyOrders) reasons.push("طلبات أقل من التارجت");
-    if (workingHours < target.workingHours) reasons.push("ساعات عمل أقل من المطلوب");
     if (onTimeRate < target.onTimeRate) reasons.push("نسبة الالتزام منخفضة");
     if (cancellationRate > target.maxCancellationRate) reasons.push("نسبة الإلغاء مرتفعة");
     if (rejectionRate > target.maxRejectionRate) reasons.push("نسبة الرفض مرتفعة");
@@ -607,7 +660,24 @@ export async function getRiderKpiReport(filters: ReportFilters) {
     if (!driver?.cityId && !first.cityId) reasons.push("لا توجد مدينة");
     if (!first.applicationProjectId) reasons.push("لا يوجد مشروع تشغيل");
 
-    const dailyTargetHours = target.minActiveDays ? target.workingHours / target.minActiveDays : 8;
+    reasons.length = 0;
+    if (orders < target.expectedOrders) {
+      reasons.push(buildPerformanceWarning({ label: "طلبات", actual: orders, expected: target.expectedOrders, context: targetContext }));
+    }
+    if (workingHours < target.expectedWorkingHours) {
+      reasons.push(buildPerformanceWarning({ label: "ساعات العمل", actual: workingHours, expected: target.expectedWorkingHours, context: targetContext, unit: "ساعة" }));
+    }
+    if (activeDays < target.expectedActiveDays) {
+      reasons.push(buildPerformanceWarning({ label: "أيام النشاط", actual: activeDays, expected: target.expectedActiveDays, context: targetContext, unit: "يوم" }));
+    }
+    if (onTimeRate < target.onTimeRate) reasons.push(`On-Time منخفض: ${pct(onTimeRate)}% من ${target.onTimeRate}% مطلوب`);
+    if (cancellationRate > target.maxCancellationRate) reasons.push(`نسبة الإلغاء مرتفعة: ${pct(cancellationRate)}% والحد ${target.maxCancellationRate}%`);
+    if (rejectionRate > target.maxRejectionRate) reasons.push(`نسبة الرفض مرتفعة: ${pct(rejectionRate)}% والحد ${target.maxRejectionRate}%`);
+    if (!driver?.accountId) reasons.push("لا يوجد حساب تطبيق");
+    if (!driver?.supervisorId) reasons.push("لا يوجد مشرف");
+    if (!driver?.cityId && !first.cityId) reasons.push("لا توجد مدينة");
+    if (!first.applicationProjectId) reasons.push("لا يوجد مشروع تشغيل");
+
     const dailyReports = bucket.reports
       .slice()
       .sort((a, b) => b.reportDate.getTime() - a.reportDate.getTime())
@@ -618,8 +688,9 @@ export async function getRiderKpiReport(filters: ReportFilters) {
         const reportCancellation = numberValue(report.cancellationRate);
         const reportRejection = numberValue(report.rejectionRate);
         const reportWarnings: string[] = [];
-        if (reportOrders < target.dailyOrders) reportWarnings.push("طلبات أقل من اليومي");
-        if (reportHours < dailyTargetHours) reportWarnings.push("ساعات أقل من المطلوب");
+        const dailyTarget = expectedRulesForDay(target, report.reportDate, report.month || filters.month);
+        if (reportOrders < dailyTarget.expectedOrders) reportWarnings.push(`طلبات أقل من المعدل اليومي: ${reportOrders} من ${dailyTarget.expectedOrders} متوقع يوميًا`);
+        if (reportHours < dailyTarget.expectedWorkingHours) reportWarnings.push(`ساعات أقل من المعدل اليومي: ${pct(reportHours)} من ${pct(dailyTarget.expectedWorkingHours)} ساعة متوقعة يوميًا`);
         if (reportOnTime < target.onTimeRate) reportWarnings.push("On-Time منخفض");
         if (reportCancellation > target.maxCancellationRate) reportWarnings.push("إلغاء مرتفع");
         if (reportRejection > target.maxRejectionRate) reportWarnings.push("رفض مرتفع");
@@ -635,20 +706,22 @@ export async function getRiderKpiReport(filters: ReportFilters) {
         };
       });
 
-    const score = Math.max(
+    const expectedScore = Math.max(
       0,
       Math.min(
         100,
         Math.round(
-          Math.min(orders / Math.max(target.monthlyOrders, 1), 1) * 45 +
-            Math.min(workingHours / Math.max(target.workingHours, 1), 1) * 20 +
-            Math.min(onTimeRate / Math.max(target.onTimeRate, 1), 1) * 20 +
-            Math.max(0, 1 - cancellationRate / Math.max(target.maxCancellationRate * 2, 1)) * 7.5 +
-            Math.max(0, 1 - rejectionRate / Math.max(target.maxRejectionRate * 2, 1)) * 7.5,
+          Math.min(calculatePerformancePercentage(orders, target.expectedOrders) / 100, 1) * 40 +
+            Math.min(calculatePerformancePercentage(workingHours, target.expectedWorkingHours) / 100, 1) * 20 +
+            Math.min(calculatePerformancePercentage(activeDays, target.expectedActiveDays) / 100, 1) * 15 +
+            Math.min(onTimeRate / Math.max(target.onTimeRate, 1), 1) * 15 +
+            Math.max(0, 1 - cancellationRate / Math.max(target.maxCancellationRate * 2, 1)) * 5 +
+            Math.max(0, 1 - rejectionRate / Math.max(target.maxRejectionRate * 2, 1)) * 5,
         ),
       ),
     );
-    const valid = reasons.length === 0;
+    const performance = getPerformanceStatus(expectedScore);
+    const valid = reasons.length === 0 && performance.code === "GREEN";
 
     return {
       driverId,
@@ -670,8 +743,8 @@ export async function getRiderKpiReport(filters: ReportFilters) {
       rejectionRate: pct(rejectionRate),
       activeDays,
       achievement,
-      score,
-      status: rowStatus(score, valid),
+      score: expectedScore,
+      status: rowStatus(expectedScore, valid),
       valid,
       reasons,
       target,
@@ -725,10 +798,13 @@ export async function getCityRanking(filters: ReportFilters) {
 
   const rows = Array.from(groups.entries()).map(([key, riders]) => {
     const first = riders[0];
-    const monthlyTarget =
+    const configuredMonthlyTarget =
       targetMap.get(`${first.cityId}:${first.appName}`) ??
       targetMap.get(`${first.cityId}:`) ??
       riders.reduce((sum, rider) => sum + rider.target.monthlyOrders, 0);
+    const monthlyTarget =
+      riders.reduce((sum, rider) => sum + rider.target.expectedOrders, 0) ||
+      calculateExpectedTarget({ monthlyTarget: configuredMonthlyTarget, month: filters.month, dateFrom: filters.dateFrom, dateTo: filters.dateTo }).expected;
     const orders = riders.reduce((sum, rider) => sum + rider.orders, 0);
     const count = riders.length || 1;
     const score = Math.round(riders.reduce((sum, rider) => sum + rider.score, 0) / count);
@@ -771,7 +847,7 @@ export async function getProjectPerformance(filters: ReportFilters) {
   const rows = Array.from(groups.entries()).map(([key, riders]) => {
     const first = riders[0];
     const count = riders.length || 1;
-    const target = riders.reduce((sum, rider) => sum + rider.target.monthlyOrders, 0);
+    const target = riders.reduce((sum, rider) => sum + rider.target.expectedOrders, 0);
     const orders = riders.reduce((sum, rider) => sum + rider.orders, 0);
     return {
       key,

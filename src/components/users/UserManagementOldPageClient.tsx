@@ -49,10 +49,10 @@ const roleGuides: Record<string, { title: string; tone: string; summary: string;
     rules: ["إدارة التشغيل والسيارات والمناديب", "تقارير ومتابعة", "لا يدير مستخدمين إلا لو Admin"],
   },
   SUPERVISOR: {
-    title: "مشرف",
+    title: "مشرف مدينة أو مشروع",
     tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
-    summary: "يرى مناديبه ومهامه ونطاق المدينة المرتبط به. لازم تربطه بمشرف أو مدينة.",
-    rules: ["مهام المشرف", "الحضور والتنبيهات", "نطاق محدود حسب المشرف/المدينة"],
+    summary: "مشرف المدينة يرى كل المشاريع والمناديب والسيارات والمسيرات داخل مدينته. عند اختيار مشروع يصبح مشرف مشروع ويرى بيانات هذا المشروع فقط.",
+    rules: ["بدون مشروع: كل بيانات المدينة", "مع مشروع: بيانات المشروع فقط", "لا يملك إدارة المستخدمين أو الاعتماد والحذف"],
   },
   ACCOUNTANT: {
     title: "محاسب / مالية",
@@ -87,6 +87,11 @@ function splitScope(value: string) {
     .split(/[;,|]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function supervisorScopeLabel(row: Pick<UserManagementRow, "role" | "projectScope" | "projectScopeRaw">) {
+  if (row.role !== "SUPERVISOR") return row.projectScope;
+  return splitScope(row.projectScopeRaw).length ? `مشرف مشروع: ${row.projectScope}` : "مشرف مدينة: كل مشاريع المدينة";
 }
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
@@ -141,9 +146,9 @@ function Badge({ label, tone }: { label: string; tone: "emerald" | "red" | "ambe
 }
 
 function buildCsv(rows: UserManagementRow[]) {
-  const headers = ["Name", "Email", "Role", "City Scope", "Supervisor", "Drivers Scope", "Status", "Last Login", "Device"];
+  const headers = ["Name", "Email", "Role", "Supervisor Scope", "City Scope", "Supervisor", "Drivers Scope", "Status", "Last Login", "Device"];
   const body = rows.map((row) =>
-    [row.name, row.email, row.roleLabel, row.cityScope, row.supervisorName, row.linkedDriversCount, row.statusLabel, row.lastLogin, row.device]
+    [row.name, row.email, row.roleLabel, supervisorScopeLabel(row), row.cityScope, row.supervisorName, row.linkedDriversCount, row.statusLabel, row.lastLogin, row.device]
       .map((item) => `"${String(item).replaceAll('"', '""')}"`)
       .join(","),
   );
@@ -210,6 +215,7 @@ function PermissionAssignmentPreview({
   const selectedCities = data.cities.filter((item) => form.cityScope.includes(item.id));
   const selectedProjects = data.projects.filter((item) => form.projectScope.includes(item.id));
   const isGlobalRole = form.role === "ADMIN" || form.role === "OPERATION_MANAGER";
+  const supervisorType = form.role === "SUPERVISOR" ? (form.projectScope.length ? "مشرف مشروع" : "مشرف مدينة") : "";
   const warnings: string[] = [];
 
   if (form.role === "SUPERVISOR" && !form.supervisorId && !form.cityId && !form.cityScope.length) {
@@ -231,7 +237,7 @@ function PermissionAssignmentPreview({
           <p className="mt-1 text-sm font-bold leading-6">{guide.summary}</p>
         </div>
         <div className="rounded-xl bg-white/70 px-3 py-2 text-xs font-black">
-          {isGlobalRole ? "نطاق عام" : "نطاق مخصص"}
+          {isGlobalRole ? "نطاق عام" : supervisorType || "نطاق مخصص"}
         </div>
       </div>
 
@@ -382,7 +388,7 @@ export function UserManagementOldPageClient({ data }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, isActive: form.status === "active" }),
     });
-    const payload = (await response.json()) as { error?: string; temporaryPassword?: string };
+    const payload = (await response.json()) as { error?: string; temporaryPassword?: string; passwordUpdated?: boolean };
     setSaving(false);
 
     if (!response.ok) {
@@ -391,7 +397,13 @@ export function UserManagementOldPageClient({ data }: Props) {
     }
 
     if (payload.temporaryPassword) setTemporaryPassword(payload.temporaryPassword);
-    setToast(isEdit ? "تم تعديل المستخدم وربط الصلاحيات." : "تم إنشاء المستخدم وحفظ كلمة مرور مؤقتة.");
+    setToast(
+      isEdit
+        ? payload.passwordUpdated
+          ? "تم تعديل المستخدم وتحديث كلمة المرور بنجاح."
+          : "تم تعديل المستخدم وربط الصلاحيات."
+        : "تم إنشاء المستخدم وحفظ كلمة مرور مؤقتة.",
+    );
     router.refresh();
   };
 
@@ -479,6 +491,10 @@ export function UserManagementOldPageClient({ data }: Props) {
                     <Badge label={activeUser.roleLabel} tone="blue" />
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-black text-slate-500">نوع ونطاق المشرف</p>
+                    <strong className="mt-1 block text-sm font-black text-slate-950">{supervisorScopeLabel(activeUser)}</strong>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-black text-slate-500">نطاق المدينة</p>
                     <strong className="mt-1 block text-sm font-black text-slate-950">{activeUser.cityScope}</strong>
                   </div>
@@ -535,7 +551,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     كلمة المرور {modalMode === "edit" ? "(اختياري)" : "(اتركها فارغة لإنشاء مؤقتة)"}
-                    <input value={form.password} onChange={(event) => setForm((old) => ({ ...old, password: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold" dir="ltr" />
+                    <input type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm((old) => ({ ...old, password: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold" dir="ltr" />
                   </label>
                   <label className="text-xs font-black text-slate-800">
                     الصلاحية
@@ -584,8 +600,18 @@ export function UserManagementOldPageClient({ data }: Props) {
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <MultiSelect label="نطاق المدن" values={form.cityScope} onChange={(cityScope) => setForm((old) => ({ ...old, cityScope }))} options={data.cities} />
-                  <MultiSelect label="نطاق المشاريع" values={form.projectScope} onChange={(projectScope) => setForm((old) => ({ ...old, projectScope }))} options={data.projects} />
+                  <MultiSelect label="نطاق المشاريع (اتركه فارغًا لمشرف المدينة)" values={form.projectScope} onChange={(projectScope) => setForm((old) => ({ ...old, projectScope }))} options={data.projects} />
                 </div>
+                {form.role === "SUPERVISOR" ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-900">
+                    <strong>{form.projectScope.length ? "الحساب مضبوط كمشرف مشروع." : "الحساب مضبوط كمشرف مدينة ويرى كل مشاريع المدينة."}</strong>
+                    {form.projectScope.length ? (
+                      <button type="button" onClick={() => setForm((old) => ({ ...old, projectScope: [] }))} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 font-black">
+                        تحويل إلى مشرف مدينة
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-900">
                   نطاق المدينة والمشرف هنا هو الأساس الذي ستستخدمه صفحات المناديب والتقارير لاحقًا لتصفية البيانات حسب الصلاحية.
@@ -726,12 +752,13 @@ export function UserManagementOldPageClient({ data }: Props) {
 
         {data.rows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-right text-sm">
+            <table className="w-full min-w-[1380px] border-separate border-spacing-0 text-right text-sm">
               <thead>
                 <tr className="bg-slate-100 text-xs font-black text-slate-600">
                   <th className="rounded-r-xl px-3 py-2">الاسم</th>
                   <th className="px-3 py-2">الإيميل</th>
                   <th className="px-3 py-2">الصلاحية</th>
+                  <th className="px-3 py-2">نوع ونطاق المشرف</th>
                   <th className="px-3 py-2">نطاق المدينة</th>
                   <th className="px-3 py-2">المشرف</th>
                   <th className="px-3 py-2">مناديب النطاق</th>
@@ -747,6 +774,7 @@ export function UserManagementOldPageClient({ data }: Props) {
                     <td className="border-b border-slate-100 px-3 py-3 font-black text-slate-950">{row.name}</td>
                     <td className="border-b border-slate-100 px-3 py-3 font-bold text-slate-800">{row.email}</td>
                     <td className="border-b border-slate-100 px-3 py-3"><Badge label={row.roleLabel} tone="blue" /></td>
+                    <td className="border-b border-slate-100 px-3 py-3 font-bold text-slate-700">{supervisorScopeLabel(row)}</td>
                     <td className="border-b border-slate-100 px-3 py-3 font-bold text-slate-700">{row.cityScope}</td>
                     <td className="border-b border-slate-100 px-3 py-3 font-bold text-slate-700">{row.supervisorName}</td>
                     <td className="border-b border-slate-100 px-3 py-3 font-black text-slate-950">{fmt(row.linkedDriversCount)}</td>

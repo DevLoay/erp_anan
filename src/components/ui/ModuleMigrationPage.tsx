@@ -31,7 +31,7 @@ export function ModuleMigrationPage({ module }: ModuleMigrationPageProps) {
               <Link href="/imports" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-black text-white">
                 مركز الاستيراد
               </Link>
-              <Link href="/reports" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-black text-slate-800">
+              <Link href="/management-reports" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-black text-slate-800">
                 التقارير العامة
               </Link>
             </div>

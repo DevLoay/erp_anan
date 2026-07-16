@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canReadResource, canWriteResource, roleFromHeaders } from "@/lib/permissions";
+import { getAccessScope } from "@/lib/auth/accessScope";
 
 function normalizeStatus(value: unknown) {
   const raw = String(value ?? "ACTIVE").toUpperCase();
@@ -28,7 +29,16 @@ export async function GET(request: Request) {
   if (!canReadResource(role, "applications")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
+    const scope = await getAccessScope(request.headers);
     const data = await prisma.applicationProject.findMany({
+      where: scope.isGlobal
+        ? {}
+        : {
+            AND: [
+              scope.projectIds.length ? { id: { in: scope.projectIds } } : {},
+              scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+            ],
+          },
       include: { application: true, project: true, city: true },
       orderBy: { name: "asc" },
     });
@@ -50,6 +60,23 @@ export async function POST(request: Request) {
   const name = String(body.name ?? "").trim();
   if (!applicationId || !code || !name) return NextResponse.json({ error: "applicationId, code and name are required" }, { status: 400 });
 
+  const existing = await prisma.applicationProject.findUnique({
+    where: { code },
+  });
+
+  if (existing) {
+    return NextResponse.json(
+      {
+        data: existing,
+        meta: {
+          reusedExisting: true,
+          message: "Application project code already exists. Existing record was returned instead of creating a duplicate.",
+        },
+      },
+      { status: 200 }
+    );
+  }
+
   const data = await prisma.applicationProject.create({
     data: {
       applicationId,
@@ -63,6 +90,5 @@ export async function POST(request: Request) {
     },
   });
 
-  return NextResponse.json({ data }, { status: 201 });
+  return NextResponse.json({ data, meta: { created: true } }, { status: 201 });
 }
-

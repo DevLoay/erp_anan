@@ -1512,6 +1512,11 @@ async function createPayroll(tx, master, maps) {
 }
 
 async function main() {
+  const apply = process.argv.includes("--apply");
+  const confirmed = process.argv.includes("--confirm=RESET_APRIL_KEETA");
+  if (!apply || !confirmed) {
+    throw new Error("Destructive reset requires --apply --confirm=RESET_APRIL_KEETA");
+  }
   const books = await loadWorkbooks();
   const source = buildSourceData(books);
   const backup = await backupOperationalData();

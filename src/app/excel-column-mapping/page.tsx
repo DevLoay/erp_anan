@@ -33,7 +33,7 @@ export default async function ExcelColumnMappingPage({ searchParams }: PageProps
         <div className="flex flex-wrap gap-2">
           <Link href="/imports/preview" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-700">رفع ملف</Link>
           <Link href="/imports/templates" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800 shadow-sm hover:bg-amber-100">قوالب الاستيراد</Link>
-          <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50">تاريخ الاستيراد</Link>
+          <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50">سجل الملفات والاستيراد</Link>
         </div>
       </div>
 

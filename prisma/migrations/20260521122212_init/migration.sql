@@ -1,8 +1,11 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('ADMIN', 'OPERATION_MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'HR', 'VIEWER');
 
 -- CreateEnum
-CREATE TYPE "RecordStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'PENDING', 'APPROVED', 'REJECTED', 'LOCKED');
+CREATE TYPE "RecordStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'PENDING', 'APPROVED', 'REJECTED', 'LOCKED', 'CANCELLED', 'DEDUCTED', 'PARTIALLY_DEDUCTED');
 
 -- CreateEnum
 CREATE TYPE "DriverStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'SUSPENDED');
@@ -90,12 +93,15 @@ CREATE TABLE "Driver" (
     "projectId" TEXT,
     "supervisorId" TEXT,
     "vehicleId" TEXT,
+    "vehicleOwnershipType" TEXT NOT NULL DEFAULT 'no_vehicle',
     "accountId" TEXT,
     "status" "DriverStatus" NOT NULL DEFAULT 'ACTIVE',
     "contractType" TEXT,
     "sponsorshipType" TEXT,
     "accommodationType" TEXT,
     "housingStatus" TEXT,
+    "source" TEXT,
+    "needsReview" BOOLEAN NOT NULL DEFAULT false,
     "joinDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -114,7 +120,10 @@ CREATE TABLE "Vehicle" (
     "brand" TEXT,
     "model" TEXT,
     "year" INTEGER,
+    "ownershipType" TEXT NOT NULL DEFAULT 'company',
     "rentalCompany" TEXT,
+    "rentalCompanyId" TEXT,
+    "dailyRent" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "monthlyRent" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "status" "VehicleStatus" NOT NULL DEFAULT 'AVAILABLE',
     "currentDriverId" TEXT,
@@ -211,6 +220,8 @@ CREATE TABLE "ApplicationPayrollSetting" (
     "bonusRules" JSONB,
     "deductionRules" JSONB,
     "carRentRule" JSONB,
+    "salaryCalculationSource" TEXT NOT NULL DEFAULT 'payroll_plan',
+    "useKeetaInvoiceAsSalaryBase" BOOLEAN NOT NULL DEFAULT false,
     "status" "RecordStatus" NOT NULL DEFAULT 'ACTIVE',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -243,16 +254,33 @@ CREATE TABLE "ApplicationImportBatch" (
     "applicationId" TEXT,
     "applicationProjectId" TEXT,
     "templateId" TEXT,
+    "projectId" TEXT,
+    "cityId" TEXT,
     "fileType" TEXT NOT NULL,
     "fileName" TEXT,
+    "sourceFileName" TEXT,
+    "importType" TEXT,
+    "month" TEXT,
+    "periodStart" TIMESTAMP(3),
+    "periodEnd" TIMESTAMP(3),
     "status" TEXT NOT NULL DEFAULT 'preview',
+    "sheetNames" JSONB,
     "totalRows" INTEGER NOT NULL DEFAULT 0,
     "validRows" INTEGER NOT NULL DEFAULT 0,
     "invalidRows" INTEGER NOT NULL DEFAULT 0,
     "duplicateRows" INTEGER NOT NULL DEFAULT 0,
     "missingDrivers" INTEGER NOT NULL DEFAULT 0,
     "unlinkedAccounts" INTEGER NOT NULL DEFAULT 0,
+    "unmatchedRows" INTEGER NOT NULL DEFAULT 0,
+    "previewData" JSONB,
+    "matchedColumns" JSONB,
+    "errorRows" JSONB,
+    "uploadedBy" TEXT,
+    "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdById" TEXT,
+    "approvedById" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "lockedAt" TIMESTAMP(3),
     "committedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -280,6 +308,203 @@ CREATE TABLE "ApplicationImportRow" (
 );
 
 -- CreateTable
+CREATE TABLE "TemplateConfig" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "nameAr" TEXT NOT NULL,
+    "nameEn" TEXT NOT NULL,
+    "projectId" TEXT,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "scope" TEXT NOT NULL,
+    "importType" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "showInGlobalImports" BOOLEAN NOT NULL DEFAULT false,
+    "showInProjectImports" BOOLEAN NOT NULL DEFAULT true,
+    "showInInvoices" BOOLEAN NOT NULL DEFAULT false,
+    "showInPayroll" BOOLEAN NOT NULL DEFAULT false,
+    "showInReports" BOOLEAN NOT NULL DEFAULT false,
+    "showInManagementReports" BOOLEAN NOT NULL DEFAULT false,
+    "showInApplicationCenter" BOOLEAN NOT NULL DEFAULT false,
+    "affectsPayroll" BOOLEAN NOT NULL DEFAULT false,
+    "affectsInvoices" BOOLEAN NOT NULL DEFAULT false,
+    "affectsReports" BOOLEAN NOT NULL DEFAULT false,
+    "affectsRank" BOOLEAN NOT NULL DEFAULT false,
+    "allowedRoles" JSONB,
+    "requiredColumns" JSONB,
+    "optionalColumns" JSONB,
+    "matchingKeys" JSONB,
+    "route" TEXT,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TemplateConfig_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "KeetaRankRecord" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'keeta',
+    "applicationProjectId" TEXT,
+    "driverId" TEXT,
+    "applicationAccountId" TEXT,
+    "courierId" TEXT NOT NULL,
+    "courierName" TEXT,
+    "cityId" TEXT,
+    "month" TEXT,
+    "periodStart" TIMESTAMP(3),
+    "periodEnd" TIMESTAMP(3),
+    "currentEstimatedLevel" TEXT,
+    "currentEstimatedRanking" DECIMAL(12,2),
+    "courierRankingPercentile" DECIMAL(12,4),
+    "currentScoreForForcedAssignment" DECIMAL(12,4),
+    "currentEstimatedRewardAmount" DECIMAL(12,2),
+    "onTimeRate" DECIMAL(8,4),
+    "orderCompletionRate" DECIMAL(8,4),
+    "dropOffNotEarlyRate" DECIMAL(8,4),
+    "orderVolume" INTEGER,
+    "rawData" JSONB,
+    "importBatchId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'Approved',
+    "approvedBy" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "KeetaRankRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "KeetaPerformanceRecord" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'keeta',
+    "applicationProjectId" TEXT,
+    "driverId" TEXT,
+    "applicationAccountId" TEXT,
+    "courierId" TEXT NOT NULL,
+    "courierFirstName" TEXT,
+    "courierLastName" TEXT,
+    "supervisorName" TEXT,
+    "vehicleType" TEXT,
+    "cityId" TEXT,
+    "reportDate" TIMESTAMP(3) NOT NULL,
+    "month" TEXT,
+    "periodStart" TIMESTAMP(3),
+    "periodEnd" TIMESTAMP(3),
+    "shiftAttendanceSummary" TEXT,
+    "onShift" BOOLEAN,
+    "validDay" BOOLEAN,
+    "courierAppOnlineTime" DECIMAL(10,2),
+    "validOnlineTime" DECIMAL(10,2),
+    "peakOnlineHours" DECIMAL(10,2),
+    "acceptedTasks" INTEGER,
+    "tasksWithRestaurantArrivals" INTEGER,
+    "deliveredTasks" INTEGER,
+    "largeOrderTasksCompleted" INTEGER,
+    "rejectedTasks" INTEGER,
+    "rejectedTasksCourier" INTEGER,
+    "rejectedTasksAuto" INTEGER,
+    "cancellationRateFromDeliveryIssues" DECIMAL(8,4),
+    "orderCompletionRateNonDelivery" DECIMAL(8,4),
+    "onTimeRate" DECIMAL(8,4),
+    "largeOrderOnTimeRate" DECIMAL(8,4),
+    "avgDeliveryTime" DECIMAL(10,2),
+    "deliveredOrdersOver55MinPercent" DECIMAL(8,4),
+    "overdueOrderTasks" INTEGER,
+    "severelyOverdueOrderTasks" INTEGER,
+    "rawData" JSONB,
+    "importBatchId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'Approved',
+    "approvedBy" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "KeetaPerformanceRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "KeetaInvoiceRecord" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'keeta',
+    "applicationProjectId" TEXT,
+    "driverId" TEXT,
+    "applicationAccountId" TEXT,
+    "courierId" TEXT NOT NULL,
+    "courierName" TEXT,
+    "partnerId" TEXT,
+    "partnerName" TEXT,
+    "billingCycle" TEXT,
+    "cityId" TEXT,
+    "month" TEXT,
+    "periodStart" TIMESTAMP(3),
+    "periodEnd" TIMESTAMP(3),
+    "isValid" BOOLEAN,
+    "reason" TEXT,
+    "onlineDaysValid" DECIMAL(10,2),
+    "dailyOnlineHoursValid" DECIMAL(10,2),
+    "dailyOnlineHoursPeakValid" DECIMAL(10,2),
+    "deliveredOrders" INTEGER,
+    "orderBasedPricing" DECIMAL(12,2),
+    "distanceFromPriceIncrease" DECIMAL(12,2),
+    "validDaCapacityIncentives" DECIMAL(12,2),
+    "experienceIncentive" DECIMAL(12,2),
+    "dxgy" DECIMAL(12,2),
+    "subsidy" DECIMAL(12,2),
+    "activitiesAndOtherRewards" DECIMAL(12,2),
+    "deduction" DECIMAL(12,2),
+    "foodCompensation" DECIMAL(12,2),
+    "registrationServiceFee" DECIMAL(12,2),
+    "otherAdjustment" DECIMAL(12,2),
+    "tipsExcludingTax" DECIMAL(12,2),
+    "tgaDeductionVatExcluded" DECIMAL(12,2),
+    "totalPayableAmount" DECIMAL(12,2),
+    "rawData" JSONB,
+    "invoiceBatchId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'Approved',
+    "approvedBy" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "KeetaInvoiceRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "KeetaInvoiceDetailRecord" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'keeta',
+    "applicationProjectId" TEXT,
+    "invoiceBatchId" TEXT,
+    "driverId" TEXT,
+    "applicationAccountId" TEXT,
+    "courierId" TEXT NOT NULL,
+    "courierName" TEXT,
+    "partnerId" TEXT,
+    "partnerName" TEXT,
+    "billingCycle" TEXT,
+    "transactionType" TEXT,
+    "businessId" TEXT,
+    "note" TEXT,
+    "feeType" TEXT,
+    "detailAmount" DECIMAL(12,2),
+    "totalPayableAmount" DECIMAL(12,2),
+    "deliveryDistance" DECIMAL(12,2),
+    "ticketId" TEXT,
+    "violationId" TEXT,
+    "violationType" TEXT,
+    "punishmentMethods" TEXT,
+    "timeOfFaceVerification" TEXT,
+    "faceVerificationResult" TEXT,
+    "rawData" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "KeetaInvoiceDetailRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "ApplicationAccount" (
     "id" TEXT NOT NULL,
     "appName" TEXT NOT NULL,
@@ -292,6 +517,9 @@ CREATE TABLE "ApplicationAccount" (
     "cityId" TEXT,
     "driverId" TEXT,
     "isEmpty" BOOLEAN NOT NULL DEFAULT true,
+    "needsReview" BOOLEAN NOT NULL DEFAULT false,
+    "unmatchedReason" TEXT,
+    "source" TEXT,
     "status" "RecordStatus" NOT NULL DEFAULT 'ACTIVE',
     "linkedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -308,6 +536,8 @@ CREATE TABLE "DailyReport" (
     "driverId" TEXT,
     "cityId" TEXT,
     "projectId" TEXT,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
     "appName" TEXT,
     "orders" INTEGER NOT NULL DEFAULT 0,
     "workingHours" DECIMAL(65,30) NOT NULL DEFAULT 0,
@@ -321,15 +551,163 @@ CREATE TABLE "DailyReport" (
 );
 
 -- CreateTable
+CREATE TABLE "HungerStationDailyPerformanceRecord" (
+    "id" TEXT NOT NULL,
+    "reportDate" TIMESTAMP(3) NOT NULL,
+    "month" TEXT NOT NULL,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "riderIdFromFile" TEXT NOT NULL,
+    "applicationAccountId" TEXT,
+    "driverId" TEXT,
+    "contractName" TEXT,
+    "vehicleName" TEXT,
+    "batchNumber" TEXT,
+    "tgaStatus" TEXT,
+    "errorCodes" TEXT,
+    "shifts" INTEGER,
+    "workingDays" DECIMAL(8,2),
+    "plannedWorkingHours" DECIMAL(10,2),
+    "actualWorkingHours" DECIMAL(10,2),
+    "avgWorkingHoursPerDay" DECIMAL(10,2),
+    "attendanceRate" DECIMAL(8,4),
+    "breakHours" DECIMAL(10,2),
+    "lostHours" DECIMAL(10,2),
+    "acceptanceRate" DECIMAL(8,4),
+    "contactRate" DECIMAL(8,4),
+    "noShows" INTEGER,
+    "noShowRate" DECIMAL(8,4),
+    "notifiedDeliveries" INTEGER,
+    "completedDeliveries" INTEGER,
+    "acceptedDeliveries" INTEGER,
+    "stackedDeliveries" INTEGER,
+    "declinedDeliveries" INTEGER,
+    "cancelledDeliveries" INTEGER,
+    "deductionDeliveries" INTEGER,
+    "notAcceptedDeliveries" INTEGER,
+    "manualUndispatched" INTEGER,
+    "matchingStatus" TEXT NOT NULL DEFAULT 'NEEDS_REVIEW',
+    "reviewReason" TEXT,
+    "rawData" JSONB,
+    "importBatchId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "HungerStationDailyPerformanceRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "HungerStationInvoiceRecord" (
+    "id" TEXT NOT NULL,
+    "month" TEXT NOT NULL,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "riderIdFromFile" TEXT NOT NULL,
+    "applicationAccountId" TEXT,
+    "driverId" TEXT,
+    "contractName" TEXT,
+    "completedOrders" INTEGER,
+    "cityPayment" DECIMAL(12,2),
+    "basicPayment" DECIMAL(12,2),
+    "acceptanceRatePenalties" DECIMAL(12,2),
+    "contactRatePenalties" DECIMAL(12,2),
+    "stackingDeduction" DECIMAL(12,2),
+    "declinedPenaltiesDayLogic" DECIMAL(12,2),
+    "latePenalty" DECIMAL(12,2),
+    "noShowPenalty" DECIMAL(12,2),
+    "noShowPenaltySpecialCities" DECIMAL(12,2),
+    "dailyAcceptanceRatePenalty" DECIMAL(12,2),
+    "distancePayment" DECIMAL(12,2),
+    "missedDaysPenalty" DECIMAL(12,2),
+    "courierBasicPayment" DECIMAL(12,2),
+    "courierScoringPayment" DECIMAL(12,2),
+    "riderBalance" DECIMAL(12,2),
+    "matchingStatus" TEXT NOT NULL DEFAULT 'NEEDS_REVIEW',
+    "reviewReason" TEXT,
+    "rawData" JSONB,
+    "importBatchId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "HungerStationInvoiceRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "HungerStationAccountUsage" (
+    "id" TEXT NOT NULL,
+    "month" TEXT NOT NULL,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "riderIdFromFile" TEXT NOT NULL,
+    "applicationAccountId" TEXT,
+    "driverId" TEXT,
+    "usageSource" TEXT NOT NULL,
+    "usageDate" TIMESTAMP(3),
+    "completedDeliveries" INTEGER,
+    "actualWorkingHours" DECIMAL(10,2),
+    "workingDays" DECIMAL(8,2),
+    "invoiceCompletedOrders" INTEGER,
+    "invoiceRiderBalance" DECIMAL(12,2),
+    "status" TEXT NOT NULL DEFAULT 'NEEDS_REVIEW',
+    "riskLevel" TEXT NOT NULL DEFAULT 'MEDIUM',
+    "reviewReason" TEXT,
+    "approvedById" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "HungerStationAccountUsage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AccountUsage" (
+    "id" TEXT NOT NULL,
+    "applicationAccountId" TEXT NOT NULL,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "ownerDriverId" TEXT,
+    "actualDriverId" TEXT,
+    "month" TEXT NOT NULL,
+    "usageDate" TIMESTAMP(3),
+    "dateFrom" TIMESTAMP(3),
+    "dateTo" TIMESTAMP(3),
+    "source" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "usageType" TEXT NOT NULL DEFAULT 'NEEDS_REVIEW',
+    "approvedById" TEXT,
+    "approvedAt" TIMESTAMP(3),
+    "reviewReason" TEXT,
+    "rawData" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AccountUsage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Advance" (
     "id" TEXT NOT NULL,
     "driverId" TEXT NOT NULL,
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "supervisorId" TEXT,
     "payrollItemId" TEXT,
+    "deductedPayrollRunId" TEXT,
+    "referenceNumber" TEXT,
     "amount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "remainingAmount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "reason" TEXT,
     "deductionMonth" TEXT,
+    "advanceDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
+    "isDeducted" BOOLEAN NOT NULL DEFAULT false,
+    "createdById" TEXT,
+    "approvedById" TEXT,
+    "approvedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -340,6 +718,7 @@ CREATE TABLE "Advance" (
 CREATE TABLE "Deduction" (
     "id" TEXT NOT NULL,
     "driverId" TEXT NOT NULL,
+    "vehicleId" TEXT,
     "payrollItemId" TEXT,
     "type" TEXT NOT NULL,
     "amount" DECIMAL(65,30) NOT NULL DEFAULT 0,
@@ -402,6 +781,8 @@ CREATE TABLE "PayrollRun" (
     "totalEarnings" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "totalDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "netTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "totalCompanyRevenue" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "estimatedCompanyProfit" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "approvedById" TEXT,
     "approvedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -417,12 +798,23 @@ CREATE TABLE "PayrollItem" (
     "driverId" TEXT NOT NULL,
     "applicationAccountId" TEXT,
     "vehicleId" TEXT,
+    "vehicleOwnershipType" TEXT NOT NULL DEFAULT 'no_vehicle',
+    "vehicleRentDays" INTEGER NOT NULL DEFAULT 0,
+    "vehicleDailyRent" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "vehicleMonthlyRent" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "vehicleRentDisplayAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "orders" INTEGER NOT NULL DEFAULT 0,
     "extraOrders" INTEGER NOT NULL DEFAULT 0,
     "workingHours" DECIMAL(8,2),
     "onTimeRate" DECIMAL(8,2),
     "cancellationRate" DECIMAL(8,2),
     "rejectionRate" DECIMAL(8,2),
+    "invoiceIsValid" BOOLEAN,
+    "invoiceValidityReason" TEXT,
+    "performanceValidDays" INTEGER NOT NULL DEFAULT 0,
+    "performanceValidRate" DECIMAL(8,2) NOT NULL DEFAULT 0,
+    "kpiScore" DECIMAL(8,2) NOT NULL DEFAULT 0,
+    "kpiStatus" TEXT,
     "level" TEXT,
     "basicSalary" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "extraOrdersBonus" DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -434,11 +826,57 @@ CREATE TABLE "PayrollItem" (
     "violationsTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "fuelTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "appDeductionsTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "adminCarryoverDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "housingDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "trafficViolationDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "advanceDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaFoodCompensation" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaTgaDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "totalAppDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "vehicleCarryoverDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "vehicleDamageDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "accidentLiabilityDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "bikeRentDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "kafalaDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "kafalaDeductionNotes" TEXT,
+    "kafalaDeductionSource" TEXT,
+    "userDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "userDeductionApplied" BOOLEAN NOT NULL DEFAULT false,
+    "userDeductionReason" TEXT,
     "damagesTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "accidentDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "otherDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "totalDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "netSalary" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "salaryPlanId" TEXT,
+    "relationshipType" TEXT,
+    "monthlyTargetOrders" INTEGER NOT NULL DEFAULT 0,
+    "deliveredOrders" INTEGER NOT NULL DEFAULT 0,
+    "extraOrderRate" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "shortageOrders" INTEGER NOT NULL DEFAULT 0,
+    "shortageDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "salaryBaseWorkingDays" INTEGER NOT NULL DEFAULT 28,
+    "workedDaysForSalary" INTEGER NOT NULL DEFAULT 0,
+    "baseSalaryBeforeProration" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "levelBonus" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "housingAllowance" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "manualBonus" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "grossSalary" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "internalAdvances" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "internalPenalties" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "carRentDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "fuelDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "manualDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "finalSalary" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "companyRevenueFromKeeta" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaTotalPayableAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaDeductions" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "keetaIncentives" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "companyGrossRevenue" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "estimatedCompanyProfit" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "costPerOrder" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "lastEditedBy" TEXT,
     "status" TEXT NOT NULL DEFAULT 'draft',
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -458,6 +896,69 @@ CREATE TABLE "PayrollAdjustment" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "PayrollAdjustment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PayrollFieldRule" (
+    "id" TEXT NOT NULL,
+    "fieldKey" TEXT NOT NULL,
+    "labelAr" TEXT NOT NULL,
+    "labelEn" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "calculationRole" TEXT NOT NULL,
+    "projectId" TEXT,
+    "applicationId" TEXT,
+    "applicationProjectId" TEXT,
+    "affectsPayroll" BOOLEAN NOT NULL DEFAULT false,
+    "affectsFinalSalary" BOOLEAN NOT NULL DEFAULT false,
+    "visibleInPayroll" BOOLEAN NOT NULL DEFAULT true,
+    "visibleInDetails" BOOLEAN NOT NULL DEFAULT true,
+    "visibleInReports" BOOLEAN NOT NULL DEFAULT true,
+    "includedInBaseAmount" BOOLEAN NOT NULL DEFAULT false,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PayrollFieldRule_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "KeetaPayrollPlan" (
+    "id" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'keeta',
+    "applicationProjectId" TEXT,
+    "cityId" TEXT,
+    "name" TEXT NOT NULL,
+    "relationshipType" TEXT NOT NULL,
+    "level" TEXT,
+    "baseSalary" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "fixedAllowance" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "monthlyTargetOrders" INTEGER NOT NULL DEFAULT 0,
+    "workingDaysBase" INTEGER NOT NULL DEFAULT 28,
+    "shortageThresholdOrders" INTEGER NOT NULL DEFAULT 460,
+    "shortageDeductionRate" DECIMAL(12,2) NOT NULL DEFAULT 8,
+    "carAllowanceAmount" DECIMAL(12,2) NOT NULL DEFAULT 1500,
+    "companyCarMonthlyRent" DECIMAL(12,2) NOT NULL DEFAULT 1500,
+    "fuelAllowanceAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "housingAllowanceAmount" DECIMAL(12,2) NOT NULL DEFAULT 300,
+    "communicationAllowanceAmount" DECIMAL(12,2) NOT NULL DEFAULT 100,
+    "extraOrderRate" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "bonusAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "bonusCondition" JSONB,
+    "carRentDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "fuelDeduction" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "internalPenaltyEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "salaryCalculationSource" TEXT NOT NULL DEFAULT 'payroll_plan',
+    "useKeetaInvoiceAsSalaryBase" BOOLEAN NOT NULL DEFAULT false,
+    "enableFreelancerUserDeduction" BOOLEAN NOT NULL DEFAULT true,
+    "freelancerUserDeductionAmount" DECIMAL(12,2) NOT NULL DEFAULT 300,
+    "enableKafalaDeduction" BOOLEAN NOT NULL DEFAULT true,
+    "keetaDeductionSource" TEXT NOT NULL DEFAULT 'riderDetail',
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "KeetaPayrollPlan_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -499,12 +1000,14 @@ CREATE TABLE "Task" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT,
+    "category" TEXT,
     "cityId" TEXT,
     "supervisorId" TEXT,
     "driverId" TEXT,
     "priority" "Severity" NOT NULL DEFAULT 'INFO',
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "dueDate" TIMESTAMP(3),
+    "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -519,6 +1022,7 @@ CREATE TABLE "Notification" (
     "severity" "Severity" NOT NULL DEFAULT 'INFO',
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "driverId" TEXT,
+    "supervisorId" TEXT,
     "entityType" TEXT,
     "entityId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -617,10 +1121,15 @@ CREATE TABLE "DriverWarning" (
 -- CreateTable
 CREATE TABLE "AttendanceRecord" (
     "id" TEXT NOT NULL,
-    "driverId" TEXT NOT NULL,
+    "driverId" TEXT,
+    "supervisorId" TEXT,
+    "userId" TEXT,
+    "personType" TEXT NOT NULL DEFAULT 'driver',
     "workDate" TIMESTAMP(3) NOT NULL,
     "checkIn" TIMESTAMP(3),
     "checkOut" TIMESTAMP(3),
+    "checkInPhoto" TEXT,
+    "checkOutPhoto" TEXT,
     "workingHours" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "notes" TEXT,
@@ -772,6 +1281,7 @@ CREATE TABLE "VehicleCleaning" (
     "cost" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "notes" TEXT,
+    "attachments" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -856,6 +1366,7 @@ CREATE TABLE "VehicleAccident" (
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "notes" TEXT,
+    "attachments" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -873,6 +1384,7 @@ CREATE TABLE "VehicleDamage" (
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
     "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "notes" TEXT,
+    "attachments" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -907,12 +1419,18 @@ CREATE TABLE "Invoice" (
     "number" TEXT NOT NULL,
     "client" TEXT,
     "projectId" TEXT,
+    "applicationProjectId" TEXT,
+    "importBatchId" TEXT,
     "month" TEXT,
     "amount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "vatAmount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "status" "RecordStatus" NOT NULL DEFAULT 'PENDING',
+    "invoiceStatus" TEXT NOT NULL DEFAULT 'Draft',
     "issuedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "dueDate" TIMESTAMP(3),
+    "approvedAt" TIMESTAMP(3),
+    "lockedAt" TIMESTAMP(3),
+    "paidAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -1169,6 +1687,9 @@ CREATE INDEX "Vehicle_vehicleCode_idx" ON "Vehicle"("vehicleCode");
 CREATE INDEX "Vehicle_currentDriverId_idx" ON "Vehicle"("currentDriverId");
 
 -- CreateIndex
+CREATE INDEX "Vehicle_rentalCompanyId_idx" ON "Vehicle"("rentalCompanyId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Application_code_key" ON "Application"("code");
 
 -- CreateIndex
@@ -1217,10 +1738,25 @@ CREATE INDEX "ApplicationImportBatch_applicationId_idx" ON "ApplicationImportBat
 CREATE INDEX "ApplicationImportBatch_applicationProjectId_idx" ON "ApplicationImportBatch"("applicationProjectId");
 
 -- CreateIndex
+CREATE INDEX "ApplicationImportBatch_projectId_idx" ON "ApplicationImportBatch"("projectId");
+
+-- CreateIndex
+CREATE INDEX "ApplicationImportBatch_cityId_idx" ON "ApplicationImportBatch"("cityId");
+
+-- CreateIndex
 CREATE INDEX "ApplicationImportBatch_templateId_idx" ON "ApplicationImportBatch"("templateId");
 
 -- CreateIndex
+CREATE INDEX "ApplicationImportBatch_importType_month_idx" ON "ApplicationImportBatch"("importType", "month");
+
+-- CreateIndex
 CREATE INDEX "ApplicationImportBatch_createdById_idx" ON "ApplicationImportBatch"("createdById");
+
+-- CreateIndex
+CREATE INDEX "ApplicationImportBatch_approvedById_idx" ON "ApplicationImportBatch"("approvedById");
+
+-- CreateIndex
+CREATE INDEX "ApplicationImportBatch_periodStart_periodEnd_idx" ON "ApplicationImportBatch"("periodStart", "periodEnd");
 
 -- CreateIndex
 CREATE INDEX "ApplicationImportBatch_status_createdAt_idx" ON "ApplicationImportBatch"("status", "createdAt");
@@ -1236,6 +1772,126 @@ CREATE INDEX "ApplicationImportRow_status_idx" ON "ApplicationImportRow"("status
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ApplicationImportRow_batchId_rowNumber_key" ON "ApplicationImportRow"("batchId", "rowNumber");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TemplateConfig_key_key" ON "TemplateConfig"("key");
+
+-- CreateIndex
+CREATE INDEX "TemplateConfig_projectId_idx" ON "TemplateConfig"("projectId");
+
+-- CreateIndex
+CREATE INDEX "TemplateConfig_applicationId_idx" ON "TemplateConfig"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "TemplateConfig_applicationProjectId_idx" ON "TemplateConfig"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "TemplateConfig_scope_importType_idx" ON "TemplateConfig"("scope", "importType");
+
+-- CreateIndex
+CREATE INDEX "TemplateConfig_enabled_sortOrder_idx" ON "TemplateConfig"("enabled", "sortOrder");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_projectId_month_idx" ON "KeetaRankRecord"("projectId", "month");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_applicationProjectId_idx" ON "KeetaRankRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_driverId_idx" ON "KeetaRankRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_applicationAccountId_idx" ON "KeetaRankRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_courierId_idx" ON "KeetaRankRecord"("courierId");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_cityId_idx" ON "KeetaRankRecord"("cityId");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_status_idx" ON "KeetaRankRecord"("status");
+
+-- CreateIndex
+CREATE INDEX "KeetaRankRecord_periodStart_periodEnd_idx" ON "KeetaRankRecord"("periodStart", "periodEnd");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_projectId_month_idx" ON "KeetaPerformanceRecord"("projectId", "month");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_applicationProjectId_idx" ON "KeetaPerformanceRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_driverId_idx" ON "KeetaPerformanceRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_applicationAccountId_idx" ON "KeetaPerformanceRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_courierId_idx" ON "KeetaPerformanceRecord"("courierId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_cityId_idx" ON "KeetaPerformanceRecord"("cityId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_reportDate_idx" ON "KeetaPerformanceRecord"("reportDate");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_status_idx" ON "KeetaPerformanceRecord"("status");
+
+-- CreateIndex
+CREATE INDEX "KeetaPerformanceRecord_periodStart_periodEnd_idx" ON "KeetaPerformanceRecord"("periodStart", "periodEnd");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_projectId_month_idx" ON "KeetaInvoiceRecord"("projectId", "month");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_applicationProjectId_idx" ON "KeetaInvoiceRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_driverId_idx" ON "KeetaInvoiceRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_applicationAccountId_idx" ON "KeetaInvoiceRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_courierId_idx" ON "KeetaInvoiceRecord"("courierId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_cityId_idx" ON "KeetaInvoiceRecord"("cityId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_invoiceBatchId_idx" ON "KeetaInvoiceRecord"("invoiceBatchId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_status_idx" ON "KeetaInvoiceRecord"("status");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceRecord_periodStart_periodEnd_idx" ON "KeetaInvoiceRecord"("periodStart", "periodEnd");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_projectId_idx" ON "KeetaInvoiceDetailRecord"("projectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_applicationProjectId_idx" ON "KeetaInvoiceDetailRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_invoiceBatchId_idx" ON "KeetaInvoiceDetailRecord"("invoiceBatchId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_driverId_idx" ON "KeetaInvoiceDetailRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_applicationAccountId_idx" ON "KeetaInvoiceDetailRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_courierId_idx" ON "KeetaInvoiceDetailRecord"("courierId");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_violationType_idx" ON "KeetaInvoiceDetailRecord"("violationType");
+
+-- CreateIndex
+CREATE INDEX "KeetaInvoiceDetailRecord_feeType_idx" ON "KeetaInvoiceDetailRecord"("feeType");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ApplicationAccount_username_key" ON "ApplicationAccount"("username");
@@ -1259,19 +1915,166 @@ CREATE INDEX "ApplicationAccount_driverId_idx" ON "ApplicationAccount"("driverId
 CREATE INDEX "ApplicationAccount_appUserId_idx" ON "ApplicationAccount"("appUserId");
 
 -- CreateIndex
+CREATE INDEX "ApplicationAccount_applicationId_applicationProjectId_cityI_idx" ON "ApplicationAccount"("applicationId", "applicationProjectId", "cityId", "appUserId");
+
+-- CreateIndex
 CREATE INDEX "DailyReport_month_cityId_projectId_idx" ON "DailyReport"("month", "cityId", "projectId");
+
+-- CreateIndex
+CREATE INDEX "DailyReport_applicationId_idx" ON "DailyReport"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "DailyReport_applicationProjectId_idx" ON "DailyReport"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "DailyReport_month_cityId_applicationProjectId_idx" ON "DailyReport"("month", "cityId", "applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_month_idx" ON "HungerStationDailyPerformanceRecord"("month");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_applicationId_idx" ON "HungerStationDailyPerformanceRecord"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_applicationProjectId_idx" ON "HungerStationDailyPerformanceRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_cityId_idx" ON "HungerStationDailyPerformanceRecord"("cityId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_driverId_idx" ON "HungerStationDailyPerformanceRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_applicationAccountId_idx" ON "HungerStationDailyPerformanceRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_riderIdFromFile_idx" ON "HungerStationDailyPerformanceRecord"("riderIdFromFile");
+
+-- CreateIndex
+CREATE INDEX "HungerStationDailyPerformanceRecord_matchingStatus_idx" ON "HungerStationDailyPerformanceRecord"("matchingStatus");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "HungerStationDailyPerformanceRecord_applicationProjectId_ci_key" ON "HungerStationDailyPerformanceRecord"("applicationProjectId", "cityId", "reportDate", "riderIdFromFile");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_month_idx" ON "HungerStationInvoiceRecord"("month");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_applicationId_idx" ON "HungerStationInvoiceRecord"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_applicationProjectId_idx" ON "HungerStationInvoiceRecord"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_cityId_idx" ON "HungerStationInvoiceRecord"("cityId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_driverId_idx" ON "HungerStationInvoiceRecord"("driverId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_applicationAccountId_idx" ON "HungerStationInvoiceRecord"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_riderIdFromFile_idx" ON "HungerStationInvoiceRecord"("riderIdFromFile");
+
+-- CreateIndex
+CREATE INDEX "HungerStationInvoiceRecord_matchingStatus_idx" ON "HungerStationInvoiceRecord"("matchingStatus");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_month_idx" ON "HungerStationAccountUsage"("month");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_applicationId_idx" ON "HungerStationAccountUsage"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_applicationProjectId_idx" ON "HungerStationAccountUsage"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_cityId_idx" ON "HungerStationAccountUsage"("cityId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_driverId_idx" ON "HungerStationAccountUsage"("driverId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_applicationAccountId_idx" ON "HungerStationAccountUsage"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_riderIdFromFile_idx" ON "HungerStationAccountUsage"("riderIdFromFile");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_status_idx" ON "HungerStationAccountUsage"("status");
+
+-- CreateIndex
+CREATE INDEX "HungerStationAccountUsage_riskLevel_idx" ON "HungerStationAccountUsage"("riskLevel");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_applicationAccountId_idx" ON "AccountUsage"("applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_applicationId_idx" ON "AccountUsage"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_applicationProjectId_idx" ON "AccountUsage"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_cityId_idx" ON "AccountUsage"("cityId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_ownerDriverId_idx" ON "AccountUsage"("ownerDriverId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_actualDriverId_idx" ON "AccountUsage"("actualDriverId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_month_idx" ON "AccountUsage"("month");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_status_idx" ON "AccountUsage"("status");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_usageType_idx" ON "AccountUsage"("usageType");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_applicationProjectId_month_applicationAccountI_idx" ON "AccountUsage"("applicationProjectId", "month", "applicationAccountId");
+
+-- CreateIndex
+CREATE INDEX "AccountUsage_applicationProjectId_month_actualDriverId_idx" ON "AccountUsage"("applicationProjectId", "month", "actualDriverId");
 
 -- CreateIndex
 CREATE INDEX "Advance_driverId_idx" ON "Advance"("driverId");
 
 -- CreateIndex
+CREATE INDEX "Advance_applicationProjectId_idx" ON "Advance"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "Advance_cityId_idx" ON "Advance"("cityId");
+
+-- CreateIndex
+CREATE INDEX "Advance_supervisorId_idx" ON "Advance"("supervisorId");
+
+-- CreateIndex
 CREATE INDEX "Advance_payrollItemId_idx" ON "Advance"("payrollItemId");
+
+-- CreateIndex
+CREATE INDEX "Advance_deductedPayrollRunId_idx" ON "Advance"("deductedPayrollRunId");
+
+-- CreateIndex
+CREATE INDEX "Advance_createdById_idx" ON "Advance"("createdById");
+
+-- CreateIndex
+CREATE INDEX "Advance_approvedById_idx" ON "Advance"("approvedById");
 
 -- CreateIndex
 CREATE INDEX "Advance_deductionMonth_status_idx" ON "Advance"("deductionMonth", "status");
 
 -- CreateIndex
+CREATE INDEX "Advance_advanceDate_idx" ON "Advance"("advanceDate");
+
+-- CreateIndex
 CREATE INDEX "Deduction_driverId_idx" ON "Deduction"("driverId");
+
+-- CreateIndex
+CREATE INDEX "Deduction_vehicleId_idx" ON "Deduction"("vehicleId");
 
 -- CreateIndex
 CREATE INDEX "Deduction_payrollItemId_idx" ON "Deduction"("payrollItemId");
@@ -1328,6 +2131,9 @@ CREATE INDEX "PayrollItem_applicationAccountId_idx" ON "PayrollItem"("applicatio
 CREATE INDEX "PayrollItem_vehicleId_idx" ON "PayrollItem"("vehicleId");
 
 -- CreateIndex
+CREATE INDEX "PayrollItem_salaryPlanId_idx" ON "PayrollItem"("salaryPlanId");
+
+-- CreateIndex
 CREATE INDEX "PayrollItem_status_idx" ON "PayrollItem"("status");
 
 -- CreateIndex
@@ -1335,6 +2141,33 @@ CREATE INDEX "PayrollAdjustment_payrollItemId_idx" ON "PayrollAdjustment"("payro
 
 -- CreateIndex
 CREATE INDEX "PayrollAdjustment_createdById_idx" ON "PayrollAdjustment"("createdById");
+
+-- CreateIndex
+CREATE INDEX "PayrollFieldRule_projectId_idx" ON "PayrollFieldRule"("projectId");
+
+-- CreateIndex
+CREATE INDEX "PayrollFieldRule_applicationId_idx" ON "PayrollFieldRule"("applicationId");
+
+-- CreateIndex
+CREATE INDEX "PayrollFieldRule_applicationProjectId_idx" ON "PayrollFieldRule"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "PayrollFieldRule_calculationRole_idx" ON "PayrollFieldRule"("calculationRole");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PayrollFieldRule_fieldKey_applicationProjectId_key" ON "PayrollFieldRule"("fieldKey", "applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPayrollPlan_projectId_idx" ON "KeetaPayrollPlan"("projectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPayrollPlan_applicationProjectId_idx" ON "KeetaPayrollPlan"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPayrollPlan_cityId_idx" ON "KeetaPayrollPlan"("cityId");
+
+-- CreateIndex
+CREATE INDEX "KeetaPayrollPlan_relationshipType_level_active_idx" ON "KeetaPayrollPlan"("relationshipType", "level", "active");
 
 -- CreateIndex
 CREATE INDEX "VehicleAssignment_vehicleId_idx" ON "VehicleAssignment"("vehicleId");
@@ -1358,6 +2191,30 @@ CREATE INDEX "FuelRecord_payrollItemId_idx" ON "FuelRecord"("payrollItemId");
 CREATE INDEX "FuelRecord_fuelDate_status_idx" ON "FuelRecord"("fuelDate", "status");
 
 -- CreateIndex
+CREATE INDEX "Task_cityId_idx" ON "Task"("cityId");
+
+-- CreateIndex
+CREATE INDEX "Task_supervisorId_idx" ON "Task"("supervisorId");
+
+-- CreateIndex
+CREATE INDEX "Task_driverId_idx" ON "Task"("driverId");
+
+-- CreateIndex
+CREATE INDEX "Task_status_priority_dueDate_idx" ON "Task"("status", "priority", "dueDate");
+
+-- CreateIndex
+CREATE INDEX "Notification_driverId_idx" ON "Notification"("driverId");
+
+-- CreateIndex
+CREATE INDEX "Notification_supervisorId_idx" ON "Notification"("supervisorId");
+
+-- CreateIndex
+CREATE INDEX "Notification_entityType_entityId_idx" ON "Notification"("entityType", "entityId");
+
+-- CreateIndex
+CREATE INDEX "Notification_status_severity_createdAt_idx" ON "Notification"("status", "severity", "createdAt");
+
+-- CreateIndex
 CREATE INDEX "DriverDocument_driverId_status_idx" ON "DriverDocument"("driverId", "status");
 
 -- CreateIndex
@@ -1377,6 +2234,15 @@ CREATE INDEX "DriverWarning_driverId_status_idx" ON "DriverWarning"("driverId", 
 
 -- CreateIndex
 CREATE INDEX "AttendanceRecord_driverId_workDate_idx" ON "AttendanceRecord"("driverId", "workDate");
+
+-- CreateIndex
+CREATE INDEX "AttendanceRecord_supervisorId_workDate_idx" ON "AttendanceRecord"("supervisorId", "workDate");
+
+-- CreateIndex
+CREATE INDEX "AttendanceRecord_userId_workDate_idx" ON "AttendanceRecord"("userId", "workDate");
+
+-- CreateIndex
+CREATE INDEX "AttendanceRecord_personType_workDate_idx" ON "AttendanceRecord"("personType", "workDate");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "CityTarget_cityId_appName_month_key" ON "CityTarget"("cityId", "appName", "month");
@@ -1425,6 +2291,15 @@ CREATE INDEX "FinanceEntry_entryDate_idx" ON "FinanceEntry"("entryDate");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Invoice_number_key" ON "Invoice"("number");
+
+-- CreateIndex
+CREATE INDEX "Invoice_projectId_idx" ON "Invoice"("projectId");
+
+-- CreateIndex
+CREATE INDEX "Invoice_applicationProjectId_idx" ON "Invoice"("applicationProjectId");
+
+-- CreateIndex
+CREATE INDEX "Invoice_invoiceStatus_month_idx" ON "Invoice"("invoiceStatus", "month");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ProfitLossRecord_month_key" ON "ProfitLossRecord"("month");

@@ -16,11 +16,11 @@ export function LoginClient({ nextPath }: { nextPath: string }) {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, nextPath }),
       });
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; redirectTo?: string };
       if (!response.ok) throw new Error(payload.error || "تعذر تسجيل الدخول.");
-      window.location.href = nextPath || "/dashboard";
+      window.location.href = payload.redirectTo || "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تسجيل الدخول.");
     } finally {
@@ -75,4 +75,3 @@ export function LoginClient({ nextPath }: { nextPath: string }) {
     </section>
   );
 }
-

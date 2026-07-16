@@ -3,9 +3,9 @@ import { StatCard } from "./StatCard";
 import { getDashboardStats } from "@/lib/stats";
 
 const quickActions = [
-  { href: "/reports", label: "فتح التقارير", className: "bg-slate-950 text-white border-slate-950" },
+  { href: "/management-reports", label: "فتح التقارير", className: "bg-slate-950 text-white border-slate-950" },
   { href: "/cities", label: "متابعة المدن", className: "bg-sky-50 text-sky-800 border-sky-200" },
-  { href: "/operations-alerts", label: "تنبيهات التشغيل", className: "bg-amber-50 text-amber-800 border-amber-200" },
+  { href: "/notifications", label: "تنبيهات التشغيل", className: "bg-amber-50 text-amber-800 border-amber-200" },
   { href: "/payroll", label: "مسير الرواتب", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
 ];
 

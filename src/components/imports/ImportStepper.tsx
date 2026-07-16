@@ -119,6 +119,8 @@ export function ImportStepper({
   const lockedProject = projects.find((project) => project.id === lockedProjectId);
   const filteredTemplates = useMemo(() => templates.filter((template) => template.fileType === importType), [importType, templates]);
   const activeTemplateId = templateId || filteredTemplates[0]?.id || "";
+  const requiresHungerStationReportDate = importType === "hungerstation_performance";
+  const requiresHungerStationInvoiceMonth = importType === "hungerstation_invoice";
 
   async function submitPreview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,9 +162,11 @@ export function ImportStepper({
       if (!res.ok) throw new Error(payload.error ?? "تعذر حفظ عملية الاستيراد.");
       const details = payload.data?.drivers
         ? ` المناديب: جديد ${payload.data.drivers.createdDrivers}، تحديث ${payload.data.drivers.updatedDrivers}، حسابات تطبيق ${payload.data.drivers.createdAccounts + payload.data.drivers.updatedAccounts}.`
-        : payload.data?.reports
-          ? ` التقارير اليومية: جديد ${payload.data.reports.createdReports}، تحديث ${payload.data.reports.updatedReports}.`
-          : "";
+        : payload.data?.hungerStationRecords
+          ? ` هنجرستيشن: يومي جديد ${payload.data.hungerStationRecords.createdDailyReports ?? 0}، يومي تحديث ${payload.data.hungerStationRecords.updatedDailyReports ?? 0}، فواتير جديدة ${payload.data.hungerStationRecords.createdInvoices ?? 0}، فواتير تحديث ${payload.data.hungerStationRecords.updatedInvoices ?? 0}.`
+          : payload.data?.reports
+            ? ` التقارير اليومية: جديد ${payload.data.reports.createdReports}، تحديث ${payload.data.reports.updatedReports}.`
+            : "";
       setToast(`${payload.data?.message ?? "تم حفظ عملية الاستيراد."}${details}`);
       const committedType = preview.summary.importType;
       const committedDate = reportDateFromPreview(preview);
@@ -179,6 +183,12 @@ export function ImportStepper({
       }
       if (invoiceCommitTypes.has(committedType) && committedProjectRoute) {
         router.push(`/projects/${committedProjectRoute}/invoices`);
+        return;
+      }
+      if (committedType === "hungerstation_invoice") {
+        const query = new URLSearchParams({ appName: "HungerStation" });
+        if (preview.summary.month) query.set("month", preview.summary.month);
+        router.push(`/daily-reports?${query.toString()}`);
         return;
       }
       if (rankCommitTypes.has(committedType) && committedProjectRoute) {
@@ -301,7 +311,21 @@ export function ImportStepper({
             </select>
           </label>
 
-          <label className="grid gap-2 text-sm font-black text-slate-700 md:col-span-3">
+          {requiresHungerStationReportDate ? (
+            <label className="grid gap-2 text-sm font-black text-slate-700">
+              تاريخ تقرير HungerStation
+              <input name="reportDate" type="date" className="rounded-xl border border-slate-300 px-3 py-2" />
+            </label>
+          ) : null}
+
+          {requiresHungerStationInvoiceMonth && !lockedMonth ? (
+            <label className="grid gap-2 text-sm font-black text-slate-700">
+              شهر فاتورة HungerStation
+              <input name="month" required type="month" defaultValue={searchParams.get("month") || ""} className="rounded-xl border border-slate-300 px-3 py-2" />
+            </label>
+          ) : null}
+
+          <label className={`grid gap-2 text-sm font-black text-slate-700 ${requiresHungerStationReportDate || requiresHungerStationInvoiceMonth ? "md:col-span-2" : "md:col-span-3"}`}>
             الملف
             <input name="file" required type="file" accept=".xlsx,.xls,.csv" className="rounded-xl border border-slate-300 bg-white px-3 py-2" />
           </label>

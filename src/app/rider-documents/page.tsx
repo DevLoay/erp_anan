@@ -1,8 +1,14 @@
-import { ResourceModulePage } from "@/components/ui/ResourceModulePage";
-import { resources } from "@/lib/resources";
+import { RiderDocumentsClient } from "@/components/rider-documents/RiderDocumentsClient";
+import { getRiderDocumentsData, resolveRiderDocumentFilters } from "@/lib/rider-documents/getRiderDocumentsData";
 
 export const dynamic = "force-dynamic";
 
-export default async function RiderDocumentsPage() {
-  return <ResourceModulePage resource={resources["driver-documents"]} analyticsKey="drivers" backHref="/hr" backLabel="رجوع للموارد البشرية" />;
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function RiderDocumentsPage({ searchParams }: PageProps) {
+  const filters = resolveRiderDocumentFilters((await searchParams) ?? {});
+  const data = await getRiderDocumentsData(filters);
+  return <RiderDocumentsClient data={data} />;
 }

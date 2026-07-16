@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canReadResource, canWriteResource, roleFromHeaders } from "@/lib/permissions";
+import { getAccessScope } from "@/lib/auth/accessScope";
 
 function normalizeStatus(value: unknown) {
   const raw = String(value ?? "ACTIVE").toUpperCase();
@@ -22,7 +23,22 @@ export async function GET(request: Request) {
   if (!canReadResource(role, "applications")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const data = await prisma.application.findMany({ orderBy: { name: "asc" } });
+    const scope = await getAccessScope(request.headers);
+    const data = await prisma.application.findMany({
+      where: scope.isGlobal
+        ? {}
+        : {
+            projects: {
+              some: {
+                AND: [
+                  scope.projectIds.length ? { id: { in: scope.projectIds } } : {},
+                  scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+                ],
+              },
+            },
+          },
+      orderBy: { name: "asc" },
+    });
     return NextResponse.json({ data, meta: { count: data.length, resource: "applications" } });
   } catch (error) {
     if (dbOffline(error)) return NextResponse.json({ error: "Database offline" }, { status: 503 });
@@ -51,4 +67,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ data }, { status: 201 });
 }
-

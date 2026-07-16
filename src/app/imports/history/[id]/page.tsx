@@ -18,17 +18,16 @@ export default async function ImportBatchDetailsPage({ params }: PageProps) {
           <nav className="mb-2 flex flex-wrap items-center gap-2 text-xs font-black text-slate-500">
             <Link href="/" className="hover:text-slate-950">الرئيسية</Link>
             <span>/</span>
-            <Link href="/imports/history" className="hover:text-slate-950">تاريخ الاستيراد</Link>
+            <Link href="/imports/history" className="hover:text-slate-950">سجل الملفات والاستيراد</Link>
             <span>/</span>
             <span className="text-slate-800">تفاصيل الدفعة</span>
           </nav>
           <h1 className="text-3xl font-black text-slate-950">تفاصيل عملية الاستيراد</h1>
           <p className="mt-2 max-w-4xl text-sm font-bold text-slate-600">مراجعة بيانات الملف، القالب، الصفوف، الأخطاء ونتائج الربط.</p>
         </div>
-        <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">رجوع للتاريخ</Link>
+        <Link href="/imports/history" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">رجوع لسجل الملفات</Link>
       </div>
       <ImportBatchDetails data={data} />
     </main>
   );
 }
-

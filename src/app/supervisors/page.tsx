@@ -3,6 +3,8 @@ import { PageShell } from "@/components/ui/PageShell";
 import { ResourceWorkspace } from "@/components/ui/ResourceWorkspace";
 import { getSupervisorPerformanceReport } from "@/lib/supervisor-performance";
 import { resources } from "@/lib/resources";
+import { getAccessScope } from "@/lib/auth/accessScope";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +13,8 @@ type PageProps = {
 };
 
 export default async function SupervisorsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const report = await getSupervisorPerformanceReport(params);
+  const [params, accessScope] = await Promise.all([searchParams, getAccessScope(await headers())]);
+  const report = await getSupervisorPerformanceReport(params, accessScope);
 
   return (
     <PageShell

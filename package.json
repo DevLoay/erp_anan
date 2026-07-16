@@ -2,6 +2,9 @@
   "name": "mohamed-shawki-erp-production",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev --port 3040",
     "build": "prisma generate && next build",
@@ -11,6 +14,10 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:push": "prisma db push",
+    "audit:production": "node scripts/audit-production-readiness.js",
+    "check:production-env": "node scripts/check-env-production.js",
+    "check:auth": "node scripts/check-auth-permissions.js",
+    "check:mojibake": "node scripts/check-mojibake.js",
     "migrate:legacy": "node scripts/migrate-legacy-db.mjs",
     "ensure:city-projects": "node scripts/ensure-city-application-projects.mjs --apply",
     "ensure:admin": "node scripts/ensure-admin-user.mjs"
@@ -22,6 +29,7 @@
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "prisma": "6.19.3",
     "recharts": "^3.8.1",
     "zod": "4.4.3"
   },
@@ -33,9 +41,12 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.2.6",
-    "postcss": "^8.5.0",
-    "prisma": "6.19.3",
+    "postcss": "8.5.15",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "uuid": "^11.1.1"
   }
 }

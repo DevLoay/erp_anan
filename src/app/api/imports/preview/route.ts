@@ -8,6 +8,8 @@ function isSupportedFile(fileName: string) {
   return lower.endsWith(".xlsx") || lower.endsWith(".xls") || lower.endsWith(".csv");
 }
 
+const MAX_IMPORT_FILE_SIZE = 25 * 1024 * 1024;
+
 export async function POST(request: Request) {
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, "applications")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -15,7 +17,10 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    if (!(file instanceof File)) return NextResponse.json({ error: "يجب رفع ملف Excel أو CSV أولا." }, { status: 400 });
+    if (file instanceof File && (file.size <= 0 || file.size > MAX_IMPORT_FILE_SIZE)) {
+      return NextResponse.json({ error: "حجم الملف غير صالح. الحد الأقصى 25 ميجابايت." }, { status: 413 });
+    }
+    if (!(file instanceof File)) return NextResponse.json({ error: "يجب رفع ملف Excel أو CSV أولًا." }, { status: 400 });
     if (!isSupportedFile(file.name)) return NextResponse.json({ error: "صيغة الملف غير مدعومة. استخدم Excel أو CSV." }, { status: 400 });
 
     const importType = String(form.get("importType") || form.get("fileType") || "").trim();
@@ -24,12 +29,22 @@ export async function POST(request: Request) {
     const applicationId = String(form.get("applicationId") || "").trim();
     const applicationProjectId = String(form.get("applicationProjectId") || "").trim();
     const projectId = String(form.get("projectId") || "").trim();
-    if (importTypeRequiresProject(importType) && (!applicationId || !applicationProjectId)) {
+    const month = String(form.get("month") || "").trim();
+    const reportDate = String(form.get("reportDate") || "").trim();
+
+    if (importType === "hungerstation_invoice" && !month) {
+      return NextResponse.json({ error: "شهر الفاتورة مطلوب لفاتورة HungerStation الشهرية." }, { status: 400 });
+    }
+
+    if (importType === "hungerstation_invoice" && !applicationId && !applicationProjectId) {
+      return NextResponse.json({ error: "يجب تحديد تطبيق HungerStation أو مشروع مدينة قبل رفع الفاتورة." }, { status: 400 });
+    }
+    if (importTypeRequiresProject(importType) && importType !== "hungerstation_invoice" && (!applicationId || !applicationProjectId)) {
       return NextResponse.json({ error: "لا يمكن رفع تقرير أو فاتورة مشروع بدون تحديد مشروع واضح." }, { status: 400 });
     }
 
     const cityId = String(form.get("cityId") || "").trim();
-    if (importTypeRequiresProject(importType) && !cityId) {
+    if (importTypeRequiresProject(importType) && importType !== "hungerstation_invoice" && !cityId) {
       return NextResponse.json({ error: "لا يمكن رفع ملف مشروع بدون تحديد المدينة. افتح الاستيراد من داخل مشروع المدينة الصحيح." }, { status: 400 });
     }
 
@@ -43,7 +58,8 @@ export async function POST(request: Request) {
       applicationProjectId,
       projectId,
       cityId,
-      month: String(form.get("month") || "").trim(),
+      month,
+      reportDate,
     });
 
     return NextResponse.json({ data: preview });

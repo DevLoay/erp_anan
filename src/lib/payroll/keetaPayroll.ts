@@ -62,6 +62,7 @@ const KEETA_SHORTAGE_RATE = 8;
 const COMPANY_CAR_FULL_MONTH_RENT = 2000;
 const COMPANY_CAR_DAILY_RENT = COMPANY_CAR_FULL_MONTH_RENT / VEHICLE_RENT_DAYS_BASE;
 const PERSONAL_CAR_USER_DEDUCTION = 300;
+const FREELANCER_USER_DEDUCTION = 200;
 const KEETA_CAR_AMOUNT = COMPANY_CAR_FULL_MONTH_RENT;
 
 function numberValue(value: unknown) {
@@ -401,6 +402,10 @@ function housingCategory(...values: Array<unknown>) {
 
 function deductionBucket(row: { type?: string | null; notes?: string | null }) {
   const text = `${row.type ?? ""} ${row.notes ?? ""}`.toLowerCase();
+  const key = text.replace(/[\s_\-]+/g, "");
+  if (key.includes("vehicledamage")) return "vehicleDamage";
+  if (key.includes("accidentliability")) return "accident";
+  if (key.includes("vehiclecarry")) return "vehicle";
   if (text.includes("kafala") || text.includes("sponsor") || text.includes("خصم كفالة") || text.includes("كفالة") || /\bk\b/.test(text)) return "kafala";
   if (text.includes("housing") || text.includes("سكن")) return "housing";
   if (text.includes("vehicle") || text.includes("car") || text.includes("سيارة") || text.includes("مرحل السيارات")) return "vehicle";
@@ -489,7 +494,7 @@ async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
           salaryCalculationSource: "payroll_plan",
           useKeetaInvoiceAsSalaryBase: false,
           enableFreelancerUserDeduction: true,
-          freelancerUserDeductionAmount: 300,
+          freelancerUserDeductionAmount: FREELANCER_USER_DEDUCTION,
           enableKafalaDeduction: true,
           keetaDeductionSource: "riderDetail",
           active: true,
@@ -524,7 +529,7 @@ async function ensureDefaultKeetaPayrollPlans(applicationProjectId: string) {
         salaryCalculationSource: "payroll_plan",
         useKeetaInvoiceAsSalaryBase: false,
         enableFreelancerUserDeduction: true,
-        freelancerUserDeductionAmount: 300,
+        freelancerUserDeductionAmount: FREELANCER_USER_DEDUCTION,
         enableKafalaDeduction: true,
         keetaDeductionSource: "riderDetail",
         active: true,
@@ -803,7 +808,18 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
     const keetaTgaDeduction = deductionAmount(invoice?.tgaDeductionVatExcluded);
     const totalAppDeductions = roundMoney(keetaDeduction + keetaFoodCompensation + keetaTgaDeduction);
     const experienceIncentiveDifferenceDeduction = keetaSalary.experienceIncentiveDifferenceDeduction;
-    const userDeduction = vehicleOwnershipType === "personal_car" ? PERSONAL_CAR_USER_DEDUCTION : 0;
+    const freelancerUserDeduction =
+      relationshipType === "freelancer" && plan.enableFreelancerUserDeduction !== false
+        ? numberValue(plan.freelancerUserDeductionAmount) || FREELANCER_USER_DEDUCTION
+        : 0;
+    const personalCarUserDeduction = vehicleOwnershipType === "personal_car" ? PERSONAL_CAR_USER_DEDUCTION : 0;
+    const userDeduction = roundMoney(freelancerUserDeduction + personalCarUserDeduction);
+    const userDeductionReason = [
+      freelancerUserDeduction ? `freelancer user deduction ${freelancerUserDeduction}` : null,
+      personalCarUserDeduction ? `personal car user deduction ${personalCarUserDeduction}` : null,
+    ]
+      .filter(Boolean)
+      .join(" + ");
     const manualDeduction = shortageDeduction + manualInternalDeduction;
     const totalDeductions = roundMoney(
       experienceIncentiveDifferenceDeduction +
@@ -866,7 +882,7 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
     if (!invoice || companyRevenueFromKeeta === 0) warnings.push("لا يوجد إيراد كيتا معتمد لهذا المندوب، راجع الفاتورة قبل اعتماد المسير.");
     if (!rank) warnings.push("لا يوجد Rank معتمد لهذا المندوب في الفترة المحددة.");
     if (!reportRows.length) warnings.push("لا يوجد تقرير أداء Keeta معتمد لهذا المندوب في الفترة المحددة.");
-    const blockingWarningCount = warnings.filter((warning) => !warning.toLowerCase().includes(performanceWarningMarker) && !warning.includes("طھظ‚ط±ظٹط± ط£ط¯ط§ط،")).length;
+    const blockingWarningCount = warnings.filter((warning) => !warning.toLowerCase().includes(performanceWarningMarker) && !warning.includes("تقرير أداء")).length;
 
     rows.push({
       values: {
@@ -925,7 +941,7 @@ export async function generateKeetaPayroll(input: GenerateKeetaPayrollInput) {
         kafalaDeductionSource: kafalaDeduction ? "KAFALA_DEDUCTION" : null,
         userDeduction,
         userDeductionApplied: userDeduction > 0,
-        userDeductionReason: userDeduction > 0 ? "خصم يوزر سيارة شخصية" : null,
+        userDeductionReason: userDeduction > 0 ? userDeductionReason : null,
         damagesTotal: 0,
         accidentDeduction: 0,
         otherDeductions: manualDeduction,

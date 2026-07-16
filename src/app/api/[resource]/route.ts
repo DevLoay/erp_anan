@@ -46,51 +46,76 @@ async function findRows(source: Delegate, take: number, select?: Record<string, 
   }
 }
 
-function scopedOr(scope: AccessScope, clauses: Array<Record<string, unknown>>) {
+function scopedAnd(scope: AccessScope, clauses: Array<Record<string, unknown>>) {
   if (scope.isGlobal) return {};
   const active = clauses.filter((clause) => Object.keys(clause).length > 0);
-  return active.length ? { OR: active } : { id: "__NO_ACCESS_SCOPE__" };
+  return active.length ? { AND: active } : { id: "__NO_ACCESS_SCOPE__" };
 }
 
 function scopedWhere(resource: string, scope: AccessScope): Record<string, unknown> {
   if (scope.isGlobal) return {};
   const cityClause = scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {};
-  const projectClause = scope.projectIds.length ? { projectId: { in: scope.projectIds } } : {};
+  const projectAccountClause = scope.projectIds.length
+    ? { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } }
+    : {};
   const driverClause = scope.driverId ? { driverId: scope.driverId } : {};
-  const supervisorClause = scope.supervisorId ? { supervisorId: scope.supervisorId } : {};
+  const supervisorClause = scope.supervisorId && !scope.cityIds.length && !scope.projectIds.length ? { supervisorId: scope.supervisorId } : {};
 
   switch (resource) {
     case "drivers":
-      return scopedOr(scope, [
+      return scopedAnd(scope, [
         scope.driverId ? { id: scope.driverId } : {},
         supervisorClause,
         cityClause,
-        projectClause,
+        projectAccountClause,
       ]);
     case "supervisors":
-      return scopedOr(scope, [
-        scope.supervisorId ? { id: scope.supervisorId } : {},
+      return scopedAnd(scope, [
+        scope.projectIds.length && scope.supervisorId ? { id: scope.supervisorId } : {},
         cityClause,
       ]);
     case "vehicles":
-      return scopedOr(scope, [
+      return scopedAnd(scope, [
         scope.driverId ? { currentDriverId: scope.driverId } : {},
         cityClause,
+        scope.projectIds.length
+          ? { currentDriver: { is: { applicationAccounts: { some: { applicationProjectId: { in: scope.projectIds } } } } } }
+          : {},
       ]);
     case "application-accounts":
-      return scopedOr(scope, [
+      return scopedAnd(scope, [
         driverClause,
         cityClause,
         scope.driverId ? { driverId: scope.driverId } : {},
+        scope.projectIds.length ? { applicationProjectId: { in: scope.projectIds } } : {},
       ]);
     case "daily-reports":
     case "advances":
+      return scopedAnd(scope, [
+        driverClause,
+        supervisorClause,
+        cityClause,
+        scope.projectIds.length ? { applicationProjectId: { in: scope.projectIds } } : {},
+      ]);
     case "deductions":
     case "violations":
     case "attendance":
     case "tasks":
     case "notifications":
-      return scopedOr(scope, [driverClause, supervisorClause, cityClause, projectClause]);
+      return scopedAnd(scope, [
+        driverClause,
+        supervisorClause,
+        cityClause,
+        scope.projectIds.length ? { driver: { is: projectAccountClause } } : {},
+      ]);
+    case "driver-documents":
+    case "driver-housing":
+    case "driver-contracts":
+      return scopedAnd(scope, [
+        scope.driverId ? { driverId: scope.driverId } : {},
+        scope.cityIds.length ? { driver: { is: { cityId: { in: scope.cityIds } } } } : {},
+        scope.projectIds.length ? { driver: { is: projectAccountClause } } : {},
+      ]);
     case "vehicle-movements":
     case "vehicle-cleaning":
     case "vehicle-maintenance":
@@ -98,9 +123,18 @@ function scopedWhere(resource: string, scope: AccessScope): Record<string, unkno
     case "vehicle-accidents":
     case "vehicle-damages":
     case "vehicle-costs":
-      return scopedOr(scope, [driverClause, cityClause]);
+      return scopedAnd(scope, [driverClause, cityClause]);
     case "payroll":
+      return scopedAnd(scope, [
+        driverClause,
+        cityClause,
+        scope.projectIds.length ? { driver: { is: projectAccountClause } } : {},
+      ]);
     case "invoices":
+      return scopedAnd(scope, [
+        scope.cityIds.length ? { applicationProject: { is: { cityId: { in: scope.cityIds } } } } : {},
+        scope.projectIds.length ? { applicationProjectId: { in: scope.projectIds } } : {},
+      ]);
     case "revenues":
     case "expenses":
     case "receivables":
@@ -109,7 +143,11 @@ function scopedWhere(resource: string, scope: AccessScope): Record<string, unkno
     case "bank-accounts":
     case "profit-loss":
     case "vat-records":
-      return scopedOr(scope, [driverClause, cityClause, projectClause]);
+      return scopedAnd(scope, [
+        driverClause,
+        cityClause,
+        scope.projectIds.length ? { driver: { is: projectAccountClause } } : {},
+      ]);
     default:
       return {};
   }

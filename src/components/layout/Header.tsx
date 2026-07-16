@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { LanguageToggle } from "@/components/i18n/LanguageToggle";
+import { I18nRuntime } from "@/components/i18n/I18nRuntime";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { findModuleByPath } from "@/lib/modules";
@@ -22,13 +24,25 @@ const prefixTitles: Array<HeaderTitle & { prefix: string }> = [
   { prefix: "/projects/", title: "المشاريع", subtitle: "مسارات مستقلة للاستيراد والفواتير والمسير والتقارير.", section: "المدن والمشاريع", parent: "المشاريع" },
   { prefix: "/drivers/", title: "إدارة المناديب", subtitle: "ملف المندوب وربطه بالمدينة والمشرف والمشروع.", section: "المناديب والموارد البشرية", parent: "إدارة المناديب" },
   { prefix: "/vehicles/", title: "السيارات", subtitle: "السيارات والحركة والتكلفة والخصومات.", section: "السيارات والحركة", parent: "السيارات" },
+  { prefix: "/daily-reports/", title: "التقارير اليومية", subtitle: "عرض تقارير التطبيقات اليومية حسب التاريخ والمشروع والمندوب.", section: "التقارير والتشغيل", parent: "التقارير اليومية" },
+  { prefix: "/advances/", title: "السلف المالية", subtitle: "إدارة السلف المالية وربطها بالشهر والمندوب والمشروع.", section: "الماليات والمسير", parent: "السلف المالية" },
   { prefix: "/imports/", title: "الاستيراد", subtitle: "معاينة الملفات ومطابقة الأعمدة قبل الحفظ.", section: "التشغيل", parent: "استيراد البيانات العامة" },
   { prefix: "/applications/", title: "مركز التطبيقات", subtitle: "التطبيقات والمشاريع والحسابات والقوالب.", section: "المدن والمشاريع", parent: "مركز التطبيقات" },
   { prefix: "/payroll/", title: "مسير الرواتب", subtitle: "المسير والإعدادات والاعتمادات.", section: "الماليات", parent: "مسير الرواتب" },
   { prefix: "/settings/", title: "إعدادات البرنامج", subtitle: "إعدادات النظام والقوالب وقواعد الرواتب.", section: "الإدارة العامة", parent: "إعدادات البرنامج" },
 ];
 
+function routeMatchesPrefix(pathname: string, prefix: string) {
+  const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
 function routeTitle(pathname: string): HeaderTitle {
+  // Prefer explicit module prefixes first. This prevents generic module lookup
+  // from showing a wrong title on exact routes such as /vehicles.
+  const prefixed = prefixTitles.find((item) => routeMatchesPrefix(pathname, item.prefix));
+  if (prefixed) return prefixed;
+
   const module = findModuleByPath(pathname);
   if (module) {
     return {
@@ -39,8 +53,7 @@ function routeTitle(pathname: string): HeaderTitle {
     };
   }
 
-  const prefixed = prefixTitles.find((item) => pathname.startsWith(item.prefix));
-  return prefixed ?? fallbackTitle;
+  return fallbackTitle;
 }
 
 function playHeaderTaskSound() {
@@ -103,16 +116,9 @@ export function Header() {
       window.clearInterval(timer);
     };
   }, []);
-
-  function keepArabic() {
-    document.documentElement.lang = "ar";
-    document.documentElement.dir = "rtl";
-    localStorage.setItem("erp-language", "ar");
-    setToast("تم تثبيت العربية كلغة النظام.");
-  }
-
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur" dir="rtl">
+    <header className="erp-top-header sticky top-0 z-50 w-full shrink-0 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur" dir="rtl" suppressHydrationWarning>
+      <I18nRuntime />
       {toast ? (
         <div className="fixed left-5 top-20 z-[100] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-2xl">
           {toast}
@@ -122,21 +128,19 @@ export function Header() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-right">
+      <div className="flex w-full max-w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0 flex-1 text-right">
           <p className="text-xs font-black text-blue-700">MOHAMED SHAWKI ERP</p>
           <h2 className="text-2xl font-black text-slate-950">{current.title}</h2>
           <p className="text-xs font-bold text-slate-500">{current.subtitle}</p>
           <p className="mt-1 text-[11px] font-black text-slate-400">{breadcrumb.join("  /  ")}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-start">
           <Link href="/supervisors" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
             المشرفين
           </Link>
-          <button type="button" onClick={keepArabic} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50">
-            العربية
-          </button>
+          <LanguageToggle />
           <button
             type="button"
             onClick={() => setToast("تم تثبيت نمط الواجهة الهادئ. تخصيص الألوان الكامل من إعدادات البرنامج.")}

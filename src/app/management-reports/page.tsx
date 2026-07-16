@@ -119,8 +119,8 @@ export default async function ManagementReportsPage({ searchParams }: PageProps)
     status: row.status,
     valid: row.valid,
     reasons: row.reasons,
-    targetOrders: row.target.monthlyOrders,
-    targetHours: row.target.workingHours,
+    targetOrders: row.target.expectedOrders,
+    targetHours: row.target.expectedWorkingHours,
     targetOnTime: row.target.onTimeRate,
     dailyReports: row.dailyReports,
   }));

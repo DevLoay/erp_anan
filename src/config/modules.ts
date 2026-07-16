@@ -47,7 +47,7 @@ export const moduleSections: ModuleSection[] = [
     items: [
       { href: "/imports", label: "استيراد البيانات العامة", oldKey: "imports", status: connected, resource: "import-batches", description: "للبيانات العامة فقط: مناديب، سيارات، مدن، مشرفين، HR، حسابات عامة." },
       { href: "/imports/templates", label: "قوالب الاستيراد العامة", oldKey: "importTemplates", status: connected, resource: "import-templates", description: "قوالب البيانات العامة. قوالب المشاريع تظهر داخل المشروع فقط." },
-      { href: "/imports/history", label: "تاريخ الاستيراد العام", oldKey: "importHistory", status: connected, resource: "import-batches", description: "سجل عمليات الاستيراد العامة." },
+      { href: "/imports/history", label: "سجل الملفات والاستيراد", oldKey: "importHistory", status: connected, resource: "import-batches", description: "السجل الموحد لملفات الاستيراد ودفعاتها وحالات الاعتماد والأخطاء." },
       { href: "/settings/templates", label: "إعدادات القوالب", oldKey: "templateSettings", status: connected, resource: "template-configs", description: "التحكم في ظهور القوالب حسب المشروع والصفحة والصلاحية." },
     ],
   },

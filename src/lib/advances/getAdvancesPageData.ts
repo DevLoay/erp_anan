@@ -68,19 +68,10 @@ function valueOf(param: string | string[] | undefined, fallback = "") {
   return param ?? fallback;
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function monthStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
-}
-
 export function resolveAdvancesPageFilters(searchParams: Record<string, string | string[] | undefined>): AdvancesPageFilters {
   return {
-    fromDate: valueOf(searchParams.fromDate, monthStart()),
-    toDate: valueOf(searchParams.toDate, today()),
+    fromDate: valueOf(searchParams.fromDate),
+    toDate: valueOf(searchParams.toDate),
     applicationProjectId: valueOf(searchParams.applicationProjectId),
     cityId: valueOf(searchParams.cityId),
     supervisorId: valueOf(searchParams.supervisorId),
@@ -88,7 +79,7 @@ export function resolveAdvancesPageFilters(searchParams: Record<string, string |
     deductionMonth: valueOf(searchParams.deductionMonth),
     status: valueOf(searchParams.status),
     q: valueOf(searchParams.q),
-    pageSize: Math.min(Math.max(Number(valueOf(searchParams.pageSize, "25")) || 25, 10), 200),
+    pageSize: Math.min(Math.max(Number(valueOf(searchParams.pageSize, "100")) || 100, 10), 500),
   };
 }
 

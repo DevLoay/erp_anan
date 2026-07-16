@@ -7,6 +7,17 @@ import type { VehicleField, VehicleModuleData, VehicleRow } from "@/lib/vehicles
 
 type OnlineData = Extract<VehicleModuleData, { status: "online" }>;
 
+type VehicleRefOption = {
+  id: string;
+  label?: string;
+  sub?: string;
+  vehicleId?: string | null;
+  driverId?: string | null;
+  cityId?: string | null;
+  driverLabel?: string | null;
+  cityLabel?: string | null;
+};
+
 const statusOptions = [
   { value: "ACTIVE", label: "نشط" },
   { value: "PENDING", label: "قيد المراجعة" },
@@ -94,8 +105,8 @@ function hasField(fields: VehicleField[], key: string) {
   return fields.some((field) => field.key === key);
 }
 
-function selectedVehicleRef(refs: OnlineData["refs"], vehicleId: string) {
-  return refs.vehicles.find((vehicle) => vehicle.id === vehicleId);
+function selectedVehicleRef(refs: OnlineData["refs"], vehicleId: string): VehicleRefOption | undefined {
+  return refs.vehicles.find((vehicle) => (vehicle as VehicleRefOption).id === vehicleId) as VehicleRefOption | undefined;
 }
 
 function vehicleAutoFillNotice(refs: OnlineData["refs"], vehicleId: string) {
@@ -168,18 +179,18 @@ function VehicleOnlineClient({ data, openCreate }: { data: OnlineData; openCreat
 
   function applyVehicleAutoFill(old: Record<string, string>, vehicleId: string) {
     const vehicle = selectedVehicleRef(data.refs, vehicleId);
-    const next = { ...old, vehicleId };
+    const next: Record<string, string> = { ...old, vehicleId };
 
-    if (vehicle?.driverId) {
-      if (hasField(data.module.fields, "driverId")) next.driverId = vehicle.driverId;
-      if (data.module.key === "vehicle-movements" && hasField(data.module.fields, "fromDriverId")) next.fromDriverId = vehicle.driverId;
+    if ((vehicle as VehicleRefOption | undefined)?.driverId) {
+      if (hasField(data.module.fields, "driverId")) next.driverId = (vehicle as VehicleRefOption).driverId ?? "";
+      if (data.module.key === "vehicle-movements" && hasField(data.module.fields, "fromDriverId")) next.fromDriverId = (vehicle as VehicleRefOption).driverId ?? "";
     } else {
       if (hasField(data.module.fields, "driverId")) next.driverId = "";
       if (data.module.key === "vehicle-movements" && hasField(data.module.fields, "fromDriverId")) next.fromDriverId = "";
     }
 
-    if (vehicle?.cityId && hasField(data.module.fields, "cityId")) {
-      next.cityId = vehicle.cityId;
+    if ((vehicle as VehicleRefOption | undefined)?.cityId && hasField(data.module.fields, "cityId")) {
+      next.cityId = (vehicle as VehicleRefOption).cityId ?? "";
     } else if (hasField(data.module.fields, "cityId")) {
       next.cityId = "";
     }
@@ -191,7 +202,7 @@ function VehicleOnlineClient({ data, openCreate }: { data: OnlineData; openCreat
     setForm((old) => {
       if (key === "vehicleId") return applyVehicleAutoFill(old, value);
       if (data.module.key === "vehicle-movements" && key === "movementType") {
-        const next = { ...old, movementType: value };
+        const next: Record<string, string> = { ...old, movementType: value };
         const today = new Date().toISOString().slice(0, 10);
         if ((value === "تسليم" || value === "نقل من مندوب لمندوب" || value === "دخول صيانة" || value === "خروج من صيانة") && !next.handoverDate) {
           next.handoverDate = today;
@@ -463,7 +474,7 @@ function VehicleOnlineClient({ data, openCreate }: { data: OnlineData; openCreat
             onClick={() => setPage((old) => Math.max(1, old - 1))}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            ‹
+            â€¹
           </button>
           <button
             type="button"
@@ -471,7 +482,7 @@ function VehicleOnlineClient({ data, openCreate }: { data: OnlineData; openCreat
             onClick={() => setPage((old) => Math.min(pageCount, old + 1))}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            ›
+            â€؛
           </button>
           <span>صفحة {currentPage} / {pageCount} | عدد السجلات: {filteredRows.length} / {data.rows.length}</span>
           {isPending ? <span>جاري التحديث...</span> : null}
@@ -598,3 +609,9 @@ function optionsFor(key: string | undefined, refs: OnlineData["refs"]) {
   if (key === "vehicleOwnership") return vehicleOwnershipOptions;
   return [];
 }
+
+
+
+
+
+

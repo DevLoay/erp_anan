@@ -13,7 +13,7 @@ export async function PATCH(request: Request, context: Context) {
   try {
     const { id } = await context.params;
     const result = await updateManagedUser(id, await request.json());
-    return NextResponse.json({ data: result.user });
+    return NextResponse.json({ data: result.user, passwordUpdated: result.passwordUpdated });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر تعديل المستخدم." }, { status: 400 });
   }

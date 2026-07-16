@@ -23,11 +23,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "بيانات المعاينة غير مكتملة. ارفع الملف مرة أخرى ثم اضغط اعتماد الحفظ." }, { status: 400 });
     }
 
-    if (importTypeRequiresProject(body.preview.summary.importType) && (!body.preview.summary.applicationId || !body.preview.summary.applicationProjectId)) {
+    if (body.preview.summary.importType === "hungerstation_invoice" && !body.preview.summary.month) {
+      return NextResponse.json({ error: "لا يمكن اعتماد فاتورة HungerStation بدون شهر واضح." }, { status: 400 });
+    }
+
+    if (importTypeRequiresProject(body.preview.summary.importType) && body.preview.summary.importType !== "hungerstation_invoice" && (!body.preview.summary.applicationId || !body.preview.summary.applicationProjectId)) {
       return NextResponse.json({ error: "لا يمكن اعتماد تقرير أو فاتورة مشروع بدون projectId واضح." }, { status: 400 });
     }
 
-    if (importTypeRequiresProject(body.preview.summary.importType) && !body.preview.summary.cityId) {
+    if (importTypeRequiresProject(body.preview.summary.importType) && body.preview.summary.importType !== "hungerstation_invoice" && !body.preview.summary.cityId) {
       return NextResponse.json({ error: "لا يمكن اعتماد ملف مشروع بدون cityId واضح. افتح الرفع من داخل مشروع المدينة الصحيح." }, { status: 400 });
     }
 

@@ -6,6 +6,31 @@ import { useEffect, useMemo, useState } from "react";
 import { navSections } from "@/lib/navigation";
 import type { ModuleItem, ModuleSection } from "@/lib/modules";
 
+function allowedResourcesFromCookie() {
+  if (typeof document === "undefined") return null;
+  const raw = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("erp-nav-resources="))
+    ?.slice("erp-nav-resources=".length);
+  if (!raw) return null;
+  return new Set(decodeURIComponent(raw).split(",").map((item) => item.trim()).filter(Boolean));
+}
+
+function filterItem(item: ModuleItem, allowed: Set<string> | null): ModuleItem | null {
+  if (!allowed || allowed.has("*")) return item;
+  const children = item.children?.map((child) => filterItem(child, allowed)).filter(Boolean) as ModuleItem[] | undefined;
+  const itemAllowed = !item.resource || allowed.has(item.resource);
+  if (!itemAllowed && !children?.length) return null;
+  return children ? { ...item, children } : item;
+}
+
+function filterSections(sections: ModuleSection[], allowed: Set<string> | null) {
+  return sections
+    .map((section) => ({ ...section, items: section.items.map((item) => filterItem(item, allowed)).filter(Boolean) as ModuleItem[] }))
+    .filter((section) => section.items.length);
+}
+
 function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -28,18 +53,20 @@ function activeGroupKeys(items: ModuleItem[], pathname: string): string[] {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [allowedResources] = useState<Set<string> | null>(() => allowedResourcesFromCookie());
+  const visibleSections = useMemo(() => filterSections(navSections, allowedResources), [allowedResources]);
   const initialSections = useMemo(() => {
-    const active = activeSectionKeys(navSections, pathname);
-    return new Set(active.length ? active : navSections.slice(0, 2).map((section) => section.title));
-  }, [pathname]);
-  const initialGroups = useMemo(() => new Set(navSections.flatMap((section) => activeGroupKeys(section.items, pathname))), [pathname]);
+    const active = activeSectionKeys(visibleSections, pathname);
+    return new Set(active.length ? active : visibleSections.slice(0, 2).map((section) => section.title));
+  }, [pathname, visibleSections]);
+  const initialGroups = useMemo(() => new Set(visibleSections.flatMap((section) => activeGroupKeys(section.items, pathname))), [pathname, visibleSections]);
 
   const [openSections, setOpenSections] = useState<Set<string>>(initialSections);
   const [openGroups, setOpenGroups] = useState<Set<string>>(initialGroups);
 
   useEffect(() => {
-    const sectionsToOpen = activeSectionKeys(navSections, pathname);
-    const groupsToOpen = navSections.flatMap((section) => activeGroupKeys(section.items, pathname));
+    const sectionsToOpen = activeSectionKeys(visibleSections, pathname);
+    const groupsToOpen = visibleSections.flatMap((section) => activeGroupKeys(section.items, pathname));
 
     if (sectionsToOpen.length) {
       setOpenSections((current) => new Set([...current, ...sectionsToOpen]));
@@ -47,7 +74,7 @@ export function Sidebar() {
     if (groupsToOpen.length) {
       setOpenGroups((current) => new Set([...current, ...groupsToOpen]));
     }
-  }, [pathname]);
+  }, [pathname, visibleSections]);
 
   function toggleSection(title: string) {
     setOpenSections((current) => {
@@ -68,14 +95,14 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="hidden sticky top-0 h-screen w-[20rem] shrink-0 overflow-y-auto border-l border-slate-200 bg-[#07111f] text-white lg:block">
+    <aside className="hidden sticky top-0 h-screen w-[20rem] shrink-0 overflow-y-auto border-l border-slate-200 bg-[#07111f] text-white lg:block" suppressHydrationWarning>
       <div className="sticky top-0 z-10 border-b border-white/10 bg-[#07111f] px-5 py-5">
         <p className="text-xs font-semibold text-sky-200">نظام إنتاجي منظم</p>
         <h1 className="mt-1 text-lg font-black tracking-normal">MOHAMED SHAWKI ERP</h1>
       </div>
 
       <nav className="space-y-3 px-3 py-4" aria-label="القائمة الرئيسية">
-        {navSections.map((section) => {
+        {visibleSections.map((section) => {
           const sectionOpen = openSections.has(section.title);
           const sectionActive = section.items.some((item) => itemHasActivePath(item, pathname));
 

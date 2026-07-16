@@ -110,13 +110,12 @@ async function checkRuntime() {
   const pages = [
     { route: '/', must: ['لوحة', 'التقارير', 'الإشعارات'] },
     { route: '/dashboard', must: ['تطبيق', 'عرض الكل', 'تصدير', 'طباعة'] },
-    { route: '/reports', must: ['التقارير العامة', 'تطبيق'] },
     { route: '/notifications', must: ['الإشعارات', 'تطبيق', 'تصدير'] },
     { route: '/management-reports', must: ['تطبيق', 'تصدير', 'طباعة'] },
     { route: '/daily-reports', must: ['تطبيق'] },
     { route: '/operations-alerts', must: ['تطبيق'] },
-    { route: '/uploaded-reports', must: ['إضافة', 'تعديل', 'حذف'] },
-    { route: '/report-templates', must: ['إضافة', 'تعديل', 'حذف'] },
+    { route: '/imports/history', must: ['سجل الملفات والاستيراد'] },
+    { route: '/settings/templates', must: ['إدارة قوالب الاستيراد'] },
   ];
 
   for (const page of pages) {

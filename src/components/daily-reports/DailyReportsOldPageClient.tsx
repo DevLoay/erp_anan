@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -78,7 +78,7 @@ function StatusBadge({ label, tone }: { label: string; tone: "green" | "red" }) 
 
 function WarningBadges({ warnings }: { warnings: string[] }) {
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex max-w-full flex-wrap gap-1">
       {warnings.map((warning) => {
         const normal = warning === "طبيعي";
         const klass = normal ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800";
@@ -225,18 +225,18 @@ export function DailyReportsOldPageClient({ data }: Props) {
 
   if (data.databaseStatus === "offline") {
     return (
-      <main className="w-full max-w-none bg-slate-50" dir="rtl">
+      <main className="daily-reports-page w-full max-w-full min-w-0 overflow-x-hidden bg-slate-50" dir="rtl">
         <EmptyState title="قاعدة البيانات غير متصلة" body={data.databaseMessage || "يرجى تشغيل PostgreSQL ثم تحديث الصفحة."} />
       </main>
     );
   }
 
   return (
-    <main className="w-full max-w-none space-y-4 bg-slate-50" dir="rtl" suppressHydrationWarning>
+    <main data-daily-reports-page="true" className="daily-reports-page w-full max-w-full min-w-0 overflow-x-hidden space-y-4 bg-slate-50 overflow-hidden" dir="rtl" suppressHydrationWarning>
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
       {selected ? <DetailModal row={selected} onClose={() => setSelected(null)} onAction={() => createSupervisorTask(selected)} /> : null}
 
-      <section className="border-b border-slate-200 pb-4">
+      <section className="min-w-0 border-b border-slate-200 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <nav className="mb-1 flex items-center gap-2 text-xs font-black text-slate-500">
@@ -247,13 +247,13 @@ export function DailyReportsOldPageClient({ data }: Props) {
             <h1 className="text-3xl font-black text-slate-950">التقارير اليومية</h1>
             <p className="mt-1 text-sm font-bold text-slate-500">عرض تقارير التطبيقات اليومية حسب التاريخ والمشروع والمندوب مع آخر ملفات الاستيراد وحالات الربط.</p>
           </div>
-          <button type="button" onClick={() => router.push("/reports")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xl font-black text-slate-800">
+          <button type="button" onClick={() => router.push("/management-reports")} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xl font-black text-slate-800">
             ☰
           </button>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="daily-reports-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <HeaderAction onClick={() => window.print()}>طباعة / PDF</HeaderAction>
           <HeaderAction tone="amber" onClick={() => downloadCsv(rows)}>تصدير إكسل</HeaderAction>
@@ -263,7 +263,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
             رفع تقرير Keeta
           </Link>
           <Link href="/imports/history" className="grid h-10 place-items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-900 shadow-sm">
-            تاريخ الاستيراد
+            سجل الملفات والاستيراد
           </Link>
           <select aria-label="عدد الصفوف" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black shadow-sm">
             <option value={50}>50 صف</option>
@@ -274,7 +274,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-4 xl:grid-cols-9">
+      <section className="daily-reports-card grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         <SummaryCard title="تقارير الفترة" value={fmt(data.summary.reportsCount)} tone="blue" />
         <SummaryCard title="طلبات الفترة" value={fmt(data.summary.totalOrders)} tone="blue" />
         <SummaryCard title="طلبات الشهر" value={fmt(data.summary.monthOrders)} />
@@ -286,8 +286,8 @@ export function DailyReportsOldPageClient({ data }: Props) {
         <SummaryCard title="آخر استيراد" value={data.summary.lastImport} sub={`${data.summary.uploadedReports} ملفات`} />
       </section>
 
-      <form method="get" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
+      <form method="get" className="daily-reports-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           <label htmlFor="daily-month" className="grid gap-1 text-xs font-black text-slate-800">
             الشهر
             <select id="daily-month" name="month" defaultValue={data.filters.month} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
@@ -358,7 +358,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
         </div>
       </form>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="daily-reports-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-xl font-black text-slate-950">جدول التقارير اليومية</h2>
@@ -366,12 +366,31 @@ export function DailyReportsOldPageClient({ data }: Props) {
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">Rows: {rows.length} / المعروض: {visibleRows.length}</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[1500px] w-full border-collapse text-right text-sm">
-            <thead className="bg-slate-100 text-xs font-black text-slate-700">
+        <div className="mb-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800">
+          الجدول بيتحرك من الشريط الداخلي تحت الصفوف الظاهرة. اسحب يمين/شمال أو استخدم Shift + Mouse Wheel.
+        </div>
+        <div dir="ltr" className="daily-reports-table-scroll -mx-1 max-w-full overflow-auto px-1">
+          <table dir="rtl" className="daily-reports-table w-full min-w-[1480px] table-fixed border-collapse text-right text-sm">
+            <colgroup>
+              <col className="w-[90px]" />
+              <col className="w-[220px]" />
+              <col className="w-[90px]" />
+              <col className="w-[230px]" />
+              <col className="w-[120px]" />
+              <col className="w-[130px]" />
+              <col className="w-[75px]" />
+              <col className="w-[85px]" />
+              <col className="w-[90px]" />
+              <col className="w-[90px]" />
+              <col className="w-[90px]" />
+              <col className="w-[105px]" />
+              <col className="w-[200px]" />
+              <col className="w-[120px]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-black text-slate-700">
               <tr>
-                {["التاريخ", "المندوب", "كود المندوب", "المدينة", "المشروع", "التطبيق", "الحساب", "المشرف", "الطلبات", "الساعات", "ON-TIME", "إلغاء", "رفض", "الحالة", "تنبيهات", "إجراءات"].map((head) => (
-                  <th key={head} className="border-b border-slate-200 px-3 py-3">{head}</th>
+                {["التاريخ", "المندوب", "المدينة", "المشروع", "التطبيق", "الحساب", "الطلبات", "الساعات", "ON-TIME", "إلغاء", "رفض", "الحالة", "تنبيهات", "إجراءات"].map((head) => (
+                  <th key={head} className="border-b border-slate-200 px-3 py-3 whitespace-nowrap">{head}</th>
                 ))}
               </tr>
             </thead>
@@ -379,16 +398,14 @@ export function DailyReportsOldPageClient({ data }: Props) {
               {visibleRows.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50">
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.reportDate}</td>
-                  <td className="border-b border-slate-100 px-3 py-3">
+                  <td className="border-b border-slate-100 px-3 py-3 daily-reports-long-cell">
                     <strong className="block text-slate-950">{row.driverName}</strong>
                     <span className="text-xs font-bold text-slate-500">{row.nationalId}</span>
                   </td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.driverCode}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.city}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.project}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.appName}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.account}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.supervisor}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.project}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.appName}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.account}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-black">{fmt(row.orders)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-black ${row.workingHours >= 10 ? "bg-emerald-100 text-emerald-800" : row.workingHours >= 8 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
@@ -415,14 +432,14 @@ export function DailyReportsOldPageClient({ data }: Props) {
             </tbody>
           </table>
         </div>
-        {!rows.length ? <EmptyState title="لا توجد تقارير للفلاتر الحالية" body="غيّر التاريخ أو المشروع أو راجع تاريخ الاستيراد للتأكد من اعتماد الملف." /> : null}
+        {!rows.length ? <EmptyState title="لا توجد تقارير للفلاتر الحالية" body="غيّر التاريخ أو المشروع أو راجع سجل الملفات والاستيراد للتأكد من اعتماد الملف." /> : null}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="daily-reports-card grid gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-black text-slate-950">آخر ملفات مرفوعة</h2>
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[720px] w-full text-right text-sm">
+            <table className="daily-reports-table w-full min-w-[720px] table-fixed text-right text-sm">
               <thead className="bg-slate-100 text-xs font-black text-slate-700">
                 <tr>
                   {["الملف", "النوع", "التطبيق", "الشهر", "الصفوف", "الحالة", "تاريخ الرفع"].map((head) => <th key={head} className="px-3 py-3">{head}</th>)}
@@ -431,7 +448,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
               <tbody>
                 {data.uploadedReports.map((report) => (
                   <tr key={report.id}>
-                    <td className="border-b border-slate-100 px-3 py-3 font-bold">{report.fileName}</td>
+                    <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{report.fileName}</td>
                     <td className="border-b border-slate-100 px-3 py-3">{report.importType}</td>
                     <td className="border-b border-slate-100 px-3 py-3">{report.appName}</td>
                     <td className="border-b border-slate-100 px-3 py-3">{report.month}</td>
@@ -450,7 +467,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
           <h2 className="text-lg font-black text-slate-950">صفوف تحتاج ربط مندوب</h2>
           <p className="mt-1 text-sm font-bold text-slate-500">هذه الصفوف من آخر عملية استيراد ولم تدخل التقارير اليومية لأنها غير مرتبطة بمندوب محفوظ.</p>
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[720px] w-full text-right text-sm">
+            <table className="daily-reports-table w-full min-w-[720px] table-fixed text-right text-sm">
               <thead className="bg-slate-100 text-xs font-black text-slate-700">
                 <tr>
                   {["الصف", "اسم المندوب من الملف", "Courier ID", "نوع الخطأ", "الرسالة", "إجراءات"].map((head) => <th key={head} className="px-3 py-3">{head}</th>)}
@@ -463,7 +480,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
                     <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.riderName}</td>
                     <td className="border-b border-slate-100 px-3 py-3">{row.appUserId}</td>
                     <td className="border-b border-slate-100 px-3 py-3">{row.errorType}</td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-xs font-bold text-slate-500">{row.errorMessage}</td>
+                    <td className="border-b border-slate-100 px-3 py-3 text-xs font-bold text-slate-500 daily-reports-long-cell">{row.errorMessage}</td>
                     <td className="border-b border-slate-100 px-3 py-3">
                       <button type="button" onClick={() => router.push("/imports/history")} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-900">
                         ربط بمندوب
@@ -480,3 +497,4 @@ export function DailyReportsOldPageClient({ data }: Props) {
     </main>
   );
 }
+

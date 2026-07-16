@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { databaseOfflineMessage, getImportTemplatesData, resolveImportTemplateFilters } from "@/lib/imports/templates";
 import { projectImportTypesForApplication } from "@/lib/imports/importScopes";
 import { getTemplateConfigs, resolveKeetaApplicationProject, rowFromTemplateConfig } from "@/lib/templates/templateConfig";
+import { calculateExpectedTarget } from "@/lib/performance/expectedTargets";
 
 export type ProjectWorkspaceFilters = {
   month?: string;
@@ -323,7 +324,15 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
     const averageOnTime = Math.round(decimalNumber(reportsAggregate._avg.onTimeRate) * 10) / 10;
     const averageCancellation = Math.round(decimalNumber(reportsAggregate._avg.cancellationRate) * 10) / 10;
     const averageRejection = Math.round(decimalNumber(reportsAggregate._avg.rejectionRate) * 10) / 10;
-    const targetAchievement = applicationProject.monthlyTarget ? Math.min((totalOrders / applicationProject.monthlyTarget) * 100, 120) : 0;
+    const periodTarget = applicationProject.monthlyTarget
+      ? calculateExpectedTarget({
+          monthlyTarget: applicationProject.monthlyTarget,
+          month,
+          dateFrom: from?.toISOString().slice(0, 10),
+          dateTo: to?.toISOString().slice(0, 10),
+        }).expected
+      : 0;
+    const targetAchievement = periodTarget ? Math.min((totalOrders / periodTarget) * 100, 120) : 0;
     const driverKpiScore = reportsCount
       ? Math.round(
           Math.min(

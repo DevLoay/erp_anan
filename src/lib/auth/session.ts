@@ -10,6 +10,9 @@ export type SessionPayload = {
   driverId?: string;
   phone?: string;
   cityId?: string;
+  cityScope?: string;
+  projectScope?: string;
+  supervisorId?: string;
   exp: number;
   iat: number;
 };
@@ -17,7 +20,12 @@ export type SessionPayload = {
 const encoder = new TextEncoder();
 
 function secret() {
-  return process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "change-this-local-erp-secret";
+  const value = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET is required in production.");
+  }
+  return "local-development-only-change-me";
 }
 
 function base64UrlEncode(value: string) {

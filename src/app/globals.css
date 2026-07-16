@@ -75,3 +75,337 @@ textarea {
 .home-dashboard-closeout-scroll table {
   min-width: 960px;
 }
+
+
+/* i18n phase 2 direction helpers */
+html[dir="ltr"] body {
+  direction: ltr;
+}
+html[dir="ltr"] .text-right {
+  text-align: left !important;
+}
+html[dir="ltr"] .text-left {
+  text-align: right !important;
+}
+html[dir="ltr"] [class*="pr-"] {
+  /* keep spacing stable; Tailwind logical migration can be done module-by-module later */
+}
+
+/* DAILY_REPORTS_UI_CONTAINMENT */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.daily-reports-page,
+.daily-reports-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.daily-reports-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.daily-reports-table {
+  table-layout: fixed;
+}
+
+.daily-reports-table th,
+.daily-reports-table td {
+  vertical-align: top;
+}
+
+.daily-reports-long-cell {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 1024px) {
+  .daily-reports-table {
+    min-width: 1180px;
+  }
+}
+
+
+
+/* DAILY_REPORTS_TABLE_SCROLL_V2 */
+.daily-reports-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100vh - 260px);
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: auto;
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
+}
+
+.daily-reports-table-scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.daily-reports-table-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #94a3b8;
+  border: 3px solid #f8fafc;
+}
+
+.daily-reports-table-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+
+.daily-reports-table-scroll table {
+  direction: rtl;
+}
+
+.daily-reports-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #f1f5f9;
+}
+
+@media (min-height: 850px) {
+  .daily-reports-table-scroll {
+    max-height: calc(100vh - 310px);
+  }
+}
+
+/* DAILY_REPORTS_FORCE_SCROLL_V3_FIXED_START */
+main[data-daily-reports-page="true"] {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-shell {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 68vh !important;
+  overflow-x: scroll !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table {
+  min-width: 2600px !important;
+  width: max-content !important;
+  table-layout: fixed !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table th,
+main[data-daily-reports-page="true"] .daily-reports-main-table td {
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(2),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(2) {
+  width: 300px !important;
+  min-width: 300px !important;
+  max-width: 300px !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(5),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(5),
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(15),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(15) {
+  width: 260px !important;
+  min-width: 260px !important;
+  max-width: 260px !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 20 !important;
+  background: #f1f5f9 !important;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-shell::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-shell::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-shell::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border-radius: 999px;
+  border: 3px solid #f8fafc;
+}
+/* DAILY_REPORTS_FORCE_SCROLL_V3_FIXED_END */
+
+/* DAILY_REPORTS_FULL_HEADER_V4_START */
+main[data-daily-reports-page="true"] {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-viewport {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100vh - 260px);
+  min-height: 560px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  position: relative;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 16px;
+  background: white;
+  direction: rtl;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table {
+  width: max-content !important;
+  min-width: 2400px !important;
+  table-layout: fixed;
+  border-collapse: separate !important;
+  border-spacing: 0;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 31;
+  background: rgb(241 245 249) !important;
+  color: rgb(15 23 42);
+  white-space: nowrap;
+  vertical-align: middle;
+  box-shadow: inset 0 -1px 0 rgb(226 232 240);
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table th,
+main[data-daily-reports-page="true"] .daily-reports-main-table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(1),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(1) { width: 120px; min-width: 120px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(2),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(2) { width: 300px; min-width: 300px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(3),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(3) { width: 170px; min-width: 170px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(4),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(4) { width: 130px; min-width: 130px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(5),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(5) { width: 210px; min-width: 210px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(6),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(6) { width: 140px; min-width: 140px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(7),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(7) { width: 170px; min-width: 170px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(8),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(8) { width: 190px; min-width: 190px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(9),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(9) { width: 110px; min-width: 110px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(10),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(10) { width: 120px; min-width: 120px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(11),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(11) { width: 130px; min-width: 130px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(12),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(12) { width: 120px; min-width: 120px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(13),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(13) { width: 120px; min-width: 120px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(14),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(14) { width: 140px; min-width: 140px; text-align: center; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(15),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(15) { width: 260px; min-width: 260px; }
+main[data-daily-reports-page="true"] .daily-reports-main-table th:nth-child(16),
+main[data-daily-reports-page="true"] .daily-reports-main-table td:nth-child(16) { width: 190px; min-width: 190px; }
+
+main[data-daily-reports-page="true"] .daily-reports-table-viewport::-webkit-scrollbar {
+  height: 14px;
+  width: 14px;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-viewport::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184);
+  border-radius: 999px;
+  border: 3px solid white;
+}
+
+main[data-daily-reports-page="true"] .daily-reports-table-viewport::-webkit-scrollbar-track {
+  background: rgb(241 245 249);
+  border-radius: 999px;
+}
+/* DAILY_REPORTS_FULL_HEADER_V4_END */
+
+/* GLOBAL_HEADER_LAYOUT_FIX_V1_START */
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: clip;
+}
+
+.erp-app-shell {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: visible !important;
+}
+
+.erp-main-column {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: visible !important;
+}
+
+.erp-top-header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  width: 100%;
+  max-width: 100%;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.erp-top-header h2,
+.erp-top-header p {
+  overflow-wrap: anywhere;
+}
+
+.erp-page-main {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.erp-page-main > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@supports not (overflow: clip) {
+  html,
+  body,
+  .erp-page-main {
+    overflow-x: hidden;
+  }
+}
+/* GLOBAL_HEADER_LAYOUT_FIX_V1_END */

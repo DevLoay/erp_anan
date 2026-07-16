@@ -1,24 +1,37 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: mshawki_erp
-      POSTGRES_USER: mshawki
-      POSTGRES_PASSWORD: mshawki
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - erp_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   web:
     build: .
+    restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://mshawki:mshawki@postgres:5432/mshawki_erp?schema=public
-      NEXT_PUBLIC_APP_NAME: MOHAMED SHAWKI ERP
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-MOHAMED SHAWKI ERP}
+      UPLOAD_DIR: /app/public/uploads
     ports:
       - "3040:3040"
+    volumes:
+      - erp_uploads:/app/public/uploads
 
 volumes:
   erp_postgres:
+  erp_uploads:

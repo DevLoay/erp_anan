@@ -130,8 +130,9 @@ function field(form: FormData, key: string) {
   return String(form.get(key) || "").trim();
 }
 
-function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverManagementData; onClose: () => void; onSaved: () => void; setToast: (message: string) => void }) {
+function DriverCreateModal({ data, driver, onClose, onSaved, setToast }: { data: DriverManagementData; driver?: DriverManagementRow | null; onClose: () => void; onSaved: () => void; setToast: (message: string) => void }) {
   const [saving, setSaving] = useState(false);
+  const isEdit = Boolean(driver);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -166,14 +167,18 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
 
     setSaving(true);
     try {
-      const response = await fetch("/api/drivers/manual", {
-        method: "POST",
+      const response = await fetch(isEdit && driver ? `/api/drivers/${driver.id}` : "/api/drivers/manual", {
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(isEdit ? { action: "update", ...payload } : payload),
       });
       const result = (await response.json().catch(() => ({}))) as { error?: string; data?: { duplicateNationalId?: boolean } };
       if (!response.ok) throw new Error(result.error || "تعذر حفظ المندوب.");
       onSaved();
+      if (isEdit) {
+        setToast("تم تحديث بيانات المندوب بنجاح.");
+        return;
+      }
       setToast(result.data?.duplicateNationalId ? "تم حفظ المندوب، لكن رقم الهوية موجود سابقًا وتم تعليمه للمراجعة." : "تم إضافة المندوب بنجاح.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "تعذر حفظ المندوب.");
@@ -198,19 +203,19 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <label className="grid gap-1 text-xs font-black text-slate-800">
             كود داخلي *
-            <input name="internalCode" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="internalCode" required={!isEdit} defaultValue={driver?.driverCode === "-" ? "" : driver?.driverCode ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             اسم المندوب *
-            <input name="name" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="name" required defaultValue={driver?.name ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             الجوال *
-            <input name="phone" required className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="phone" required defaultValue={driver?.mobile === "-" ? "" : driver?.mobile ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             المدينة *
-            <select name="cityId" required className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="cityId" required defaultValue={driver?.cityId ?? ""} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">اختر المدينة</option>
               {data.cities.map((city) => (
                 <option key={city.id} value={city.id}>
@@ -221,7 +226,7 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             مشروع التطبيق
-            <select name="applicationProjectId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="applicationProjectId" defaultValue={driver?.projectId ?? ""} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">بدون مشروع تطبيق</option>
               {data.projects.map((project) => (
                 <option key={project.id} value={project.id}>
@@ -232,7 +237,7 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             الحالة
-            <select name="status" defaultValue="ACTIVE" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="status" defaultValue={driver?.status ?? "ACTIVE"} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="ACTIVE">نشط</option>
               <option value="SUSPENDED">موقوف</option>
               <option value="INACTIVE">غير نشط</option>
@@ -240,23 +245,23 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             كود المندوب
-            <input name="driverCode" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="driverCode" defaultValue={driver?.driverCode === "-" ? "" : driver?.driverCode ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             الاسم الفعلي
-            <input name="actualName" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="actualName" defaultValue={driver?.name ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             رقم الهوية / الإقامة
-            <input name="nationalId" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="nationalId" defaultValue={driver?.nationalId === "-" ? "" : driver?.nationalId ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             الجنسية
-            <input name="nationality" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="nationality" defaultValue={driver?.nationality === "-" ? "" : driver?.nationality ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             المشرف
-            <select name="supervisorId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="supervisorId" defaultValue={driver?.supervisorId ?? ""} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">بدون مشرف</option>
               {data.supervisors.map((supervisor) => (
                 <option key={supervisor.id} value={supervisor.id}>
@@ -267,7 +272,7 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             نوع السيارة
-            <select name="vehicleOwnershipType" defaultValue="no_vehicle" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="vehicleOwnershipType" defaultValue={driver?.vehicleOwnershipType ?? "no_vehicle"} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="no_vehicle">بدون سيارة</option>
               <option value="company_car">سيارة شركة</option>
               <option value="personal_car">سيارة شخصية</option>
@@ -275,8 +280,13 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             سيارة متاحة
-            <select name="vehicleId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="vehicleId" defaultValue={driver?.vehicleId ?? ""} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">بدون ربط سيارة</option>
+              {driver?.vehicleId ? (
+                <option value={driver.vehicleId}>
+                  {[driver.vehiclePlate, driver.vehicleType].filter((value) => value && value !== "-").join(" - ") || "السيارة الحالية"}
+                </option>
+              ) : null}
               {data.vehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>
                   {vehicle.label}
@@ -286,8 +296,13 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             حساب تطبيق موجود
-            <select name="accountId" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <select name="accountId" defaultValue={driver?.accountId ?? ""} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">بدون حساب موجود</option>
+              {driver?.accountId ? (
+                <option value={driver.accountId}>
+                  {[driver.application, driver.project, driver.appUserId, driver.appUsername].filter((value) => value && value !== "-").join(" - ") || "الحساب الحالي"}
+                </option>
+              ) : null}
               {data.accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.label}
@@ -297,11 +312,11 @@ function DriverCreateModal({ data, onClose, onSaved, setToast }: { data: DriverM
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             App User ID
-            <input name="appUserId" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="appUserId" defaultValue={driver?.appUserId === "-" ? "" : driver?.appUserId ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             App Username
-            <input name="appUsername" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
+            <input name="appUsername" defaultValue={driver?.appUsername === "-" ? "" : driver?.appUsername ?? ""} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
           </label>
           <label className="grid gap-1 text-xs font-black text-slate-800">
             نوع العقد
@@ -346,6 +361,7 @@ export function DriverManagementClient({ data }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState("");
   const [showCreate, setShowCreate] = useState(data.filters.newDriver === "1");
+  const [editingDriver, setEditingDriver] = useState<DriverManagementRow | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<DriverManagementRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkSupervisorId, setBulkSupervisorId] = useState("");
@@ -427,6 +443,7 @@ export function DriverManagementClient({ data }: Props) {
     <section className="w-full max-w-none space-y-4" dir="rtl">
       {toast ? <Toast message={toast} onClose={() => setToast("")} /> : null}
       {showCreate ? <DriverCreateModal data={data} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); refresh(); }} setToast={setToast} /> : null}
+      {editingDriver ? <DriverCreateModal data={data} driver={editingDriver} onClose={() => setEditingDriver(null)} onSaved={() => { setEditingDriver(null); refresh(); }} setToast={setToast} /> : null}
 
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
@@ -616,6 +633,7 @@ export function DriverManagementClient({ data }: Props) {
                     <td className="border-b border-slate-100 px-3 py-4">
                       <div className="flex min-w-[210px] flex-wrap gap-1">
                         <Link href={`/drivers/${row.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">فتح</Link>
+                        <button type="button" onClick={() => setEditingDriver(row)} className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-black text-amber-800 hover:bg-amber-100">تعديل</button>
                         <button type="button" onClick={() => setSelectedDriver(row)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">تفاصيل</button>
                         <Link href={`/rider-reports?driverId=${row.id}`} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-black text-blue-800 hover:bg-blue-100">تقرير</Link>
                       </div>

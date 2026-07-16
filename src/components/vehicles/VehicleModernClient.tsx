@@ -8,6 +8,12 @@ import type { VehicleField, VehicleModuleData, VehicleRow } from "@/lib/vehicles
 type OnlineData = Extract<VehicleModuleData, { status: "online" }>;
 type FormState = Record<string, string>;
 
+type SelectOption = {
+  value: string;
+  label: string;
+  sub?: string | null;
+};
+
 const statusOptions = [
   { value: "", label: "كل الحالات" },
   { value: "ACTIVE", label: "نشط" },
@@ -141,7 +147,7 @@ function formFromRow(data: OnlineData, row: VehicleRow): FormState {
   return form;
 }
 
-function optionList(data: OnlineData, options?: string) {
+function optionList(data: OnlineData, options?: string): SelectOption[] {
   if (options === "vehicles") return data.refs.vehicles.map((item) => ({ value: item.id, label: item.label, sub: item.sub }));
   if (options === "drivers") return data.refs.drivers.map((item) => ({ value: item.id, label: item.label, sub: item.sub }));
   if (options === "cities") return data.refs.cities.map((item) => ({ value: item.id, label: item.label, sub: item.sub }));
@@ -203,7 +209,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
   useEffect(() => {
     if (data.status === "online" && openCreate) {
       setEditingRow(null);
-      setForm(emptyForm(data));
+      setForm(emptyForm(data as OnlineData));
       setFiles({});
       setIsFormOpen(true);
     }
@@ -215,8 +221,8 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
     const shouldOpen = Boolean(vehicleId || searchParams.get("openCreate") || searchParams.get("new"));
     if (!shouldOpen) return;
 
-    let next = emptyForm(data);
-    if (vehicleId && hasField(data.module.fields, "vehicleId")) {
+    let next = emptyForm(data as OnlineData);
+    if (vehicleId && hasField((data as OnlineData).module.fields, "vehicleId")) {
       next.vehicleId = vehicleId;
       next = applyVehicleAutoFill(next, vehicleId);
     }
@@ -239,7 +245,9 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
     );
   }
 
-  const rows = data.rows || [];
+  const onlineData = data as OnlineData;
+
+  const rows = onlineData.rows || [];
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((row) => {
@@ -268,8 +276,8 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
   const endIndex = pageSize === 0 ? filteredRows.length : Math.min(startIndex + pageSize, filteredRows.length);
   const visibleRows = filteredRows.slice(startIndex, endIndex);
 
-  const selectedVehicle = hasField(data.module.fields, "vehicleId")
-    ? data.refs.vehicles.find((item) => item.id === form.vehicleId)
+  const selectedVehicle = hasField(onlineData.module.fields, "vehicleId")
+    ? onlineData.refs.vehicles.find((item) => item.id === form.vehicleId)
     : undefined;
 
   function refresh() {
@@ -278,7 +286,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
 
   function openNewForm() {
     setEditingRow(null);
-    setForm(emptyForm(data));
+    setForm(emptyForm(onlineData));
     setFiles({});
     setMessage("");
     setIsFormOpen(true);
@@ -286,7 +294,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
 
   function openEditForm(row: VehicleRow) {
     setEditingRow(row);
-    setForm(formFromRow(data, row));
+    setForm(formFromRow(onlineData, row));
     setFiles({});
     setMessage("");
     setIsFormOpen(true);
@@ -299,14 +307,14 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
   }
 
   function applyVehicleAutoFill(next: FormState, vehicleId: string) {
-    const vehicle = data.refs.vehicles.find((item) => item.id === vehicleId);
+    const vehicle = onlineData.refs.vehicles.find((item) => item.id === vehicleId);
     if (!vehicle) return next;
 
-    if (vehicle.cityId && hasField(data.module.fields, "cityId")) next.cityId = vehicle.cityId;
+    if (vehicle.cityId && hasField(onlineData.module.fields, "cityId")) next.cityId = vehicle.cityId;
 
-    if (data.module.key === "vehicle-movements") {
-      if (vehicle.driverId && hasField(data.module.fields, "fromDriverId")) next.fromDriverId = vehicle.driverId;
-    } else if (vehicle.driverId && hasField(data.module.fields, "driverId")) {
+    if (onlineData.module.key === "vehicle-movements") {
+      if (vehicle.driverId && hasField(onlineData.module.fields, "fromDriverId")) next.fromDriverId = vehicle.driverId;
+    } else if (vehicle.driverId && hasField(onlineData.module.fields, "driverId")) {
       next.driverId = vehicle.driverId;
     }
 
@@ -315,9 +323,9 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
 
   function updateField(key: string, value: string) {
     setForm((current) => {
-      let next = { ...current, [key]: value };
+      let next: FormState = { ...current, [key]: value };
       if (key === "vehicleId") next = applyVehicleAutoFill(next, value);
-      if (data.module.key === "vehicle-movements" && key === "movementType") {
+      if (onlineData.module.key === "vehicle-movements" && key === "movementType") {
         if ((value === "تسليم" || value === "نقل من مندوب لمندوب") && !next.handoverDate) next.handoverDate = today();
         if ((value === "استلام" || value === "إرجاع للشركة المالكة") && !next.returnDate) next.returnDate = today();
       }
@@ -330,17 +338,17 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
     setMessage("");
 
     const endpoint = editingRow
-      ? `/api/${data.module.apiResource}/${editingRow.id}`
-      : `/api/${data.module.apiResource}`;
+      ? `/api/${onlineData.module.apiResource}/${editingRow.id}`
+      : `/api/${onlineData.module.apiResource}`;
     const method = editingRow ? "PUT" : "POST";
-    const hasUploads = data.module.fields.some((field) => isFileField(field) && (files[field.key]?.length || 0) > 0);
+    const hasUploads = onlineData.module.fields.some((field) => isFileField(field) && (files[field.key]?.length || 0) > 0);
 
     try {
       const init: RequestInit = { method };
       if (hasUploads) {
         const body = new FormData();
         for (const [key, value] of Object.entries(form)) body.append(key, value);
-        for (const field of data.module.fields) {
+        for (const field of onlineData.module.fields) {
           for (const file of files[field.key] || []) body.append(field.key, file);
         }
         init.body = body;
@@ -365,7 +373,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
     if (!window.confirm("هل تريد حذف هذا السجل؟")) return;
     setMessage("");
     try {
-      const response = await fetch(`/api/${data.module.apiResource}/${row.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/${onlineData.module.apiResource}/${row.id}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || payload.message || "تعذر حذف السجل");
       setMessage("تم حذف السجل.");
@@ -394,28 +402,28 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
       return;
     }
 
-    const headers = data.module.columns.map((column) => csvCell(column.label));
+    const headers = onlineData.module.columns.map((column) => csvCell(column.label));
     const body = filteredRows.map((row) =>
-      data.module.columns.map((column) => csvCell(row.values[column.key] || "")).join(",")
+      onlineData.module.columns.map((column) => csvCell(row.values[column.key] || "")).join(",")
     );
     const csv = `\uFEFF${[headers.join(","), ...body].join("\n")}`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${safeFileName(data.module.title)}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `${safeFileName(onlineData.module.title)}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    setMessage(`تم تصدير ${filteredRows.length} سجل من ${data.module.title}.`);
+    setMessage(`تم تصدير ${filteredRows.length} سجل من ${onlineData.module.title}.`);
   }
 
   async function copySummary() {
     const text = [
-      `تقرير ${data.module.title}`,
+      `تقرير ${onlineData.module.title}`,
       `عدد السجلات المعروضة: ${filteredRows.length}`,
-      ...data.summary.map((item) => `${item.label}: ${item.value}`),
+      ...onlineData.summary.map((item) => `${item.label}: ${item.value}`),
     ].join("\n");
 
     try {
@@ -436,12 +444,12 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-blue-700">منظومة السيارات</p>
-            <h1 className="mt-1 text-2xl font-black text-slate-900 sm:text-3xl">{data.module.title}</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-500">{data.module.description}</p>
+            <h1 className="mt-1 text-2xl font-black text-slate-900 sm:text-3xl">{onlineData.module.title}</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-500">{onlineData.module.description}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button suppressHydrationWarning onClick={openNewForm} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-700">
-              + {data.module.addLabel}
+              + {onlineData.module.addLabel}
             </button>
             <button suppressHydrationWarning type="button" onClick={exportCsv} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
               تصدير CSV
@@ -452,7 +460,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
             <button suppressHydrationWarning type="button" onClick={printPage} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
               طباعة
             </button>
-            {(data.module.key === "vehicle-finance" || data.module.key === "vehicle-costs") && (
+            {(onlineData.module.key === "vehicle-finance" || onlineData.module.key === "vehicle-costs") && (
               <button suppressHydrationWarning onClick={recalculateCosts} className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
                 تحديث التكاليف تلقائيًا
               </button>
@@ -465,7 +473,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {data.summary.map((item) => (
+        {onlineData.summary.map((item) => (
           <div key={item.label} className={`min-h-[86px] rounded-3xl border p-4 shadow-sm ${cardClass(item.tone)}`}>
             <p className="text-xs font-bold text-slate-500">{item.label}</p>
             <p className="mt-2 text-2xl font-black text-slate-900">{item.value}</p>
@@ -476,12 +484,12 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
       <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="flex flex-col-reverse gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap gap-2">
-            {data.modules.map((module) => (
+            {onlineData.modules.map((module) => (
               <Link
                 key={module.key}
                 href={module.route}
                 className={`rounded-2xl px-3 py-2 text-xs font-bold transition ${
-                  module.key === data.module.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  module.key === onlineData.module.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
               >
                 {module.title}
@@ -550,7 +558,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
         <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{message}</div>
       )}
 
-      {data.module.key === "vehicles" && (
+      {onlineData.module.key === "vehicles" && (
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -579,11 +587,11 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
       </div>
 
       <div className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[1180px] table-fixed text-right text-sm">
+        <div className="w-full overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[1800px] table-auto text-right text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
-                {data.module.columns.map((column) => (
+                {onlineData.module.columns.map((column) => (
                   <th key={column.key} className="whitespace-nowrap px-3 py-3 first:sticky first:right-0 first:z-20 first:bg-slate-50 first:shadow-[-6px_0_10px_-10px_rgba(15,23,42,.35)]">{column.label}</th>
                 ))}
                 <th className="sticky left-0 z-20 whitespace-nowrap bg-slate-50 px-3 py-3 shadow-[6px_0_10px_-10px_rgba(15,23,42,.35)]">إجراءات</th>
@@ -592,7 +600,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
             <tbody className="divide-y divide-slate-100">
               {visibleRows.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50/80">
-                  {data.module.columns.map((column) => {
+                  {onlineData.module.columns.map((column) => {
                     const value = row.values[column.key] || "-";
                     const isStatus = column.key.toLowerCase().includes("status") || column.label.includes("الحالة");
                     return (
@@ -600,17 +608,17 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
                         {isStatus ? (
                           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusClass(value)}`}>{value}</span>
                         ) : (
-                          <span title={value} className="block max-w-[190px] truncate">{value}</span>
+                          <span title={value} className="block max-w-[240px] truncate">{value}</span>
                         )}
                       </td>
                     );
                   })}
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-3 shadow-[6px_0_10px_-10px_rgba(15,23,42,.25)]">
-                    <div className="flex min-w-[360px] flex-wrap items-center justify-start gap-2">
-                      {data.module.key === "vehicles" && (
+                    <div className="flex min-w-[320px] flex-wrap items-center justify-start gap-2">
+                      {onlineData.module.key === "vehicles" && (
                         <Link href={`/vehicles/${row.id}`} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800">ملف السيارة</Link>
                       )}
-                      {data.module.key === "vehicles" &&
+                      {onlineData.module.key === "vehicles" &&
                         vehicleQuickActions.slice(0, 4).map((action) => (
                           <Link
                             key={`${row.id}-${action.href}`}
@@ -620,8 +628,8 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
                             {action.label}
                           </Link>
                         ))}
-                      {data.module.key !== "vehicles" && vehicleIdForAction(data, row) && (
-                        <Link href={`/vehicles/${vehicleIdForAction(data, row)}`} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800">ملف السيارة</Link>
+                      {onlineData.module.key !== "vehicles" && vehicleIdForAction(onlineData, row) && (
+                        <Link href={`/vehicles/${vehicleIdForAction(onlineData, row)}`} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800">ملف السيارة</Link>
                       )}
                       <button suppressHydrationWarning onClick={() => openEditForm(row)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">تعديل</button>
                       <button suppressHydrationWarning onClick={() => deleteRow(row)} className="rounded-xl border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50">حذف</button>
@@ -631,7 +639,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
               ))}
               {!filteredRows.length && (
                 <tr>
-                  <td colSpan={data.module.columns.length + 1} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={onlineData.module.columns.length + 1} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
                     لا توجد سجلات مطابقة.
                   </td>
                 </tr>
@@ -646,7 +654,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
           <form onSubmit={submitForm} className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-5">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
-                <h2 className="text-2xl font-black text-slate-900">{editingRow ? "تعديل سجل" : data.module.addLabel}</h2>
+                <h2 className="text-2xl font-black text-slate-900">{editingRow ? "تعديل سجل" : onlineData.module.addLabel}</h2>
                 <p className="mt-1 text-xs text-slate-500">الحقول المطلوبة مميزة بنجمة. عند اختيار السيارة يتم تعبئة المندوب والمدينة تلقائيًا إذا كانت السيارة مرتبطة بهم.</p>
               </div>
               <button suppressHydrationWarning type="button" onClick={closeForm} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600">إغلاق</button>
@@ -667,8 +675,8 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
             )}
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              {data.module.fields.map((field) => {
-                const autoFilled = isAutoFilledField(data, field.key, selectedVehicle);
+              {onlineData.module.fields.map((field) => {
+                const autoFilled = isAutoFilledField(onlineData, field.key, selectedVehicle);
                 const selectedFiles = files[field.key] || [];
                 return (
                 <label key={field.key} className={fieldWrapClass(field)}>
@@ -685,7 +693,7 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
                         className={`w-full min-w-0 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 ${autoFilled ? "bg-slate-50 text-slate-500" : ""}`}
                       >
                         <option value="">اختر</option>
-                        {optionList(data, field.options).map((option) => (
+                        {optionList(onlineData, field.options).map((option) => (
                           <option key={option.value} value={option.value}>{option.label}{option.sub ? ` - ${option.sub}` : ""}</option>
                         ))}
                       </select>
@@ -744,3 +752,4 @@ export function VehicleModernClient({ data, openCreate = false }: { data: Vehicl
     </section>
   );
 }
+

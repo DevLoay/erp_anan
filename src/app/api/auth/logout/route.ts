@@ -5,6 +5,6 @@ export async function POST() {
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
   response.cookies.set("erp-user-role", "", { path: "/", maxAge: 0 });
+  response.cookies.set("erp-nav-resources", "", { path: "/", maxAge: 0 });
   return response;
 }
-

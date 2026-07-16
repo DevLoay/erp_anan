@@ -3,7 +3,7 @@ import { parseExcelBuffer } from "./parseExcel";
 import { databaseOfflineMessage, resolveTemplateForUse } from "./templates";
 import { KEETA_DRIVER_INVOICE_TEMPLATE, KEETA_PERIOD_REPORT_TEMPLATE, KEETA_RANK_TEMPLATE } from "./templates";
 import { buildKeetaDriverInvoicePreview, enrichKeetaPreview } from "./keetaImport";
-import { buildHungerStationInvoicePreview } from "./hungerstationImport";
+import { buildHungerStationDailyPerformancePreview, buildHungerStationInvoicePreview } from "./hungerstationImport";
 import { validateImportRows, type ImportPreviewRow, type ImportPreviewSummary } from "./validateRows";
 
 export type ImportPreviewPayload = {
@@ -32,6 +32,7 @@ export async function buildImportPreview(args: {
   projectId?: string;
   cityId?: string;
   month?: string;
+  reportDate?: string;
 }): Promise<ImportPreviewPayload> {
   try {
     const lowerName = args.fileName.toLowerCase();
@@ -60,6 +61,22 @@ export async function buildImportPreview(args: {
       });
     }
 
+    if (template.fileType === "hungerstation_performance") {
+      return buildHungerStationDailyPerformancePreview({
+        fileName: args.fileName,
+        parsed,
+        requiredColumns: template.requiredColumns,
+        optionalColumns: template.optionalColumns,
+        columnMapping: template.columnMapping,
+        applicationId: args.applicationId,
+        applicationProjectId: args.applicationProjectId,
+        projectId: args.projectId ?? "",
+        cityId: args.cityId ?? "",
+        templateId: template.source === "database" ? template.id : "",
+        reportDate: args.reportDate ?? "",
+      });
+    }
+
     if (template.fileType === "hungerstation_invoice") {
       return buildHungerStationInvoicePreview({
         fileName: args.fileName,
@@ -72,6 +89,7 @@ export async function buildImportPreview(args: {
         projectId: args.projectId ?? "",
         cityId: args.cityId ?? "",
         templateId: template.source === "database" ? template.id : "",
+        month: args.month ?? "",
       });
     }
 

@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { calculateExpectedTarget, calculatePerformancePercentage } from "@/lib/performance/expectedTargets";
+import { getRulesForApp, getSystemRules } from "@/lib/reporting";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -81,9 +83,34 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
-function performanceScore(report: { orders: number; workingHours: unknown; onTimeRate: unknown; cancellationRate: unknown; rejectionRate: unknown }) {
-  const ordersScore = clamp((report.orders / 400) * 100);
-  const hoursScore = clamp((toNumber(report.workingHours) / 10) * 100);
+function appDisplayName(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (lower.includes("keeta")) return "Keeta";
+  if (lower.includes("hunger")) return "HungerStation";
+  if (lower.includes("talabat")) return "Talabat";
+  if (lower.includes("jahez")) return "Jahez";
+  if (lower.includes("ninja")) return "Ninja";
+  if (lower.includes("toyou")) return "Toyou";
+  return raw || "Keeta";
+}
+
+function performanceScore(
+  report: { orders: number; workingHours: unknown; onTimeRate: unknown; cancellationRate: unknown; rejectionRate: unknown; reportDate?: Date; month?: string | null },
+  rules: { monthlyOrders: number; workingHours: number },
+) {
+  const reportDay = report.reportDate ? isoDate(report.reportDate) : isoDate(new Date());
+  const reportMonth = report.month || reportDay.slice(0, 7);
+  const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
+  const expectedHours = calculateExpectedTarget({
+    monthlyTarget: rules.workingHours,
+    month: reportMonth,
+    dateFrom: reportDay,
+    dateTo: reportDay,
+    precision: "decimal",
+  }).expected;
+  const ordersScore = clamp(calculatePerformancePercentage(report.orders, expectedOrders));
+  const hoursScore = clamp(calculatePerformancePercentage(toNumber(report.workingHours), expectedHours));
   const onTimeScore = clamp(percent(report.onTimeRate));
   const cancellationScore = clamp(100 - percent(report.cancellationRate) * 10);
   const rejectionScore = clamp(100 - percent(report.rejectionRate) * 5);
@@ -115,6 +142,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
     const from = new Date(`${filters.fromDate}T00:00:00.000Z`);
     const to = new Date(`${filters.toDate}T23:59:59.999Z`);
     const q = filters.q.toLowerCase();
+    const kpiSettings = await getSystemRules();
 
     const [drivers, supervisors, cities, projects, reports, tasks, notifications] = await Promise.all([
       prisma.driver.findMany({
@@ -131,7 +159,12 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       prisma.project.findMany({ include: { drivers: true } }),
       prisma.dailyReport.findMany({
         where: { reportDate: { gte: from, lte: to } },
-        include: { driver: { include: { city: true, project: true, supervisor: true } }, city: true, project: true },
+        include: {
+          driver: { include: { city: true, project: true, supervisor: true } },
+          city: true,
+          project: true,
+          applicationProject: { include: { application: true } },
+        },
       }),
       prisma.task.findMany({ where: { createdAt: { gte: from, lte: to } } }),
       prisma.notification.findMany({ where: { createdAt: { gte: from, lte: to } } }),
@@ -155,10 +188,15 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         )
       : reports;
 
+    const scoreReport = (report: (typeof filteredReports)[number]) => {
+      const appName = appDisplayName(report.applicationProject?.application?.name || report.appName || report.project?.appName || report.driver?.project?.appName);
+      return performanceScore(report, getRulesForApp(appName, kpiSettings));
+    };
+
     const driverStats = drivers.map((driver) => {
       const driverReports = filteredReports.filter((report) => report.driverId === driver.id);
       const orders = driverReports.reduce((sum, report) => sum + report.orders, 0);
-      const kpi = avg(driverReports.map(performanceScore));
+      const kpi = avg(driverReports.map(scoreReport));
       const hasMissingScope = !driver.cityId || !driver.projectId || !driver.supervisorId;
       return {
         id: driver.id,
@@ -179,7 +217,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         id: city.id,
         name: city.nameAr || city.nameEn || "-",
         orders: cityReports.reduce((sum, report) => sum + report.orders, 0),
-        kpi: avg(cityReports.map(performanceScore)),
+        kpi: avg(cityReports.map(scoreReport)),
         count: city.drivers.length,
       };
     });
@@ -190,7 +228,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         id: project.id,
         name: project.name,
         orders: projectReports.reduce((sum, report) => sum + report.orders, 0),
-        kpi: avg(projectReports.map(performanceScore)),
+        kpi: avg(projectReports.map(scoreReport)),
         count: project.drivers.length,
       };
     });
@@ -201,7 +239,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         id: supervisor.id,
         name: supervisor.name,
         orders: supervisorReports.reduce((sum, report) => sum + report.orders, 0),
-        kpi: avg(supervisorReports.map(performanceScore)),
+        kpi: avg(supervisorReports.map(scoreReport)),
         count: supervisor.drivers.length,
       };
     });
@@ -219,7 +257,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
     );
 
     const totalOrders = filteredReports.reduce((sum, report) => sum + report.orders, 0);
-    const averageKpi = avg(filteredReports.map(performanceScore));
+    const averageKpi = avg(filteredReports.map(scoreReport));
     const needsFollowUp = driverStats.filter((driver) => driver.kpi < 70 || driver.hasMissingScope || driver.status !== "ACTIVE").length + tasks.length + notifications.length;
 
     return {

@@ -1,6 +1,11 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Prisma, type Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  buildSupervisorPermissionProfile,
+  parseUserPermissionProfile,
+  USER_PERMISSION_PROFILE_PREFIX,
+} from "@/lib/auth/userPermissionProfile";
 
 const validRoles = new Set(["ADMIN", "OPERATION_MANAGER", "SUPERVISOR", "ACCOUNTANT", "HR", "VIEWER"]);
 
@@ -98,8 +103,62 @@ function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
 }
 
+async function syncManagedUserPermissionProfile(user: {
+  id: string;
+  email: string;
+  role: Role;
+  cityId: string | null;
+  cityScope: string | null;
+  projectScope: string | null;
+}) {
+  const key = `${USER_PERMISSION_PROFILE_PREFIX}${user.id}`;
+  if (user.role === "SUPERVISOR") {
+    const profile = buildSupervisorPermissionProfile(user);
+    await prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: jsonValue(profile), updatedBy: user.email },
+      create: { key, value: jsonValue(profile), updatedBy: user.email },
+    });
+    return profile;
+  }
+
+  const existing = await prisma.systemSetting.findUnique({ where: { key }, select: { value: true } });
+  const existingProfile = parseUserPermissionProfile(existing?.value);
+  if (existingProfile && ["city_supervisor", "project_supervisor"].includes(existingProfile.profileKey)) {
+    await prisma.systemSetting.delete({ where: { key } });
+  }
+  return null;
+}
+
+async function validateUserScopes(data: {
+  role: Role;
+  cityId: string | null;
+  cityScope: string;
+  projectScope: string;
+}) {
+  const cityIds = Array.from(new Set([data.cityId, ...data.cityScope.split(",")].map((item) => item?.trim()).filter(Boolean))) as string[];
+  const applicationProjectIds = Array.from(new Set(data.projectScope.split(",").map((item) => item.trim()).filter(Boolean)));
+
+  const [cityCount, projects] = await Promise.all([
+    cityIds.length ? prisma.city.count({ where: { id: { in: cityIds } } }) : Promise.resolve(0),
+    applicationProjectIds.length
+      ? prisma.applicationProject.findMany({ where: { id: { in: applicationProjectIds } }, select: { id: true, cityId: true } })
+      : Promise.resolve([]),
+  ]);
+
+  if (cityCount !== cityIds.length) throw new Error("نطاق المدن يحتوي على مدينة غير موجودة.");
+  if (projects.length !== applicationProjectIds.length) {
+    throw new Error("نطاق المشاريع يجب أن يحتوي على مشاريع تشغيلية من ApplicationProject فقط.");
+  }
+  if (data.role === "SUPERVISOR" && !cityIds.length) throw new Error("يجب تحديد مدينة للمشرف.");
+  if (data.role === "SUPERVISOR" && applicationProjectIds.length && projects.some((project) => !project.cityId || !cityIds.includes(project.cityId))) {
+    throw new Error("مشروع المشرف يجب أن يكون داخل المدينة المحددة لنفس الحساب.");
+  }
+}
+
 export async function createManagedUser(payload: UserManagementPayload) {
   const normalized = normalizeUserPayload(payload);
+  await validateUserScopes(normalized.data);
   const temporaryPassword = normalized.password || generateTemporaryPassword();
   try {
     const user = await prisma.user.create({
@@ -109,6 +168,8 @@ export async function createManagedUser(payload: UserManagementPayload) {
       },
       include: { city: true, supervisor: true, driver: true },
     });
+
+    await syncManagedUserPermissionProfile(user);
 
     await prisma.auditLog.create({
       data: {
@@ -131,15 +192,21 @@ export async function createManagedUser(payload: UserManagementPayload) {
 
 export async function updateManagedUser(id: string, payload: UserManagementPayload) {
   const normalized = normalizeUserPayload(payload);
+  await validateUserScopes(normalized.data);
   const before = await prisma.user.findUnique({ where: { id }, include: { city: true, supervisor: true, driver: true } });
   if (!before) throw new Error("المستخدم غير موجود.");
 
   try {
     const user = await prisma.user.update({
       where: { id },
-      data: normalized.data,
+      data: {
+        ...normalized.data,
+        ...(normalized.password ? { passwordHash: hashPassword(normalized.password) } : {}),
+      },
       include: { city: true, supervisor: true, driver: true },
     });
+
+    await syncManagedUserPermissionProfile(user);
 
     await prisma.auditLog.create({
       data: {
@@ -153,7 +220,7 @@ export async function updateManagedUser(id: string, payload: UserManagementPaylo
       },
     });
 
-    return { user: safeUser(user) };
+    return { user: safeUser(user), passwordUpdated: Boolean(normalized.password) };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new Error("هذا البريد مستخدم بالفعل.");

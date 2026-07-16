@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 import { getRiderKpiReport, getSystemRules, type ReportFilters } from "@/lib/reporting";
 import { generateKeetaPayroll, isKeetaPayrollRequest } from "@/lib/payroll/keetaPayroll";
+import { generateHungerStationPayroll, isHungerStationPayrollRequest } from "@/lib/payroll/hungerstationPayroll";
 
 type GenerateBody = Partial<ReportFilters> & {
   month?: string;
@@ -66,6 +67,27 @@ export async function POST(request: Request) {
     })
   ) {
     const result = await generateKeetaPayroll({
+      month: filters.month,
+      cityId: filters.cityId || undefined,
+      applicationProjectId: body.applicationProjectId || applicationProject?.id || filters.projectId || undefined,
+      requestedBy: "Admin",
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error, details: result.details }, { status: result.status });
+    }
+
+    return NextResponse.json({ data: result.data });
+  }
+
+  if (
+    isHungerStationPayrollRequest({
+      appName: filters.appName || legacyProject?.appName || applicationProject?.application.name || applicationProject?.application.code,
+      projectName: legacyProject?.name || applicationProject?.name,
+      projectId: filters.projectId,
+    })
+  ) {
+    const result = await generateHungerStationPayroll({
       month: filters.month,
       cityId: filters.cityId || undefined,
       applicationProjectId: body.applicationProjectId || applicationProject?.id || filters.projectId || undefined,

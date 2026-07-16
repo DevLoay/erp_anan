@@ -59,6 +59,29 @@ function codePart(value: string) {
     .slice(0, 36) || "PROJECT";
 }
 
+const CITY_CODE_ALIASES = [
+  { code: "ABHA", aliases: ["abha", "abha province", "أبها", "ابها"] },
+  { code: "AFLAJ", aliases: ["aflaj", "الأفلاج", "الافلاج"] },
+  { code: "AHSA", aliases: ["ahsa", "al ahsa", "al-ahsa", "al ahsa province", "الأحساء", "الاحساء", "الإحساء", "الاحساء"] },
+  { code: "DAMMAM", aliases: ["dammam", "eastern province", "الدمام", "الشرقية"] },
+  { code: "JEDDAH", aliases: ["jeddah", "جدة", "جده"] },
+  { code: "MADINAH", aliases: ["madinah", "medina", "المدينة المنورة", "المدينة", "المدينه المنوره", "المدينه"] },
+  { code: "MAKKAH", aliases: ["makkah", "mecca", "مكة", "مكه"] },
+  { code: "RIYADH", aliases: ["riyadh", "الرياض"] },
+  { code: "TAIF", aliases: ["taif", "الطائف"] },
+];
+
+function cityCodePart(primary: unknown, fallback?: unknown) {
+  const raw = text(primary) || text(fallback);
+  const key = compact(raw);
+  const match = CITY_CODE_ALIASES.find((city) => city.aliases.some((alias) => key === compact(alias) || key.includes(compact(alias))));
+  return match?.code || codePart(raw || "CITY");
+}
+
+function applicationProjectCode(applicationCode: unknown, applicationLabel: unknown, cityNameEn: unknown, cityLabel: unknown) {
+  return `${codePart(text(applicationCode) || text(applicationLabel))}-${cityCodePart(cityNameEn, cityLabel)}`;
+}
+
 async function uniqueAccountUsername(db: Db, preferred: string, scopeKey?: string | null, existingId?: string | null) {
   const base = preferred || `account-${scopeKey || "import"}`;
   const current = await db.applicationAccount.findUnique({ where: { username: base }, select: { id: true } });
@@ -148,16 +171,41 @@ export async function resolveOperationalProject(db: Db, scope: {
     ]);
     const appLabel = application?.name || applicationName || "Application";
     const cityLabel = city?.nameAr || city?.nameEn || "City";
-    return db.applicationProject.create({
-      data: {
-        applicationId,
-        cityId: scope.cityId,
-        code: `${codePart(application?.code || appLabel)}_${codePart(city?.nameEn || cityLabel)}`,
-        name: `${appLabel} - ${cityLabel}`,
-        status: RecordStatus.ACTIVE,
-      },
+    const code = applicationProjectCode(application?.code, appLabel, city?.nameEn, cityLabel);
+    const legacyCode = `${codePart(application?.code || appLabel)}_${cityCodePart(city?.nameEn, cityLabel)}`;
+
+    const existingByCode = await db.applicationProject.findFirst({
+      where: { code: { in: legacyCode !== code ? [code, legacyCode] : [code] } },
       select: { id: true, applicationId: true, cityId: true, name: true, code: true, projectId: true },
     });
+    if (existingByCode) return existingByCode;
+
+    try {
+      return await db.applicationProject.create({
+        data: {
+          applicationId,
+          cityId: scope.cityId,
+          code,
+          name: `${appLabel} - ${cityLabel}`,
+          status: RecordStatus.ACTIVE,
+        },
+        select: { id: true, applicationId: true, cityId: true, name: true, code: true, projectId: true },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existingAfterRace = await db.applicationProject.findFirst({
+          where: {
+            OR: [
+              { applicationId, cityId: scope.cityId },
+              { code: { in: legacyCode !== code ? [code, legacyCode] : [code] } },
+            ],
+          },
+          select: { id: true, applicationId: true, cityId: true, name: true, code: true, projectId: true },
+        });
+        if (existingAfterRace) return existingAfterRace;
+      }
+      throw error;
+    }
   }
 
   return db.applicationProject.findFirst({

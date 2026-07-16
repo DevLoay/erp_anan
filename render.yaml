@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: mohamed-shawki-erp
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm ci && npm run build
+    preDeployCommand: npx prisma migrate deploy
+    startCommand: npx next start --port $PORT
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    disk:
+      name: erp-uploads
+      mountPath: /opt/render/project/src/public/uploads
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mohamed-shawki-erp-db
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_APP_NAME
+        value: MOHAMED SHAWKI ERP
+      - key: APP_URL
+        fromService:
+          type: web
+          name: mohamed-shawki-erp
+          property: host
+      - key: UPLOAD_DIR
+        value: /opt/render/project/src/public/uploads
+
+databases:
+  - name: mohamed-shawki-erp-db
+    databaseName: mohamed_shawki_erp
+    user: erp_user
+    region: frankfurt
+    plan: basic-256mb
+    ipAllowList: []

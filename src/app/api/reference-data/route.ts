@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canReadResource, roleFromHeaders } from "@/lib/permissions";
+import { getAccessScope } from "@/lib/auth/accessScope";
 
 function option(value: string, label: string) {
   return { value, label };
@@ -19,15 +20,74 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [cities, projects, supervisors, drivers, vehicles, accounts, applications, applicationProjects] = await Promise.all([
-      prisma.city.findMany({ select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameAr: "asc" } }),
-      prisma.project.findMany({ select: { id: true, name: true, appName: true }, orderBy: { name: "asc" } }),
-      prisma.supervisor.findMany({ select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
-      prisma.driver.findMany({ select: { id: true, internalCode: true, name: true, phone: true }, orderBy: { name: "asc" }, take: 500 }),
-      prisma.vehicle.findMany({ select: { id: true, plateAr: true, plateEn: true, model: true }, orderBy: { plateEn: "asc" }, take: 500 }),
-      prisma.applicationAccount.findMany({ select: { id: true, appName: true, username: true, appUserId: true, isEmpty: true }, orderBy: { username: "asc" }, take: 500 }),
-      prisma.application.findMany({ select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
-      prisma.applicationProject.findMany({ select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
+    const scope = await getAccessScope(request.headers);
+    const scopedCity = !scope.isGlobal && scope.cityIds.length ? { id: { in: scope.cityIds } } : {};
+    const applicationProjectWhere = scope.isGlobal
+      ? {}
+      : {
+          AND: [
+            scope.projectIds.length ? { id: { in: scope.projectIds } } : {},
+            scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+          ],
+        };
+    const applicationProjects = await prisma.applicationProject.findMany({
+      where: applicationProjectWhere,
+      select: { id: true, code: true, name: true, projectId: true, applicationId: true },
+      orderBy: { name: "asc" },
+    });
+    const scopedProjectIds = applicationProjects.map((project) => project.id);
+    const legacyProjectIds = applicationProjects.map((project) => project.projectId).filter(Boolean) as string[];
+    const applicationIds = [...new Set(applicationProjects.map((project) => project.applicationId))];
+    const projectDriverClause = !scope.isGlobal && scopedProjectIds.length
+      ? { applicationAccounts: { some: { applicationProjectId: { in: scopedProjectIds } } } }
+      : {};
+    const [cities, projects, supervisors, drivers, vehicles, accounts, applications] = await Promise.all([
+      prisma.city.findMany({ where: scopedCity, select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameAr: "asc" } }),
+      prisma.project.findMany({ where: scope.isGlobal ? {} : { id: { in: legacyProjectIds } }, select: { id: true, name: true, appName: true }, orderBy: { name: "asc" } }),
+      prisma.supervisor.findMany({
+        where: scope.isGlobal
+          ? {}
+          : scope.projectIds.length && scope.supervisorId
+            ? { id: scope.supervisorId }
+            : scope.cityIds.length
+              ? { cityId: { in: scope.cityIds } }
+              : { id: "__NO_ACCESS__" },
+        select: { id: true, name: true, phone: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.driver.findMany({
+        where: scope.isGlobal ? {} : { AND: [scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {}, projectDriverClause] },
+        select: { id: true, internalCode: true, name: true, phone: true },
+        orderBy: { name: "asc" },
+        take: 500,
+      }),
+      prisma.vehicle.findMany({
+        where: scope.isGlobal
+          ? {}
+          : {
+              AND: [
+                scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+                scope.projectIds.length ? { currentDriver: { is: projectDriverClause } } : {},
+              ],
+            },
+        select: { id: true, plateAr: true, plateEn: true, model: true },
+        orderBy: { plateEn: "asc" },
+        take: 500,
+      }),
+      prisma.applicationAccount.findMany({
+        where: scope.isGlobal
+          ? {}
+          : {
+              AND: [
+                scope.cityIds.length ? { cityId: { in: scope.cityIds } } : {},
+                scope.projectIds.length ? { applicationProjectId: { in: scope.projectIds } } : {},
+              ],
+            },
+        select: { id: true, appName: true, username: true, appUserId: true, isEmpty: true },
+        orderBy: { username: "asc" },
+        take: 500,
+      }),
+      prisma.application.findMany({ where: scope.isGlobal ? {} : { id: { in: applicationIds } }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     ]);
 
     return NextResponse.json({

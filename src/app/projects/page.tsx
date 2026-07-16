@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { PageShell } from "@/components/ui/PageShell";
 import { prisma } from "@/lib/prisma";
+import { getAccessScope, type AccessScope } from "@/lib/auth/accessScope";
 
 export const dynamic = "force-dynamic";
 
@@ -63,13 +65,26 @@ function appKind(project: ProjectRow) {
   return normalize(project.application.code || project.application.name).includes("hunger") ? "HungerStation" : "Keeta";
 }
 
-async function getProjectsData() {
+async function getProjectsData(accessScope: AccessScope) {
+  const scopedWhere = accessScope.isGlobal
+    ? {}
+    : {
+        AND: [
+          ...(accessScope.cityIds.length ? [{ cityId: { in: accessScope.cityIds } }] : []),
+          ...(accessScope.projectIds.length ? [{ id: { in: accessScope.projectIds } }] : []),
+        ],
+      };
   const projects = await prisma.applicationProject.findMany({
     where: {
+      AND: [
+        scopedWhere,
+        {
       cityId: { not: null },
       application: {
         code: { in: [...OPERATIONAL_APPLICATION_CODES] },
       },
+        },
+      ],
     },
     include: {
       application: { select: { id: true, code: true, name: true, status: true } },
@@ -110,7 +125,9 @@ async function getProjectsData() {
       },
     }),
     prisma.supervisor.findMany({
-      where: { cityId: { not: null } },
+      where: {
+        cityId: accessScope.isGlobal || !accessScope.cityIds.length ? { not: null } : { in: accessScope.cityIds },
+      },
       select: { cityId: true },
     }),
     prisma.keetaRankRecord.findMany({
@@ -239,8 +256,8 @@ function numberCard(label: string, value: string | number, tone = "slate") {
 }
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const data = await getProjectsData()
+  const [params, accessScope] = await Promise.all([searchParams, getAccessScope(await headers())]);
+  const data = await getProjectsData(accessScope)
     .then((result) => ({ ...result, offline: "" }))
     .catch((error: unknown) => ({
       projects: [] as ProjectRow[],

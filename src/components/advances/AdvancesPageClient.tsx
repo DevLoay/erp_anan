@@ -270,12 +270,19 @@ export function AdvancesPageClient({ data }: Props) {
           </select></label>
           <label className="grid gap-1 text-xs font-black md:col-span-2">بحث<input name="q" defaultValue={data.filters.q} placeholder="اسم / ID / مشروع / مشرف / ملاحظات..." className="h-11 rounded-xl border border-slate-200 px-3" /></label>
           <label className="grid gap-1 text-xs font-black">عدد الصفوف<select name="pageSize" defaultValue={data.filters.pageSize} className="h-11 rounded-xl border border-slate-200 px-3">
-            {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size} صف</option>)}
+            {[25, 50, 100, 200, 500].map((size) => <option key={size} value={size}>{size} صف</option>)}
           </select></label>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button tone="dark" type="submit">تطبيق</Button>
           <Button type="button" onClick={() => router.push("/advances")}>عرض الكل</Button>
+          <Button
+            type="button"
+            tone="blue"
+            onClick={() => router.push("/advances?fromDate=2026-04-01&toDate=2026-04-30&deductionMonth=2026-04&status=APPROVED&q=TEST_FULL_PAYROLL_2026_04&pageSize=200")}
+          >
+            عرض Test أبريل 2026
+          </Button>
         </div>
       </form>
 
@@ -335,7 +342,7 @@ export function AdvancesPageClient({ data }: Props) {
                   <td colSpan={17} className="px-3 py-12 text-center">
                     <div className="rounded-2xl border border-dashed border-slate-300 p-8">
                       <p className="text-lg font-black">لا توجد سلف حسب الفلاتر الحالية</p>
-                      <p className="mt-2 text-sm font-bold text-slate-500">أضف سلفة جديدة أو غيّر نطاق التاريخ والفلاتر.</p>
+                      <p className="mt-2 text-sm font-bold text-slate-500">أضف سلفة جديدة، غيّر الفلاتر، أو اضغط عرض Test أبريل 2026 لعرض بيانات الاختبار.</p>
                     </div>
                   </td>
                 </tr>

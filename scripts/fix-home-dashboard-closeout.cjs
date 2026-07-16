@@ -25,11 +25,8 @@ function itemLine({ href, label, oldKey, resource, description }) {
 
 function ensureHomeItems(src) {
   const items = [
-    { href: '/reports', label: 'التقارير العامة', oldKey: 'reports', resource: 'reports', description: 'مركز التقارير العامة والملخصات التنفيذية من البيانات المعتمدة.' },
     { href: '/daily-reports', label: 'التقارير اليومية', oldKey: 'dailyReports', resource: 'daily-reports', description: 'تقارير التشغيل اليومية ومتابعات المدن والمشرفين.' },
     { href: '/operations-alerts', label: 'تنبيهات العمليات', oldKey: 'operationsAlerts', resource: 'operations-alerts', description: 'تنبيهات تشغيلية مجمعة للحالات التي تحتاج متابعة.' },
-    { href: '/uploaded-reports', label: 'التقارير المرفوعة', oldKey: 'uploadedReports', resource: 'uploaded-reports', description: 'ملفات وتقارير تم رفعها للنظام للرجوع والمراجعة.' },
-    { href: '/report-templates', label: 'قوالب التقارير', oldKey: 'reportTemplates', resource: 'report-templates', description: 'قوالب تقارير جاهزة للاستخدام والتصدير.' },
   ];
 
   let out = src;
@@ -59,13 +56,10 @@ function permLine({ section, resource, label, route }) {
 function ensurePermissionModules(src) {
   const permissions = [
     { section: 'الرئيسية والتقارير', resource: 'dashboard', label: 'لوحة الإدارة', route: '/dashboard' },
-    { section: 'الرئيسية والتقارير', resource: 'reports', label: 'التقارير العامة', route: '/reports' },
     { section: 'الرئيسية والتقارير', resource: 'management-reports', label: 'التقارير الإدارية', route: '/management-reports' },
     { section: 'الرئيسية والتقارير', resource: 'daily-reports', label: 'التقارير اليومية', route: '/daily-reports' },
     { section: 'الرئيسية والتقارير', resource: 'operations-alerts', label: 'تنبيهات العمليات', route: '/operations-alerts' },
-    { section: 'الرئيسية والتقارير', resource: 'uploaded-reports', label: 'التقارير المرفوعة', route: '/uploaded-reports' },
     { section: 'الرئيسية والتقارير', resource: 'notifications', label: 'الإشعارات والتنبيهات', route: '/notifications' },
-    { section: 'الرئيسية والتقارير', resource: 'report-templates', label: 'قوالب التقارير', route: '/report-templates' },
   ];
 
   let out = src;
@@ -85,7 +79,7 @@ function ensurePermissionModules(src) {
 function ensureReportResources(src) {
   if (src.includes('const reportResources = new Set')) return src;
 
-  const insert = `\nconst reportResources = new Set([\n  "dashboard",\n  "reports",\n  "management-reports",\n  "daily-reports",\n  "operations-alerts",\n  "uploaded-reports",\n  "notifications",\n  "report-templates",\n]);\n`;
+  const insert = `\nconst reportResources = new Set([\n  "dashboard",\n  "management-reports",\n  "daily-reports",\n  "operations-alerts",\n  "notifications",\n]);\n`;
 
   let out = src.replace(/(const adminOnlyResources = new Set\([^\n]+\);\s*)/, `$1${insert}\n`);
 

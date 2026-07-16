@@ -5,13 +5,12 @@ const PASSWORD = process.env.ERP_TEST_PASSWORD || '';
 const routes = [
   '/',
   '/dashboard',
-  '/reports',
   '/notifications',
   '/management-reports',
   '/daily-reports',
   '/operations-alerts',
-  '/uploaded-reports',
-  '/report-templates',
+  '/imports/history',
+  '/settings/templates',
 ];
 
 function cookieHeader(headers) {

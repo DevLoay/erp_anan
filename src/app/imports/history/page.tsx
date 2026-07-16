@@ -15,10 +15,10 @@ export default async function ImportHistoryPage() {
             <span>/</span>
             <Link href="/imports" className="hover:text-slate-950">الاستيراد</Link>
             <span>/</span>
-            <span className="text-slate-800">تاريخ الاستيراد</span>
+            <span className="text-slate-800">سجل الملفات والاستيراد</span>
           </nav>
-          <h1 className="text-3xl font-black text-slate-950">تاريخ الاستيراد</h1>
-          <p className="mt-2 max-w-4xl text-sm font-bold text-slate-600">متابعة كل Import Batches والصفوف الصحيحة والخاطئة وحالة الاعتماد.</p>
+          <h1 className="text-3xl font-black text-slate-950">سجل الملفات والاستيراد</h1>
+          <p className="mt-2 max-w-4xl text-sm font-bold text-slate-600">المكان الموحد لكل الملفات المرفوعة ودفعات الاستيراد والصفوف الصحيحة والخاطئة وحالات الاعتماد.</p>
         </div>
         <Link href="/imports" className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-black text-white">استيراد ملف جديد</Link>
       </div>
@@ -26,4 +26,3 @@ export default async function ImportHistoryPage() {
     </main>
   );
 }
-
