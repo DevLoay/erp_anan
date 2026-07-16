@@ -22,11 +22,6 @@ services:
         generateValue: true
       - key: NEXT_PUBLIC_APP_NAME
         value: MOHAMED SHAWKI ERP
-      - key: APP_URL
-        fromService:
-          type: web
-          name: mohamed-shawki-erp
-          property: host
       - key: UPLOAD_DIR
         value: /opt/render/project/src/public/uploads
 
