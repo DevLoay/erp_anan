@@ -1,21 +1,14 @@
-"use client";
-
-import { useState } from "react";
-
 type Props = {
   nextPath: string;
   errorMessage?: string;
 };
 
 export function LoginClient({ nextPath, errorMessage }: Props) {
-  const [loading, setLoading] = useState(false);
-
   return (
     <section className="grid min-h-screen place-items-center bg-slate-50 p-4" dir="rtl">
       <form
         action="/api/auth/login"
         method="post"
-        onSubmit={() => setLoading(true)}
         className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
       >
         <input type="hidden" name="nextPath" value={nextPath} />
@@ -54,10 +47,9 @@ export function LoginClient({ nextPath, errorMessage }: Props) {
 
         <button
           type="submit"
-          disabled={loading}
-          className="mt-5 h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 h-11 w-full rounded-xl bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800"
         >
-          {loading ? "جاري الدخول..." : "دخول"}
+          دخول
         </button>
       </form>
     </section>

@@ -31,8 +31,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname === "/login" ||
     pathname === "/forgot-password" ||
     pathname.startsWith("/reset-password") ||
+    pathname === "/auth-check" ||
     pathname === "/rider-app" ||
     pathname.startsWith("/rider-app");
+
+  if (authPage) {
+    return <main className="min-h-screen bg-slate-50" suppressHydrationWarning>{children}</main>;
+  }
 
   // Keep the server HTML and the very first client render identical.
   // This prevents hydration warnings caused by browser extensions such as
@@ -40,10 +45,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Sidebar/Header state that only exists in the browser.
   if (!mounted) {
     return <StableBootShell />;
-  }
-
-  if (authPage) {
-    return <main className="min-h-screen bg-slate-50" suppressHydrationWarning>{children}</main>;
   }
 
   return (
