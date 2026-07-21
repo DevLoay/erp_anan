@@ -109,21 +109,22 @@ function loginError(request: Request, formRedirect: boolean, nextPath: unknown, 
 
 function attachAuthCookies(response: NextResponse, request: Request, token: string, role: AppRole, navResources: string[]) {
   const isHttps = isHttpsRequest(request);
+  const sameSite = isHttps ? "none" : "lax";
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite,
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
   });
   response.cookies.set("erp-user-role", role, {
-    sameSite: "lax",
+    sameSite,
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
   });
   response.cookies.set("erp-nav-resources", navResources.join(","), {
-    sameSite: "lax",
+    sameSite,
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
