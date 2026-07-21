@@ -51,6 +51,10 @@ function resolveLandingPath(requestedPath: unknown, role: AppRole, profile: User
   return candidates.find((path) => canOpenPath(path, role, profile)) ?? "/access-denied";
 }
 
+function isHttpsRequest(request: Request) {
+  return request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:";
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; nextPath?: string };
   const email = String(body.email ?? "").trim().toLowerCase();
@@ -72,6 +76,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "بيانات الدخول غير صحيحة أو الحساب غير نشط." }, { status: 401 });
   }
 
+  // Keep the signed session compact; large scope strings belong in DB/profile lookups.
   const token = await signSession({
     userId: user.id,
     email: user.email,
@@ -79,10 +84,9 @@ export async function POST(request: Request) {
     role: user.role,
     driverId: user.driverId ?? undefined,
     cityId: user.cityId ?? undefined,
-    cityScope: user.cityScope ?? undefined,
-    projectScope: user.projectScope ?? undefined,
     supervisorId: user.supervisorId ?? undefined,
   });
+
   const permissionProfile = await loadUserPermissionProfile(user.id).catch(() => null);
   const navResources = permissionProfile
     ? readableResources(permissionProfile)
@@ -117,21 +121,29 @@ export async function POST(request: Request) {
       supervisorId: user.supervisorId,
     },
   });
+
+  const isHttps = isHttpsRequest(request);
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
   });
-  response.cookies.set("erp-user-role", permissionProfile && user.role !== "ADMIN" ? "VIEWER" : user.role, { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
-  response.cookies.set("erp-nav-resources", navResources.join(","), { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
+  response.cookies.set("erp-user-role", user.role, { sameSite: "lax", secure: isHttps, path: "/", maxAge: 60 * 60 * 10 });
+  response.cookies.set("erp-nav-resources", navResources.join(","), {
+    sameSite: "lax",
+    secure: isHttps,
+    path: "/",
+    maxAge: 60 * 60 * 10,
+  });
+
   debugAuth("login_success", {
     userId: user.id,
     role: user.role,
     redirectTo,
     cookieName: SESSION_COOKIE,
-    secureCookie: process.env.NODE_ENV === "production",
+    secureCookie: isHttps,
     navResourceCount: navResources.length,
   });
   return response;
