@@ -61,18 +61,6 @@ function isHttpsRequest(request: Request) {
   return request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:";
 }
 
-function publicOrigin(request: Request) {
-  const configured = process.env.APP_URL || process.env.NEXTAUTH_URL;
-  if (configured) return configured;
-
-  const forwardedHost = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  const forwardedProto = request.headers.get("x-forwarded-proto") || (isHttpsRequest(request) ? "https" : "http");
-  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
-
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}`;
-}
-
 function wantsFormRedirect(request: Request) {
   const contentType = request.headers.get("content-type") || "";
   return contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
@@ -97,17 +85,24 @@ async function readLoginBody(request: Request): Promise<{ body: LoginBody; formR
   };
 }
 
-function safeLoginUrl(request: Request, nextPath: unknown, error: string) {
-  const url = new URL("/login", publicOrigin(request));
+function safeLoginPath(nextPath: unknown, error: string) {
+  const url = new URL("https://local.invalid/login");
   const next = normalizedInternalPath(nextPath);
   if (next) url.searchParams.set("next", next);
   url.searchParams.set("error", error);
-  return url;
+  return `${url.pathname}${url.search}`;
+}
+
+function redirectPath(path: string, status = 303) {
+  return new NextResponse(null, {
+    status,
+    headers: { Location: path },
+  });
 }
 
 function loginError(request: Request, formRedirect: boolean, nextPath: unknown, message: string, status: number, errorCode = "invalid") {
   if (formRedirect) {
-    return NextResponse.redirect(safeLoginUrl(request, nextPath, errorCode), 303);
+    return redirectPath(safeLoginPath(nextPath, errorCode));
   }
   return NextResponse.json({ error: message }, { status });
 }
@@ -189,7 +184,7 @@ export async function POST(request: Request) {
     .catch(() => null);
 
   const response = formRedirect
-    ? NextResponse.redirect(new URL(redirectTo, publicOrigin(request)), 303)
+    ? redirectPath(redirectTo)
     : NextResponse.json({
         ok: true,
         redirectTo,
