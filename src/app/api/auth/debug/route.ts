@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
+import { inspectSessionToken, SESSION_COOKIE, type SessionInspection } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
   }
 
   const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
-  const session = await verifySessionToken(sessionCookie).catch(() => null);
+  const inspection: SessionInspection = await inspectSessionToken(sessionCookie).catch(() => ({ ok: false, reason: "payload_parse_error" }));
+  const session = inspection.session ?? null;
   const cookieNames = request.cookies.getAll().map((cookie) => cookie.name).sort();
 
   return NextResponse.json(
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
       ok: Boolean(session),
       hasSessionCookie: Boolean(sessionCookie),
       sessionValid: Boolean(session),
+      reason: inspection.reason ?? null,
       hasNavCookie: Boolean(request.cookies.get("erp-nav-resources")?.value),
       hasRoleCookie: Boolean(request.cookies.get("erp-user-role")?.value),
       cookieNames,

@@ -13,6 +13,7 @@ const publicPrefixes = [
   "/login",
   "/forgot-password",
   "/reset-password",
+  "/auth-check",
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/debug",

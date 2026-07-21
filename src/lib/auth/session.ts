@@ -17,6 +17,12 @@ export type SessionPayload = {
   iat: number;
 };
 
+export type SessionInspection = {
+  ok: boolean;
+  reason?: "missing_token" | "malformed_token" | "missing_token_parts" | "invalid_signature" | "missing_payload_fields" | "expired_token" | "payload_parse_error";
+  session?: SessionPayload;
+};
+
 const encoder = new TextEncoder();
 
 function authDebugEnabled() {
@@ -68,33 +74,39 @@ export async function signSession(input: Omit<SessionPayload, "exp" | "iat">, ma
   return `${encoded}.${await hmac(encoded)}`;
 }
 
-export async function verifySessionToken(token?: string | null): Promise<SessionPayload | null> {
+export async function inspectSessionToken(token?: string | null): Promise<SessionInspection> {
   if (!token || !token.includes(".")) {
-    debugAuth("verify_failed", { reason: token ? "malformed_token" : "missing_token" });
-    return null;
+    const reason = token ? "malformed_token" : "missing_token";
+    debugAuth("verify_failed", { reason });
+    return { ok: false, reason };
   }
   const [encoded, signature] = token.split(".");
   if (!encoded || !signature) {
     debugAuth("verify_failed", { reason: "missing_token_parts" });
-    return null;
+    return { ok: false, reason: "missing_token_parts" };
   }
   if ((await hmac(encoded)) !== signature) {
     debugAuth("verify_failed", { reason: "invalid_signature" });
-    return null;
+    return { ok: false, reason: "invalid_signature" };
   }
   try {
     const payload = JSON.parse(base64UrlDecode(encoded)) as SessionPayload;
     if (!payload.userId || !payload.email || !payload.role || !payload.exp) {
       debugAuth("verify_failed", { reason: "missing_payload_fields" });
-      return null;
+      return { ok: false, reason: "missing_payload_fields" };
     }
     if (payload.exp <= Math.floor(Date.now() / 1000)) {
       debugAuth("verify_failed", { reason: "expired_token", userId: payload.userId, role: payload.role, exp: payload.exp });
-      return null;
+      return { ok: false, reason: "expired_token" };
     }
-    return payload;
+    return { ok: true, session: payload };
   } catch {
     debugAuth("verify_failed", { reason: "payload_parse_error" });
-    return null;
+    return { ok: false, reason: "payload_parse_error" };
   }
+}
+
+export async function verifySessionToken(token?: string | null): Promise<SessionPayload | null> {
+  const inspection = await inspectSessionToken(token);
+  return inspection.session ?? null;
 }

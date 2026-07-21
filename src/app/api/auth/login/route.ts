@@ -185,7 +185,7 @@ export async function POST(request: Request) {
     .catch(() => null);
 
   const response = formRedirect
-    ? redirectPath(redirectTo)
+    ? redirectPath(`/auth-check?next=${encodeURIComponent(redirectTo)}`)
     : NextResponse.json({
         ok: true,
         redirectTo,
