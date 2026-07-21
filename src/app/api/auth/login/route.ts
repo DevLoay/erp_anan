@@ -10,6 +10,12 @@ import {
   type UserPermissionProfile,
 } from "@/lib/auth/userPermissionProfile";
 
+type LoginBody = {
+  email?: string;
+  password?: string;
+  nextPath?: string;
+};
+
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
@@ -55,13 +61,76 @@ function isHttpsRequest(request: Request) {
   return request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:";
 }
 
+function wantsFormRedirect(request: Request) {
+  const contentType = request.headers.get("content-type") || "";
+  return contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+}
+
+async function readLoginBody(request: Request): Promise<{ body: LoginBody; formRedirect: boolean }> {
+  if (wantsFormRedirect(request)) {
+    const form = await request.formData();
+    return {
+      formRedirect: true,
+      body: {
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+        nextPath: String(form.get("nextPath") ?? ""),
+      },
+    };
+  }
+
+  return {
+    formRedirect: false,
+    body: (await request.json().catch(() => ({}))) as LoginBody,
+  };
+}
+
+function safeLoginUrl(request: Request, nextPath: unknown, error: string) {
+  const url = new URL("/login", request.url);
+  const next = normalizedInternalPath(nextPath);
+  if (next) url.searchParams.set("next", next);
+  url.searchParams.set("error", error);
+  return url;
+}
+
+function loginError(request: Request, formRedirect: boolean, nextPath: unknown, message: string, status: number, errorCode = "invalid") {
+  if (formRedirect) {
+    return NextResponse.redirect(safeLoginUrl(request, nextPath, errorCode), 303);
+  }
+  return NextResponse.json({ error: message }, { status });
+}
+
+function attachAuthCookies(response: NextResponse, request: Request, token: string, role: AppRole, navResources: string[]) {
+  const isHttps = isHttpsRequest(request);
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isHttps,
+    path: "/",
+    maxAge: 60 * 60 * 10,
+  });
+  response.cookies.set("erp-user-role", role, {
+    sameSite: "lax",
+    secure: isHttps,
+    path: "/",
+    maxAge: 60 * 60 * 10,
+  });
+  response.cookies.set("erp-nav-resources", navResources.join(","), {
+    sameSite: "lax",
+    secure: isHttps,
+    path: "/",
+    maxAge: 60 * 60 * 10,
+  });
+  return isHttps;
+}
+
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string; nextPath?: string };
+  const { body, formRedirect } = await readLoginBody(request);
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
 
   if (!email || !password) {
-    return NextResponse.json({ error: "البريد الإلكتروني وكلمة المرور مطلوبان." }, { status: 400 });
+    return loginError(request, formRedirect, body.nextPath, "البريد الإلكتروني وكلمة المرور مطلوبان.", 400, "missing");
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
@@ -73,7 +142,7 @@ export async function POST(request: Request) {
       status: user?.status,
       hasPasswordHash: Boolean(user?.passwordHash),
     });
-    return NextResponse.json({ error: "بيانات الدخول غير صحيحة أو الحساب غير نشط." }, { status: 401 });
+    return loginError(request, formRedirect, body.nextPath, "بيانات الدخول غير صحيحة أو الحساب غير نشط.", 401, "invalid");
   }
 
   // Keep the signed session compact; large scope strings belong in DB/profile lookups.
@@ -107,43 +176,32 @@ export async function POST(request: Request) {
     })
     .catch(() => null);
 
-  const response = NextResponse.json({
-    ok: true,
-    redirectTo,
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      cityId: user.cityId,
-      cityScope: user.cityScope,
-      projectScope: user.projectScope,
-      supervisorId: user.supervisorId,
-    },
-  });
+  const response = formRedirect
+    ? NextResponse.redirect(new URL(redirectTo, request.url), 303)
+    : NextResponse.json({
+        ok: true,
+        redirectTo,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          cityId: user.cityId,
+          cityScope: user.cityScope,
+          projectScope: user.projectScope,
+          supervisorId: user.supervisorId,
+        },
+      });
 
-  const isHttps = isHttpsRequest(request);
-  response.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: isHttps,
-    path: "/",
-    maxAge: 60 * 60 * 10,
-  });
-  response.cookies.set("erp-user-role", user.role, { sameSite: "lax", secure: isHttps, path: "/", maxAge: 60 * 60 * 10 });
-  response.cookies.set("erp-nav-resources", navResources.join(","), {
-    sameSite: "lax",
-    secure: isHttps,
-    path: "/",
-    maxAge: 60 * 60 * 10,
-  });
+  const secureCookie = attachAuthCookies(response, request, token, user.role, navResources);
 
   debugAuth("login_success", {
     userId: user.id,
     role: user.role,
     redirectTo,
     cookieName: SESSION_COOKIE,
-    secureCookie: isHttps,
+    secureCookie,
+    formRedirect,
     navResourceCount: navResources.length,
   });
   return response;

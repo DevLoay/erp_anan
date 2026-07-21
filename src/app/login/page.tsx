@@ -7,7 +7,15 @@ type PageProps = {
 };
 
 export default async function LoginPage({ searchParams }: PageProps) {
-  const next = String((await searchParams).next ?? "/dashboard");
-  return <LoginClient nextPath={next.startsWith("/") ? next : "/dashboard"} />;
+  const params = await searchParams;
+  const next = String(params.next ?? "/dashboard");
+  const error = String(params.error ?? "");
+  const errorMessage =
+    error === "missing"
+      ? "البريد الإلكتروني وكلمة المرور مطلوبان."
+      : error === "invalid"
+      ? "بيانات الدخول غير صحيحة أو الحساب غير نشط."
+      : "";
+  return <LoginClient nextPath={next.startsWith("/") ? next : "/dashboard"} errorMessage={errorMessage} />;
 }
 
