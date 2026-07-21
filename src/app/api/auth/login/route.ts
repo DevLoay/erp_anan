@@ -153,8 +153,7 @@ export async function POST(request: Request) {
     return loginError(request, formRedirect, body.nextPath, "بيانات الدخول غير صحيحة أو الحساب غير نشط.", 401, "invalid");
   }
 
-  // Keep the signed session compact; large scope strings belong in DB/profile lookups.
-  const token = await signSession({
+  const sessionInput = {
     userId: user.id,
     email: user.email,
     name: user.name,
@@ -162,7 +161,11 @@ export async function POST(request: Request) {
     driverId: user.driverId ?? undefined,
     cityId: user.cityId ?? undefined,
     supervisorId: user.supervisorId ?? undefined,
-  });
+  };
+
+  // Keep the signed session compact; large scope strings belong in DB/profile lookups.
+  const token = await signSession(sessionInput);
+  const handoffToken = formRedirect ? await signSession(sessionInput, 90) : "";
 
   const permissionProfile = await loadUserPermissionProfile(user.id).catch(() => null);
   const navResources = permissionProfile
@@ -185,7 +188,7 @@ export async function POST(request: Request) {
     .catch(() => null);
 
   const response = formRedirect
-    ? redirectPath(`/auth-check?next=${encodeURIComponent(redirectTo)}`)
+    ? redirectPath(`/auth-check?next=${encodeURIComponent(redirectTo)}&handoff=${encodeURIComponent(handoffToken)}`)
     : NextResponse.json({
         ok: true,
         redirectTo,
