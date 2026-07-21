@@ -6,6 +6,7 @@ export async function GET(request: Request) {
   const response = NextResponse.redirect(url);
   response.cookies.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
   response.cookies.set("erp-user-role", "", { path: "/", maxAge: 0 });
+  response.cookies.set("erp-nav-resources", "", { path: "/", maxAge: 0 });
   return response;
 }
 
