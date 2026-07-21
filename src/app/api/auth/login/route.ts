@@ -26,6 +26,15 @@ function canOpenPath(path: string, role: AppRole, profile: UserPermissionProfile
   return profile ? profileAllows(profile, resource, "view") : canReadResource(role, resource);
 }
 
+function authDebugEnabled() {
+  return process.env.AUTH_DEBUG === "1" || process.env.AUTH_DEBUG === "true";
+}
+
+function debugAuth(event: string, details: Record<string, unknown>) {
+  if (!authDebugEnabled()) return;
+  console.warn(`[auth:${event}]`, details);
+}
+
 function resolveLandingPath(requestedPath: unknown, role: AppRole, profile: UserPermissionProfile | null) {
   const requested = normalizedInternalPath(requestedPath);
   if (requested && canOpenPath(requested, role, profile)) return requested;
@@ -53,6 +62,13 @@ export async function POST(request: Request) {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.isActive || user.status === "inactive" || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    debugAuth("login_failed", {
+      email,
+      userFound: Boolean(user),
+      isActive: user?.isActive,
+      status: user?.status,
+      hasPasswordHash: Boolean(user?.passwordHash),
+    });
     return NextResponse.json({ error: "بيانات الدخول غير صحيحة أو الحساب غير نشط." }, { status: 401 });
   }
 
@@ -110,5 +126,13 @@ export async function POST(request: Request) {
   });
   response.cookies.set("erp-user-role", permissionProfile && user.role !== "ADMIN" ? "VIEWER" : user.role, { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
   response.cookies.set("erp-nav-resources", navResources.join(","), { sameSite: "lax", path: "/", maxAge: 60 * 60 * 10 });
+  debugAuth("login_success", {
+    userId: user.id,
+    role: user.role,
+    redirectTo,
+    cookieName: SESSION_COOKIE,
+    secureCookie: process.env.NODE_ENV === "production",
+    navResourceCount: navResources.length,
+  });
   return response;
 }

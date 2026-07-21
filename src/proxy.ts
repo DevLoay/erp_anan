@@ -41,6 +41,15 @@ function isWriteMethod(method: string) {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }
 
+function authDebugEnabled() {
+  return process.env.AUTH_DEBUG === "1" || process.env.AUTH_DEBUG === "true";
+}
+
+function debugAuth(event: string, details: Record<string, unknown>) {
+  if (!authDebugEnabled()) return;
+  console.warn(`[auth:${event}]`, details);
+}
+
 function unauthorizedResponse(request: NextRequest) {
   if (isApiPath(request.nextUrl.pathname)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -86,8 +95,20 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value).catch(() => null);
-  if (!session) return unauthorizedResponse(request);
+  const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
+  const session = await verifySessionToken(sessionCookie).catch((error) => {
+    debugAuth("proxy_verify_exception", { pathname, message: error instanceof Error ? error.message : String(error) });
+    return null;
+  });
+  if (!session) {
+    debugAuth("proxy_unauthorized", {
+      pathname,
+      method: request.method,
+      hasSessionCookie: Boolean(sessionCookie),
+      hasNavCookie: Boolean(request.cookies.get("erp-nav-resources")?.value),
+    });
+    return unauthorizedResponse(request);
+  }
 
   if (pathname.startsWith("/api/rider/")) {
     const riderHeaders = new Headers(request.headers);
@@ -102,15 +123,24 @@ export async function proxy(request: NextRequest) {
   const profile = await loadUserPermissionProfile(session.userId).catch(() => null);
   const accessLevel = accessLevelFromRequest(request.method, pathname);
   let effectiveRole = session.role;
-  if (isApiPath(pathname) && !resource) return forbiddenResponse(request);
+  if (isApiPath(pathname) && !resource) {
+    debugAuth("proxy_forbidden_unknown_api_resource", { pathname, method: request.method, userId: session.userId, role: session.role });
+    return forbiddenResponse(request);
+  }
   if (resource) {
     const allowed = profile
       ? profileAllows(profile, resource, accessLevel)
       : isWriteMethod(request.method)
         ? canWriteResource(session.role, resource)
         : canReadResource(session.role, resource);
-    if (!allowed) return forbiddenResponse(request);
-    if (resource === "projects" && !(await projectPathAllowed(pathname, profile))) return forbiddenResponse(request);
+    if (!allowed) {
+      debugAuth("proxy_forbidden_resource", { pathname, method: request.method, resource, accessLevel, userId: session.userId, role: session.role });
+      return forbiddenResponse(request);
+    }
+    if (resource === "projects" && !(await projectPathAllowed(pathname, profile))) {
+      debugAuth("proxy_forbidden_project_scope", { pathname, userId: session.userId, role: session.role });
+      return forbiddenResponse(request);
+    }
     if (profile) effectiveRole = effectiveRoleForProfile(session.role, profile, resource, accessLevel);
   }
 

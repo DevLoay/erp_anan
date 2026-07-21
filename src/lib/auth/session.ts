@@ -19,6 +19,15 @@ export type SessionPayload = {
 
 const encoder = new TextEncoder();
 
+function authDebugEnabled() {
+  return process.env.AUTH_DEBUG === "1" || process.env.AUTH_DEBUG === "true";
+}
+
+function debugAuth(event: string, details: Record<string, unknown>) {
+  if (!authDebugEnabled()) return;
+  console.warn(`[auth:${event}]`, details);
+}
+
 function secret() {
   const value = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
   if (value) return value;
@@ -60,16 +69,32 @@ export async function signSession(input: Omit<SessionPayload, "exp" | "iat">, ma
 }
 
 export async function verifySessionToken(token?: string | null): Promise<SessionPayload | null> {
-  if (!token || !token.includes(".")) return null;
+  if (!token || !token.includes(".")) {
+    debugAuth("verify_failed", { reason: token ? "malformed_token" : "missing_token" });
+    return null;
+  }
   const [encoded, signature] = token.split(".");
-  if (!encoded || !signature) return null;
-  if ((await hmac(encoded)) !== signature) return null;
+  if (!encoded || !signature) {
+    debugAuth("verify_failed", { reason: "missing_token_parts" });
+    return null;
+  }
+  if ((await hmac(encoded)) !== signature) {
+    debugAuth("verify_failed", { reason: "invalid_signature" });
+    return null;
+  }
   try {
     const payload = JSON.parse(base64UrlDecode(encoded)) as SessionPayload;
-    if (!payload.userId || !payload.email || !payload.role || !payload.exp) return null;
-    if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (!payload.userId || !payload.email || !payload.role || !payload.exp) {
+      debugAuth("verify_failed", { reason: "missing_payload_fields" });
+      return null;
+    }
+    if (payload.exp <= Math.floor(Date.now() / 1000)) {
+      debugAuth("verify_failed", { reason: "expired_token", userId: payload.userId, role: payload.role, exp: payload.exp });
+      return null;
+    }
     return payload;
   } catch {
+    debugAuth("verify_failed", { reason: "payload_parse_error" });
     return null;
   }
 }

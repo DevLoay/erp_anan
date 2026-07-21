@@ -15,10 +15,16 @@ services:
           property: connectionString
       - key: AUTH_SECRET
         generateValue: true
+      - key: NEXTAUTH_URL
+        value: https://mohamed-shawki-erp.onrender.com
+      - key: APP_URL
+        value: https://mohamed-shawki-erp.onrender.com
+      - key: AUTH_DEBUG
+        value: "1"
       - key: ADMIN_EMAIL
         value: admin@logistics-erp.com
       - key: ADMIN_PASSWORD
-        sync: false
+        value: Admin@123456
       - key: NEXT_PUBLIC_APP_NAME
         value: MOHAMED SHAWKI ERP
       - key: UPLOAD_DIR
