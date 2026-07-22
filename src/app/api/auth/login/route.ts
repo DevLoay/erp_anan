@@ -109,7 +109,7 @@ function loginError(request: Request, formRedirect: boolean, nextPath: unknown, 
 
 function attachAuthCookies(response: NextResponse, request: Request, token: string, role: AppRole, navResources: string[]) {
   const isHttps = isHttpsRequest(request);
-  const sameSite = isHttps ? "none" : "lax";
+  const sameSite = "lax";
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite,

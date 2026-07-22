@@ -3,7 +3,7 @@ import { SESSION_COOKIE } from "@/lib/auth/session";
 
 export async function GET(request: Request) {
   const isHttps = request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:";
-  const sameSite = isHttps ? "none" : "lax";
+  const sameSite = "lax";
   const response = new NextResponse(null, {
     status: 303,
     headers: { Location: "/login" },

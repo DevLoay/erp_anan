@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canReadResource, permissionModules } from "@/lib/permissions";
-import {
-  loadUserPermissionProfile,
-  readableResources,
-} from "@/lib/auth/userPermissionProfile";
+import { loadUserPermissionProfile, readableResources } from "@/lib/auth/userPermissionProfile";
 import {
   inspectSessionToken,
   SESSION_COOKIE,
@@ -39,22 +36,21 @@ async function navResourcesFor(session: SessionPayload) {
 
 function attachAuthCookies(response: NextResponse, request: Request, token: string, session: SessionPayload, navResources: string[]) {
   const isHttps = isHttpsRequest(request);
-  const sameSite = isHttps ? "none" : "lax";
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite,
+    sameSite: "lax",
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
   });
   response.cookies.set("erp-user-role", session.role, {
-    sameSite,
+    sameSite: "lax",
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
   });
   response.cookies.set("erp-nav-resources", navResources.join(","), {
-    sameSite,
+    sameSite: "lax",
     secure: isHttps,
     path: "/",
     maxAge: 60 * 60 * 10,
@@ -71,14 +67,22 @@ function htmlResponse(body: string, status = 200) {
   });
 }
 
-function successHtml(next: string) {
+function successHtml(next: string, fallback: { sessionToken: string; role: string; navResources: string[] }) {
   const safeNext = next.replace(/"/g, "&quot;");
+  const fallbackPayload = JSON.stringify({
+    next,
+    sessionCookie: SESSION_COOKIE,
+    sessionToken: fallback.sessionToken,
+    role: fallback.role,
+    navResources: fallback.navResources.join(","),
+  }).replace(/</g, "\\u003c");
+
   return `<!doctype html>
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="1;url=${safeNext}" />
+    <meta http-equiv="refresh" content="3;url=${safeNext}" />
     <title>MOHAMED SHAWKI ERP</title>
     <style>
       body{margin:0;font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a}
@@ -97,6 +101,28 @@ function successHtml(next: string) {
         <a href="${safeNext}">متابعة</a>
       </section>
     </main>
+    <script>
+      (() => {
+        const payload = ${fallbackPayload};
+        const secure = window.location.protocol === "https:" ? "; Secure" : "";
+        const writeFallbackCookies = () => {
+          document.cookie = payload.sessionCookie + "=" + encodeURIComponent(payload.sessionToken) + "; Path=/; Max-Age=36000; SameSite=Lax" + secure;
+          document.cookie = "erp-user-role=" + encodeURIComponent(payload.role) + "; Path=/; Max-Age=36000; SameSite=Lax" + secure;
+          document.cookie = "erp-nav-resources=" + encodeURIComponent(payload.navResources) + "; Path=/; Max-Age=36000; SameSite=Lax" + secure;
+        };
+        const go = () => window.location.replace(payload.next || "/dashboard");
+        fetch("/api/auth/debug", { credentials: "include", cache: "no-store" })
+          .then((response) => response.ok ? response.json() : null)
+          .then((data) => {
+            if (!data?.sessionValid) writeFallbackCookies();
+            window.setTimeout(go, 500);
+          })
+          .catch(() => {
+            writeFallbackCookies();
+            window.setTimeout(go, 500);
+          });
+      })();
+    </script>
   </body>
 </html>`;
 }
@@ -169,7 +195,7 @@ export async function GET(request: NextRequest) {
       supervisorId: session.supervisorId,
     });
     const navResources = await navResourcesFor(session);
-    const response = htmlResponse(successHtml(next));
+    const response = htmlResponse(successHtml(next, { sessionToken, role: session.role, navResources }));
     attachAuthCookies(response, request, sessionToken, session, navResources);
     return response;
   }
