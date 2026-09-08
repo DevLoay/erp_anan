@@ -1,6 +1,7 @@
 import { DriverStatus, Prisma, RecordStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { safeDeleteDriver, safeDeleteDriverMessage } from "@/lib/drivers/safeDeleteDriver";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 
 function text(value: unknown) {
@@ -142,11 +143,22 @@ export async function DELETE(request: Request) {
   if (!hasWriteAccess(request, personType)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   if (personType === "driver") {
-    const before = await prisma.driver.findUnique({ where: { id } });
-    if (!before) return NextResponse.json({ error: "المندوب غير موجود." }, { status: 404 });
-    const updated = await prisma.driver.update({ where: { id }, data: { status: DriverStatus.INACTIVE } });
-    await audit(request, "HR_DEACTIVATE_DRIVER", "Driver", id, before, updated);
-    return NextResponse.json({ message: "تم تعطيل المندوب بدون حذف بياناته التشغيلية." });
+    const result = await safeDeleteDriver(id);
+    if (!result) return NextResponse.json({ error: "المندوب غير موجود." }, { status: 404 });
+    await audit(request, result.deleted ? "HR_SAFE_DELETE_DRIVER" : "HR_SAFE_DELETE_DRIVER_BLOCKED", "Driver", id, result.before, {
+      driver: result.driver,
+      linkedRecords: result.linkedRecords,
+      linkSummary: result.linkSummary,
+      deleteError: result.deleteError,
+    });
+    return NextResponse.json({
+      message: safeDeleteDriverMessage(result),
+      data: result.driver,
+      deleted: result.deleted,
+      blocked: !result.deleted,
+      linkedRecords: result.linkedRecords,
+      linkSummary: result.linkSummary,
+    });
   }
 
   if (personType === "supervisor") {

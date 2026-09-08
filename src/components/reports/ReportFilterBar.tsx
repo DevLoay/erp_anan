@@ -103,9 +103,10 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
 
         {showStatus ? (
           <label htmlFor="status-filter" className="grid gap-1 text-sm font-bold text-slate-700">
-            الحالة
+            الحالة / الأداء
             <select id="status-filter" name="status" defaultValue={filters.status} className="rounded-md border border-slate-300 px-3 py-2">
               <option value="">كل الحالات</option>
+              <option value="weakPerformance">الأداء الضعيف فقط</option>
               <option value="valid">مؤهل</option>
               <option value="invalid">غير مؤهل</option>
               <option value="GOOD">جيد</option>

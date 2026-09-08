@@ -312,6 +312,7 @@ export function HumanResourcesClient({ data }: Props) {
   const [bulkSupervisorId, setBulkSupervisorId] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [deletingKey, setDeletingKey] = useState("");
   const rows = data.rows;
   const visibleRows = useMemo(() => rows.slice(0, 250), [rows]);
   const selectedDrivers = useMemo(() => rows.filter((row) => selectedIds.includes(`${row.type}:${row.id}`) && row.type === "driver"), [rows, selectedIds]);
@@ -334,16 +335,27 @@ export function HumanResourcesClient({ data }: Props) {
   }
 
   async function deletePerson(row: HrRow) {
-    const ok = window.confirm(row.type === "driver" ? "سيتم تعطيل المندوب بدل الحذف الفعلي لحماية المسيرات والتقارير. تأكيد؟" : "تأكيد تعطيل السجل؟");
+    const ok = window.confirm(
+      row.type === "driver"
+        ? `هل أنت متأكد من حذف المندوب ${row.name}؟\nلو المندوب له مسيرات أو تقارير أو حسابات تطبيق، سيتم إيقافه فقط وحفظ بياناته للمراجعة.`
+        : "تأكيد تعطيل السجل؟",
+    );
     if (!ok) return;
-    const response = await fetch(`/api/hr/people?personType=${personApiType(row.type)}&id=${row.id}`, { method: "DELETE" });
-    const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
-    if (!response.ok) {
-      setToast(payload.error || "تعذر تعطيل السجل.");
-      return;
+    const key = rowKey(row);
+    setDeletingKey(key);
+    try {
+      const endpoint = row.type === "driver" ? `/api/drivers/${row.id}` : `/api/hr/people?personType=${personApiType(row.type)}&id=${row.id}`;
+      const response = await fetch(endpoint, { method: "DELETE" });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(payload.error || (row.type === "driver" ? "تعذر حذف المندوب." : "تعذر تعطيل السجل."));
+      setToast(payload.message || (row.type === "driver" ? "تم تنفيذ حذف المندوب بأمان." : "تم تعطيل السجل."));
+      setSelectedIds((current) => current.filter((item) => item !== key));
+      router.refresh();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : row.type === "driver" ? "تعذر حذف المندوب." : "تعذر تعطيل السجل.");
+    } finally {
+      setDeletingKey("");
     }
-    setToast(payload.message || "تم تعطيل السجل.");
-    router.refresh();
   }
 
   async function applyBulk() {
@@ -626,7 +638,14 @@ export function HumanResourcesClient({ data }: Props) {
                             <Link href={`/attendance?driverId=${row.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">الحضور</Link>
                           </>
                         ) : null}
-                        <button type="button" onClick={() => deletePerson(row)} className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-700 hover:bg-red-100">تعطيل</button>
+                        <button
+                          type="button"
+                          onClick={() => deletePerson(row)}
+                          disabled={deletingKey === rowKey(row)}
+                          className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-700 hover:bg-red-100 disabled:opacity-60"
+                        >
+                          {deletingKey === rowKey(row) ? "جاري التنفيذ..." : row.type === "driver" ? "حذف آمن" : "تعطيل"}
+                        </button>
                       </div>
                     </td>
                   </tr>

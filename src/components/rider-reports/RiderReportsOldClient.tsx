@@ -182,6 +182,25 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
     URL.revokeObjectURL(link.href);
   }
 
+  function statusUrl(status: string) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries({
+      month: filters.month,
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      appName: filters.appName,
+      cityId: filters.cityId,
+      projectId: filters.projectId,
+      supervisorId: filters.supervisorId,
+      driverId: filters.driverId,
+      q: filters.q,
+      status,
+    })) {
+      if (value) params.set(key, value);
+    }
+    return `/rider-reports?${params.toString()}`;
+  }
+
   return (
     <main className="w-full max-w-none space-y-3 bg-slate-50 p-4" dir="rtl">
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -258,9 +277,10 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
             </select>
           </label>
           <label htmlFor="rider-status" className="grid gap-1 text-xs font-black text-slate-800">
-            الحالة
+            الحالة / الأداء
             <select id="rider-status" name="status" defaultValue={filters.status} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">كل الحالات</option>
+              <option value="weakPerformance">الأداء الضعيف فقط</option>
               <option value="valid">مؤهل</option>
               <option value="invalid">غير مؤهل</option>
               <option value="GOOD">جيد</option>
@@ -272,6 +292,8 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/rider-reports" className="grid h-9 place-items-center rounded-lg border border-slate-200 bg-white px-8 text-xs font-black text-slate-800 shadow-sm">عرض الكل</Link>
+          <Link href={statusUrl("weakPerformance")} className="grid h-9 place-items-center rounded-lg border border-red-200 bg-red-50 px-4 text-xs font-black text-red-700 shadow-sm">عرض الأداء الضعيف</Link>
+          <Link href={statusUrl("CRITICAL")} className="grid h-9 place-items-center rounded-lg border border-red-600 bg-red-600 px-4 text-xs font-black text-white shadow-sm">الحرج فقط</Link>
           <select aria-label="عدد الصفوف" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black shadow-sm">
             <option value={25}>25 صف</option>
             <option value={50}>50 صف</option>

@@ -181,6 +181,7 @@ export type DailyReportsFilters = {
   supervisorId: string;
   riderId: string;
   q: string;
+  performanceStatus: string;
   accessScope?: AccessScope;
 };
 
@@ -298,8 +299,18 @@ export async function resolveDailyReportsFilters(params: SearchParams, accessSco
     supervisorId: one(params, "supervisorId"),
     riderId: one(params, "riderId") || one(params, "driverId"),
     q: one(params, "q").trim(),
+    performanceStatus: one(params, "performanceStatus") || one(params, "status"),
     accessScope,
   };
+}
+
+function performanceStatusMatch(row: DailyReportsOldData["rows"][number], status: string) {
+  const normalized = status.toLowerCase();
+  if (!normalized) return true;
+  const hasWarning = row.statusTone === "red" || row.warnings.some((warning) => warning && warning !== "طبيعي");
+  if (["weakperformance", "weak", "needsfollowup", "bad", "warning", "critical", "criticalonly"].includes(normalized)) return hasWarning;
+  if (["good", "normal", "green"].includes(normalized)) return !hasWarning;
+  return true;
 }
 
 function emptyData(filters: DailyReportsFilters, message?: string): DailyReportsOldData {
@@ -612,7 +623,9 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       };
     });
 
-    const allRows = [...rows, ...hsRows].sort((a, b) => b.reportDate.localeCompare(a.reportDate));
+    const allRows = [...rows, ...hsRows]
+      .filter((row) => performanceStatusMatch(row, filters.performanceStatus))
+      .sort((a, b) => b.reportDate.localeCompare(a.reportDate));
 
     const missingRows =
       latestBatch?.rows.map((row) => ({

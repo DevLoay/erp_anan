@@ -366,6 +366,7 @@ export function DriverManagementClient({ data }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkSupervisorId, setBulkSupervisorId] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [deletingDriverId, setDeletingDriverId] = useState("");
   const rows = data.rows;
   const visibleRows = useMemo(() => rows.slice(0, 100), [rows]);
   const selectedRows = useMemo(() => rows.filter((row) => selectedIds.includes(row.id)), [rows, selectedIds]);
@@ -425,6 +426,28 @@ export function DriverManagementClient({ data }: Props) {
       setToast(error instanceof Error ? error.message : "تعذر تنفيذ التعديل الجماعي.");
     } finally {
       setBulkSaving(false);
+    }
+  }
+
+  async function deleteDriver(row: DriverManagementRow) {
+    const confirmed = window.confirm(
+      `هل أنت متأكد من حذف المندوب ${row.name}؟\nلو المندوب له مسيرات أو تقارير أو حسابات تطبيق، سيتم إيقافه فقط وحفظ بياناته للمراجعة.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingDriverId(row.id);
+    try {
+      const response = await fetch(`/api/drivers/${row.id}`, { method: "DELETE" });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; message?: string; linkedRecords?: number };
+      if (!response.ok) throw new Error(payload.error || "تعذر حذف المندوب.");
+      setToast(payload.message || "تم تنفيذ حذف المندوب بأمان.");
+      setSelectedIds((current) => current.filter((id) => id !== row.id));
+      if (selectedDriver?.id === row.id) setSelectedDriver(null);
+      refresh();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "تعذر حذف المندوب.");
+    } finally {
+      setDeletingDriverId("");
     }
   }
 
@@ -631,11 +654,19 @@ export function DriverManagementClient({ data }: Props) {
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{money(row.approvedAdvances)}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{money(row.pendingAdvances)}</td>
                     <td className="border-b border-slate-100 px-3 py-4">
-                      <div className="flex min-w-[210px] flex-wrap gap-1">
+                      <div className="flex min-w-[275px] flex-wrap gap-1">
                         <Link href={`/drivers/${row.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">فتح</Link>
                         <button type="button" onClick={() => setEditingDriver(row)} className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-black text-amber-800 hover:bg-amber-100">تعديل</button>
                         <button type="button" onClick={() => setSelectedDriver(row)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-800 hover:bg-slate-50">تفاصيل</button>
                         <Link href={`/rider-reports?driverId=${row.id}`} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-black text-blue-800 hover:bg-blue-100">تقرير</Link>
+                        <button
+                          type="button"
+                          onClick={() => deleteDriver(row)}
+                          disabled={deletingDriverId === row.id}
+                          className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-black text-red-700 hover:bg-red-100 disabled:opacity-60"
+                        >
+                          {deletingDriverId === row.id ? "جاري الحذف..." : "حذف آمن"}
+                        </button>
                       </div>
                     </td>
                   </tr>

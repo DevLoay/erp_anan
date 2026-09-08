@@ -491,9 +491,14 @@ function textMatch(row: KpiRow, q: string) {
 
 function statusMatch(row: KpiRow, status: string) {
   if (!status) return true;
-  if (status === "valid") return row.valid;
-  if (status === "invalid") return !row.valid;
-  return row.status.toLowerCase() === status.toLowerCase();
+  const normalized = status.toLowerCase();
+  if (normalized === "valid") return row.valid;
+  if (normalized === "invalid") return !row.valid;
+  if (["weakperformance", "weak", "needsfollowup", "bad"].includes(normalized)) {
+    return row.status !== "GOOD" || row.score < 80 || row.reasons.length > 0 || !row.valid;
+  }
+  if (["criticalonly", "critical"].includes(normalized)) return row.status === "CRITICAL" || row.score < 55;
+  return row.status.toLowerCase() === normalized;
 }
 
 function rowStatus(score: number, valid: boolean): KpiRow["status"] {

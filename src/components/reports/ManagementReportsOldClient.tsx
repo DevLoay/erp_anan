@@ -265,6 +265,24 @@ export function ManagementReportsOldClient({ filters, options, summary, rows }: 
     return `/rider-reports?${params.toString()}`;
   }
 
+  function statusUrl(status: string) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries({
+      month: filters.month,
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      appName: filters.appName,
+      cityId: filters.cityId,
+      projectId: filters.projectId,
+      supervisorId: filters.supervisorId,
+      q: filters.q,
+      status,
+    })) {
+      if (value) params.set(key, value);
+    }
+    return `/management-reports?${params.toString()}`;
+  }
+
   function openSelectedReport() {
     if (!selectedIds.size) {
       showNotice("اختر مندوبًا من الجدول أولًا.");
@@ -385,9 +403,10 @@ export function ManagementReportsOldClient({ filters, options, summary, rows }: 
             </select>
           </label>
           <label htmlFor="management-status" className="grid gap-1 text-xs font-black text-slate-800">
-            الحالة
+            الحالة / الأداء
             <select id="management-status" name="status" defaultValue={filters.status} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">كل الحالات</option>
+              <option value="weakPerformance">الأداء الضعيف فقط</option>
               <option value="valid">مؤهل</option>
               <option value="invalid">غير مؤهل</option>
               <option value="GOOD">جيد</option>
@@ -400,6 +419,12 @@ export function ManagementReportsOldClient({ filters, options, summary, rows }: 
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/management-reports" className="grid h-9 place-items-center rounded-lg border border-slate-200 bg-white px-8 text-xs font-black text-slate-800 shadow-sm">
             عرض الكل
+          </Link>
+          <Link href={statusUrl("weakPerformance")} className="grid h-9 place-items-center rounded-lg border border-red-200 bg-red-50 px-4 text-xs font-black text-red-700 shadow-sm">
+            عرض الأداء الضعيف
+          </Link>
+          <Link href={statusUrl("CRITICAL")} className="grid h-9 place-items-center rounded-lg border border-red-600 bg-red-600 px-4 text-xs font-black text-white shadow-sm">
+            الحرج فقط
           </Link>
           <span className="grid h-9 place-items-center rounded-lg bg-slate-100 px-3 text-xs font-black text-slate-600">
             عدد السجلات: {rows.length} / المعروض: {visibleRows.length}

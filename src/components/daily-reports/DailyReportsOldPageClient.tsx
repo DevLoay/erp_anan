@@ -192,6 +192,25 @@ export function DailyReportsOldPageClient({ data }: Props) {
   const rows = useMemo(() => data.rows, [data.rows]);
   const visibleRows = rows.slice(0, pageSize);
 
+  function performanceStatusUrl(status: string) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries({
+      month: data.filters.month,
+      fromDate: data.filters.fromDate,
+      toDate: data.filters.toDate,
+      cityId: data.filters.cityId,
+      projectId: data.filters.projectId,
+      appName: data.filters.appName,
+      supervisorId: data.filters.supervisorId,
+      riderId: data.filters.riderId,
+      q: data.filters.q,
+      performanceStatus: status,
+    })) {
+      if (value) params.set(key, value);
+    }
+    return `/daily-reports?${params.toString()}`;
+  }
+
   async function createSupervisorTask(row: ReportRow) {
     if (!row.cityId || !row.supervisorId) {
       setToast("لا يمكن إنشاء مهمة لهذا التقرير لأنه غير مربوط بمدينة ومشرف.");
@@ -343,6 +362,14 @@ export function DailyReportsOldPageClient({ data }: Props) {
               {data.options.riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.name} - {rider.code}</option>)}
             </select>
           </label>
+          <label htmlFor="daily-performance" className="grid gap-1 text-xs font-black text-slate-800">
+            الأداء
+            <select id="daily-performance" name="performanceStatus" defaultValue={data.filters.performanceStatus} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">كل الأداء</option>
+              <option value="weakPerformance">التحذيرات فقط</option>
+              <option value="good">الطبيعي فقط</option>
+            </select>
+          </label>
           <label htmlFor="daily-search" className="grid gap-1 text-xs font-black text-slate-800">
             بحث مندوب / ID / حساب
             <input id="daily-search" name="q" defaultValue={data.filters.q} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" />
@@ -354,6 +381,9 @@ export function DailyReportsOldPageClient({ data }: Props) {
           </button>
           <Link href="/daily-reports" className="grid h-11 place-items-center rounded-xl border border-slate-200 bg-white px-8 text-sm font-black text-slate-800 shadow-sm">
             عرض الكل
+          </Link>
+          <Link href={performanceStatusUrl("weakPerformance")} className="grid h-11 place-items-center rounded-xl border border-red-200 bg-red-50 px-5 text-sm font-black text-red-700 shadow-sm">
+            عرض التحذيرات فقط
           </Link>
         </div>
       </form>

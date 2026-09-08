@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { DriverStatus, VehicleStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { safeDeleteDriver, safeDeleteDriverMessage } from "@/lib/drivers/safeDeleteDriver";
 import { canWriteResource, roleFromHeaders } from "@/lib/permissions";
 
 function jsonValue(value: unknown) {
@@ -23,26 +24,6 @@ async function audit(request: Request, action: string, entityId: string, before:
   }).catch(() => null);
 }
 
-async function linkedRecordsCount(driverId: string) {
-  const counts = await Promise.all([
-    prisma.applicationAccount.count({ where: { driverId } }),
-    prisma.accountUsage.count({ where: { OR: [{ ownerDriverId: driverId }, { actualDriverId: driverId }] } }),
-    prisma.payrollItem.count({ where: { driverId } }),
-    prisma.advance.count({ where: { driverId } }),
-    prisma.violation.count({ where: { driverId } }),
-    prisma.attendanceRecord.count({ where: { driverId } }),
-    prisma.vehicleAssignment.count({ where: { driverId } }),
-    prisma.applicationImportRow.count({ where: { driverId } }),
-    prisma.financeEntry.count({ where: { driverId } }),
-    prisma.hungerStationDailyPerformanceRecord.count({ where: { driverId } }),
-    prisma.hungerStationInvoiceRecord.count({ where: { driverId } }),
-    prisma.keetaRankRecord.count({ where: { driverId } }),
-    prisma.keetaPerformanceRecord.count({ where: { driverId } }),
-    prisma.keetaInvoiceRecord.count({ where: { driverId } }),
-  ]);
-  return counts.reduce((sum, count) => sum + count, 0);
-}
-
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const role = roleFromHeaders(request.headers);
   if (!canWriteResource(role, "drivers")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -54,15 +35,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (action === "safeDelete") {
-    const linkedRecords = await linkedRecordsCount(id);
-    if (linkedRecords > 0) {
-      const updated = await prisma.driver.update({ where: { id }, data: { status: DriverStatus.INACTIVE, needsReview: true } });
-      await audit(request, "DRIVER_SAFE_DELETE_BLOCKED", id, before, { ...updated, linkedRecords });
-      return NextResponse.json({ data: updated, blocked: true, linkedRecords });
-    }
-    const deleted = await prisma.driver.delete({ where: { id } });
-    await audit(request, "DRIVER_SAFE_DELETE", id, before, deleted);
-    return NextResponse.json({ data: deleted, deleted: true });
+    const result = await safeDeleteDriver(id);
+    if (!result) return NextResponse.json({ error: "المندوب غير موجود." }, { status: 404 });
+    await audit(request, result.deleted ? "DRIVER_SAFE_DELETE" : "DRIVER_SAFE_DELETE_BLOCKED", id, result.before, {
+      driver: result.driver,
+      linkedRecords: result.linkedRecords,
+      linkSummary: result.linkSummary,
+      deleteError: result.deleteError,
+    });
+    return NextResponse.json({
+      data: result.driver,
+      deleted: result.deleted,
+      blocked: !result.deleted,
+      linkedRecords: result.linkedRecords,
+      linkSummary: result.linkSummary,
+      message: safeDeleteDriverMessage(result),
+    });
   }
 
   const data: Record<string, unknown> = {};
@@ -188,4 +176,29 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const updated = await prisma.driver.update({ where: { id }, data });
   await audit(request, `DRIVER_${action.toUpperCase()}`, id, before, updated);
   return NextResponse.json({ data: updated });
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const role = roleFromHeaders(request.headers);
+  if (!canWriteResource(role, "drivers")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { id } = await context.params;
+  const result = await safeDeleteDriver(id);
+  if (!result) return NextResponse.json({ error: "المندوب غير موجود." }, { status: 404 });
+
+  await audit(request, result.deleted ? "DRIVER_SAFE_DELETE" : "DRIVER_SAFE_DELETE_BLOCKED", id, result.before, {
+    driver: result.driver,
+    linkedRecords: result.linkedRecords,
+    linkSummary: result.linkSummary,
+    deleteError: result.deleteError,
+  });
+
+  return NextResponse.json({
+    data: result.driver,
+    deleted: result.deleted,
+    blocked: !result.deleted,
+    linkedRecords: result.linkedRecords,
+    linkSummary: result.linkSummary,
+    message: safeDeleteDriverMessage(result),
+  });
 }
