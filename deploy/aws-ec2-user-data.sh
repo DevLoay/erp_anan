@@ -62,6 +62,22 @@ install_docker() {
   systemctl enable --now docker
 }
 
+ensure_swap() {
+  if swapon --show | grep -q '/swapfile'; then
+    log "Swap file already enabled."
+    return
+  fi
+
+  log "Creating 2 GB swap file for the production build."
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  if ! grep -q '^/swapfile ' /etc/fstab; then
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  fi
+}
+
 checkout_app() {
   mkdir -p "$APP_DIR"
   if [ -d "$APP_DIR/.git" ]; then
@@ -169,6 +185,7 @@ main() {
   fi
 
   install_docker
+  ensure_swap
   checkout_app
   write_env
   run_app
