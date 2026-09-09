@@ -139,7 +139,7 @@ EOF
 run_app() {
   cd "$APP_DIR"
   log "Building Docker images."
-  docker compose build --pull
+  docker compose build --pull --progress=plain
 
   log "Starting PostgreSQL."
   docker compose up -d postgres

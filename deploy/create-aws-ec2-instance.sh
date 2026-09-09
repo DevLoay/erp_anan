@@ -9,6 +9,7 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-admin@logistics-erp.com}"
 ADMIN_NAME="${ADMIN_NAME:-System Admin}"
 APP_PORT="${APP_PORT:-3040}"
 VOLUME_SIZE_GB="${VOLUME_SIZE_GB:-20}"
+TERMINATE_INSTANCE_ID="${TERMINATE_INSTANCE_ID:-}"
 
 log() {
   printf '[%s] %s\n' "$APP_NAME" "$*"
@@ -40,6 +41,14 @@ main() {
   local account
   account="$(aws sts get-caller-identity --query Account --output text)"
   log "Account: $account"
+
+  if [ -n "$TERMINATE_INSTANCE_ID" ]; then
+    log "Terminating failed instance: $TERMINATE_INSTANCE_ID"
+    aws ec2 terminate-instances \
+      --region "$REGION" \
+      --instance-ids "$TERMINATE_INSTANCE_ID" \
+      --output text >/dev/null
+  fi
 
   log "Resolving default VPC and subnet in $REGION."
   local vpc_id subnet_id
