@@ -128,11 +128,11 @@ PostgreSQL password: ${postgres_password}
 EOF
   chmod 600 /root/mohamed-shawki-erp-credentials.txt
 
-  cat > /root/mohamed-shawki-erp-admin.env <<EOF
-ADMIN_EMAIL=${ADMIN_EMAIL}
-ADMIN_NAME=${ADMIN_NAME}
-ADMIN_PASSWORD=${admin_password}
-EOF
+  {
+    printf 'ADMIN_EMAIL=%q\n' "$ADMIN_EMAIL"
+    printf 'ADMIN_NAME=%q\n' "$ADMIN_NAME"
+    printf 'ADMIN_PASSWORD=%q\n' "$admin_password"
+  } > /root/mohamed-shawki-erp-admin.env
   chmod 600 /root/mohamed-shawki-erp-admin.env
 }
 
