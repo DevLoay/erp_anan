@@ -68,8 +68,8 @@ ensure_swap() {
     return
   fi
 
-  log "Creating 2 GB swap file for the production build."
-  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  log "Creating 4 GB swap file for the production build."
+  fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
   chmod 600 /swapfile
   mkswap /swapfile
   swapon /swapfile
