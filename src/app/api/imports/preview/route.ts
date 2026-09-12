@@ -12,7 +12,7 @@ const MAX_IMPORT_FILE_SIZE = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const role = roleFromHeaders(request.headers);
-  if (!canWriteResource(role, "applications")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canWriteResource(role, "import-batches")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const form = await request.formData();

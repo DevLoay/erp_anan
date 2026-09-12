@@ -13,7 +13,7 @@ type CommitBody = {
 export async function POST(request: Request) {
   const role = roleFromHeaders(request.headers);
 
-  if (!canWriteResource(role, "applications")) {
+  if (!canWriteResource(role, "import-batches")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
