@@ -224,6 +224,7 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       invoices,
       approvedInvoices,
       keetaInvoiceRecords,
+      hungerStationInvoiceRecords,
       payrollRuns,
       approvedPayrollRuns,
       financeAggregate,
@@ -293,6 +294,15 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
         },
         include: { invoiceBatch: { select: { id: true, fileName: true, sourceFileName: true, createdAt: true, approvedAt: true } } },
         orderBy: [{ approvedAt: "desc" }, { updatedAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.hungerStationInvoiceRecord.findMany({
+        where: {
+          applicationProjectId: applicationProject.id,
+          ...(month ? { month } : {}),
+        },
+        include: { importBatch: { select: { id: true, fileName: true, sourceFileName: true, createdAt: true, approvedAt: true } } },
+        orderBy: { updatedAt: "desc" },
         take: 1000,
       }),
       prisma.payrollRun.findMany({
@@ -366,10 +376,33 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
       }, new Map<string, { id: string; number: string; client: string; month: string; amount: number; vatAmount: number; status: string; issuedAt: string; fileName: string }>())
         .values(),
     );
+    const hungerStationFallbackInvoices = Array.from(
+      hungerStationInvoiceRecords.reduce((groups, record) => {
+        const key = record.importBatchId || `hungerstation-${record.month || month}-${record.createdAt.toISOString()}`;
+        if (invoiceBatchIds.has(key)) return groups;
+        const current = groups.get(key) ?? {
+          id: key,
+          number: `HS-${key.slice(-8).toUpperCase()}`,
+          client: "HungerStation",
+          month: record.month || month || "-",
+          amount: 0,
+          vatAmount: 0,
+          status: record.matchingStatus === "MATCHED" ? "معتمد" : "مراجعة",
+          issuedAt: (record.importBatch?.approvedAt || record.importBatch?.createdAt || record.createdAt).toISOString(),
+          fileName: record.importBatch?.sourceFileName || record.importBatch?.fileName || "",
+        };
+        current.amount += decimalNumber(record.basicPayment) + decimalNumber(record.distancePayment) + decimalNumber(record.cityPayment);
+        if (record.matchingStatus !== "MATCHED") current.status = "مراجعة";
+        groups.set(key, current);
+        return groups;
+      }, new Map<string, { id: string; number: string; client: string; month: string; amount: number; vatAmount: number; status: string; issuedAt: string; fileName: string }>())
+        .values(),
+    );
     const approvedInvoiceTotal =
       decimalNumber(approvedInvoices._sum.amount) +
       decimalNumber(approvedInvoices._sum.vatAmount) +
-      keetaFallbackInvoices.reduce((sum, invoice) => sum + invoice.amount + invoice.vatAmount, 0);
+      keetaFallbackInvoices.reduce((sum, invoice) => sum + invoice.amount + invoice.vatAmount, 0) +
+      hungerStationFallbackInvoices.reduce((sum, invoice) => sum + invoice.amount + invoice.vatAmount, 0);
     const approvedPayrollNet = decimalNumber(approvedPayrollRuns._sum.netTotal);
     const netProfit = decimalNumber(approvedPayrollRuns._sum.estimatedCompanyProfit) || approvedInvoiceTotal - approvedPayrollNet;
     const lastImport = imports[0];
@@ -404,7 +437,7 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
         unlinkedAccounts,
         importsCount: imports.length,
         lastImportFile: lastImport?.sourceFileName || lastImport?.fileName || "-",
-        approvedInvoicesCount: approvedInvoices._count._all + keetaFallbackInvoices.length,
+        approvedInvoicesCount: approvedInvoices._count._all + keetaFallbackInvoices.length + hungerStationFallbackInvoices.length,
         approvedInvoiceTotal: money(approvedInvoiceTotal),
         payrollRunsCount: payrollRuns.length,
         approvedPayrollRunsCount: approvedPayrollRuns._count._all,
@@ -447,6 +480,12 @@ export async function getProjectWorkspace(projectId: string, filters: ProjectWor
           issuedAt: item.issuedAt.toISOString(),
         })),
         ...keetaFallbackInvoices.map((item) => ({
+          ...item,
+          number: item.fileName || item.number,
+          amount: money(item.amount),
+          vatAmount: money(item.vatAmount),
+        })),
+        ...hungerStationFallbackInvoices.map((item) => ({
           ...item,
           number: item.fileName || item.number,
           amount: money(item.amount),

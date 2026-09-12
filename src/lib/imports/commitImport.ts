@@ -125,6 +125,19 @@ function decimalNumber(value: unknown) {
   return numberValue(value);
 }
 
+function hungerStationInvoiceAmount(rows: ImportPreviewRow[]) {
+  return rows.reduce((sum, row) => {
+    const mapped = row.mappedData;
+    return sum + numberValue(mapped.basicPayment) + numberValue(mapped.distancePayment) + numberValue(mapped.cityPayment);
+  }, 0);
+}
+
+function importedInvoiceAmount(preview: ImportPreviewPayload, rows: ImportPreviewRow[]) {
+  if (isKeetaOperationalImport(preview.summary.importType)) return keetaInvoiceAmount(preview);
+  if (preview.summary.importType === "hungerstation_invoice") return hungerStationInvoiceAmount(rows);
+  return rows.reduce((sum, row) => sum + numberValue(row.mappedData.collectionAmount || row.mappedData.amount || row.mappedData.totalAmount), 0);
+}
+
 function hoursValue(value: unknown, fallback = 0) {
   const raw = text(value).toLowerCase();
   if (!raw) return fallback;
@@ -1055,7 +1068,7 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
   }
 
   if (importTypeRequiresProject(preview.summary.importType) && (!preview.summary.applicationId || !preview.summary.applicationProjectId || !preview.summary.cityId)) {
-    throw new Error("لا يمكن حفظ تقرير أو فاتورة مشروع بدون projectId واضح.");
+    throw new Error("لا يمكن حفظ تقرير أو فاتورة مشروع بدون applicationId و applicationProjectId و cityId واضحين.");
   }
 
   const validRows = preview.rows.filter((row) => row.severity !== "error" && row.status !== "ignored");
@@ -1176,30 +1189,71 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
       select: { id: true },
     }).catch(() => null);
 
+    const invoiceClient = selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview.summary.importType);
+    const invoiceData = {
+      client: invoiceClient,
+      projectId: selectedProject?.projectId || null,
+      applicationProjectId: preview.summary.applicationProjectId || null,
+      importBatchId: created.id,
+      month: importMonth,
+      amount: importedInvoiceAmount(preview, validRows),
+      vatAmount: 0,
+      status: preview.summary.invalidRows ? RecordStatus.PENDING : RecordStatus.APPROVED,
+      invoiceStatus: preview.summary.invalidRows ? "Reviewed" : "Approved",
+      approvedAt: preview.summary.invalidRows ? null : new Date(),
+    };
     const invoice = preview.summary.importType.includes("invoice")
-      ? await tx.invoice.create({
-          data: {
-            number: `INV-${created.id.slice(-8).toUpperCase()}`,
-            client: selectedApplicationName || selectedProject?.application.name || appNameFromImportType(preview.summary.importType),
-            projectId: selectedProject?.projectId || null,
-            applicationProjectId: preview.summary.applicationProjectId || null,
-            importBatchId: created.id,
-            month: importMonth,
-            amount: isKeetaOperationalImport(preview.summary.importType)
-              ? keetaInvoiceAmount(preview)
-              : validRows.reduce((sum, row) => sum + numberValue(row.mappedData.collectionAmount || row.mappedData.amount || row.mappedData.totalAmount), 0),
-            vatAmount: 0,
-            status: preview.summary.invalidRows ? RecordStatus.PENDING : RecordStatus.APPROVED,
-            invoiceStatus: preview.summary.invalidRows ? "Reviewed" : "Approved",
-            approvedAt: preview.summary.invalidRows ? null : new Date(),
-          },
-          select: { id: true, amount: true },
-        }).catch(() => null)
+      ? await (async () => {
+          const existingInvoice = await tx.invoice.findFirst({
+            where: {
+              applicationProjectId: preview.summary.applicationProjectId || null,
+              month: importMonth,
+              client: invoiceClient,
+              status: { not: RecordStatus.INACTIVE },
+            },
+            select: { id: true },
+            orderBy: { updatedAt: "desc" },
+          });
+          if (existingInvoice) {
+            return tx.invoice.update({
+              where: { id: existingInvoice.id },
+              data: invoiceData,
+              select: { id: true, amount: true },
+            });
+          }
+          return tx.invoice.create({
+            data: {
+              number: `INV-${created.id.slice(-8).toUpperCase()}`,
+              ...invoiceData,
+            },
+            select: { id: true, amount: true },
+          });
+        })().catch(() => null)
       : null;
 
     if (invoice && decimalNumber(invoice.amount) > 0 && !preview.summary.invalidRows) {
-      await tx.financeEntry.create({
-        data: {
+      const financeData = {
+        sourceType: "Invoice",
+        sourceId: invoice.id,
+        entryType: "revenue",
+        applicationId: preview.summary.applicationId || null,
+        applicationProjectId: preview.summary.applicationProjectId || null,
+        cityId: preview.summary.cityId || selectedProject?.cityId || null,
+        amount: invoice.amount,
+        direction: "in",
+        description: `Approved invoice import ${preview.summary.fileName}`,
+        status: RecordStatus.APPROVED,
+        entryDate: reportDate,
+      };
+      const existingFinanceEntry = await tx.financeEntry.findFirst({
+        where: { sourceType: "Invoice", sourceId: invoice.id, entryType: "revenue", direction: "in" },
+        select: { id: true },
+      });
+      if (existingFinanceEntry) {
+        await tx.financeEntry.update({ where: { id: existingFinanceEntry.id }, data: financeData }).catch(() => null);
+      } else {
+        await tx.financeEntry.create({
+          data: {
           sourceType: "Invoice",
           sourceId: invoice.id,
           entryType: "revenue",
@@ -1211,8 +1265,9 @@ export async function commitImportPreview(preview: ImportPreviewPayload, userId?
           description: `Approved invoice import ${preview.summary.fileName}`,
           status: RecordStatus.APPROVED,
           entryDate: reportDate,
-        },
-      }).catch(() => null);
+          },
+        }).catch(() => null);
+      }
     }
 
     if (preview.summary.templateId) {

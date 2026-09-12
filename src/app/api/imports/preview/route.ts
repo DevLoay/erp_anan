@@ -36,15 +36,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "شهر الفاتورة مطلوب لفاتورة HungerStation الشهرية." }, { status: 400 });
     }
 
-    if (importType === "hungerstation_invoice" && !applicationId && !applicationProjectId) {
-      return NextResponse.json({ error: "يجب تحديد تطبيق HungerStation أو مشروع مدينة قبل رفع الفاتورة." }, { status: 400 });
-    }
-    if (importTypeRequiresProject(importType) && importType !== "hungerstation_invoice" && (!applicationId || !applicationProjectId)) {
+    if (importTypeRequiresProject(importType) && (!applicationId || !applicationProjectId)) {
       return NextResponse.json({ error: "لا يمكن رفع تقرير أو فاتورة مشروع بدون تحديد مشروع واضح." }, { status: 400 });
     }
 
     const cityId = String(form.get("cityId") || "").trim();
-    if (importTypeRequiresProject(importType) && importType !== "hungerstation_invoice" && !cityId) {
+    if (importTypeRequiresProject(importType) && !cityId) {
       return NextResponse.json({ error: "لا يمكن رفع ملف مشروع بدون تحديد المدينة. افتح الاستيراد من داخل مشروع المدينة الصحيح." }, { status: 400 });
     }
 

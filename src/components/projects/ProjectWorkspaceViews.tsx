@@ -356,12 +356,20 @@ export function ProjectImportsView({
   );
 }
 
+function invoiceImportTypeForProject(data: OnlineWorkspace) {
+  const appKey = `${data.project.applicationCode} ${data.project.applicationName}`.toLowerCase();
+  if (appKey.includes("keeta")) return "keeta_driver_invoice_template";
+  if (appKey.includes("hungerstation") || appKey.includes("hunger")) return "hungerstation_invoice";
+  if (appKey.includes("talabat")) return "talabat_invoice";
+  return "";
+}
+
 export function ProjectInvoicesView({ data }: { data: OnlineWorkspace }) {
   const projectRoute = data.project.routeId || data.project.id;
-  const isKeetaProject = `${data.project.applicationCode} ${data.project.applicationName}`.toLowerCase().includes("keeta");
-  const invoiceUploadHref = isKeetaProject
-    ? `/projects/${projectRoute}/imports?type=keeta_driver_invoice_template&month=${encodeURIComponent(data.filters.month)}`
-    : `/projects/${projectRoute}/imports?month=${encodeURIComponent(data.filters.month)}`;
+  const invoiceImportType = invoiceImportTypeForProject(data);
+  const invoiceUploadParams = new URLSearchParams({ month: data.filters.month });
+  if (invoiceImportType) invoiceUploadParams.set("type", invoiceImportType);
+  const invoiceUploadHref = `/projects/${projectRoute}/imports?${invoiceUploadParams.toString()}`;
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">
       <Header data={data} active="invoices" />

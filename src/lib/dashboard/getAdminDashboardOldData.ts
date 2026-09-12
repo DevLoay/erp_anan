@@ -18,6 +18,16 @@ export type DashboardListRow = {
   kpi: number;
   value: number;
   subtitle: string;
+  href: string;
+};
+
+export type DashboardChartRow = {
+  id: string;
+  name: string;
+  value: number;
+  kpi?: number;
+  subtitle?: string;
+  href: string;
 };
 
 export type AdminDashboardOldData = {
@@ -35,6 +45,14 @@ export type AdminDashboardOldData = {
     bestDriver: { name: string; kpi: number };
     bestProject: { name: string; kpi: number };
     bestSupervisor: { name: string; kpi: number };
+  };
+  quickActions: DashboardChartRow[];
+  charts: {
+    dailyOrders: DashboardChartRow[];
+    cityOrders: DashboardChartRow[];
+    projectKpis: DashboardChartRow[];
+    applicationOrders: DashboardChartRow[];
+    followUpMix: DashboardChartRow[];
   };
   lists: {
     bestDrivers: DashboardListRow[];
@@ -132,12 +150,31 @@ function topRows<T>(
   getKpi: (item: T) => number,
   getValue: (item: T) => number,
   getSubtitle: (item: T) => string,
+  getHref: (item: T) => string,
   take = 6,
 ): DashboardListRow[] {
   return items
-    .map((item) => ({ id: getId(item), name: getName(item), kpi: getKpi(item), value: getValue(item), subtitle: getSubtitle(item) }))
+    .map((item) => ({ id: getId(item), name: getName(item), kpi: getKpi(item), value: getValue(item), subtitle: getSubtitle(item), href: getHref(item) }))
     .sort((a, b) => b.kpi - a.kpi || b.value - a.value)
     .slice(0, take);
+}
+
+function buildQuery(pathname: string, params: Record<string, string | number | undefined | null>) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim()) search.set(key, String(value));
+  });
+  const query = search.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function dayKey(date: Date) {
+  return isoDate(date);
+}
+
+function dayLabel(date: string) {
+  const [, month, day] = date.split("-");
+  return `${day}/${month}`;
 }
 
 export async function getAdminDashboardOldData(filters: AdminDashboardFilters): Promise<AdminDashboardOldData> {
@@ -147,7 +184,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
     const q = filters.q.toLowerCase();
     const kpiSettings = await getSystemRules();
 
-    const [drivers, supervisors, cities, projects, reports, tasks, notifications] = await Promise.all([
+    const [drivers, supervisors, cities, applicationProjects, reports, tasks, notifications] = await Promise.all([
       prisma.driver.findMany({
         include: {
           city: true,
@@ -159,7 +196,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       }),
       prisma.supervisor.findMany({ include: { city: true, drivers: true } }),
       prisma.city.findMany({ include: { drivers: true } }),
-      prisma.project.findMany({ include: { drivers: true } }),
+      prisma.applicationProject.findMany({ include: { application: true, city: true, accounts: true } }),
       prisma.dailyReport.findMany({
         where: { reportDate: { gte: from, lte: to } },
         include: {
@@ -227,14 +264,15 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       };
     });
 
-    const projectStats = projects.map((project) => {
-      const projectReports = filteredReports.filter((report) => report.projectId === project.id || report.driver?.projectId === project.id);
+    const projectStats = applicationProjects.map((project) => {
+      const projectReports = filteredReports.filter((report) => report.applicationProjectId === project.id);
+      const driverCount = new Set(project.accounts.map((account) => account.driverId).filter(Boolean)).size;
       return {
         id: project.id,
-        name: project.name,
+        name: project.name || [project.application.name, project.city?.nameAr || project.city?.nameEn].filter(Boolean).join(" - "),
         orders: projectReports.reduce((sum, report) => sum + report.orders, 0),
         kpi: avg(projectReports.map(scoreReport)),
-        count: project.drivers.length,
+        count: driverCount,
       };
     });
 
@@ -249,9 +287,33 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       };
     });
 
-    const bestDrivers = topRows(driverStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.cityName} · Level ${item.currentEstimatedLevel}`);
-    const bestCities = topRows(cityStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.count} مندوب`);
-    const bestProjects = topRows(projectStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.count} مندوب`);
+    const bestDrivers = topRows(
+      driverStats,
+      (item) => item.id,
+      (item) => item.name,
+      (item) => item.kpi,
+      (item) => item.orders,
+      (item) => `${item.cityName} · Level ${item.currentEstimatedLevel}`,
+      (item) => `/drivers/${item.id}`,
+    );
+    const bestCities = topRows(
+      cityStats,
+      (item) => item.id,
+      (item) => item.name,
+      (item) => item.kpi,
+      (item) => item.orders,
+      (item) => `${item.count} مندوب`,
+      (item) => buildQuery("/management-reports", { cityId: item.id, dateFrom: filters.fromDate, dateTo: filters.toDate }),
+    );
+    const bestProjects = topRows(
+      projectStats,
+      (item) => item.id,
+      (item) => item.name,
+      (item) => item.kpi,
+      (item) => item.orders,
+      (item) => `${item.count} مندوب`,
+      (item) => `/projects/${item.id}/dashboard`,
+    );
     const bestSupervisors = topRows(
       supervisorStats,
       (item) => item.id,
@@ -259,11 +321,78 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       (item) => item.kpi,
       (item) => item.count,
       (item) => `${item.orders} طلب`,
+      (item) => buildQuery("/drivers", { supervisorId: item.id }),
     );
 
     const totalOrders = filteredReports.reduce((sum, report) => sum + report.orders, 0);
     const averageKpi = avg(filteredReports.map(scoreReport));
     const needsFollowUp = driverStats.filter((driver) => driver.kpi < 70 || driver.hasMissingScope || driver.status !== "ACTIVE").length + tasks.length + notifications.length;
+    const dailyOrderMap = filteredReports.reduce((map, report) => {
+      const key = dayKey(report.reportDate);
+      map.set(key, (map.get(key) ?? 0) + report.orders);
+      return map;
+    }, new Map<string, number>());
+    const applicationOrderMap = filteredReports.reduce((map, report) => {
+      const appName = appDisplayName(report.applicationProject?.application?.name || report.appName || report.project?.appName || report.driver?.project?.appName);
+      map.set(appName, (map.get(appName) ?? 0) + report.orders);
+      return map;
+    }, new Map<string, number>());
+    const dailyOrders = Array.from(dailyOrderMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-14)
+      .map(([date, value]) => ({
+        id: date,
+        name: dayLabel(date),
+        value,
+        subtitle: date,
+        href: buildQuery("/daily-reports", { fromDate: date, toDate: date }),
+      }));
+    const applicationOrders = Array.from(applicationOrderMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({
+        id: name,
+        name,
+        value,
+        subtitle: "طلبات الفترة",
+        href: buildQuery("/management-reports", { appName: name, dateFrom: filters.fromDate, dateTo: filters.toDate }),
+      }));
+    const cityOrders = cityStats
+      .filter((item) => item.orders > 0)
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 8)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        value: item.orders,
+        kpi: item.kpi,
+        subtitle: `${item.count} مندوب`,
+        href: buildQuery("/management-reports", { cityId: item.id, dateFrom: filters.fromDate, dateTo: filters.toDate }),
+      }));
+    const projectKpis = projectStats
+      .filter((item) => item.kpi > 0 || item.orders > 0)
+      .sort((a, b) => b.kpi - a.kpi || b.orders - a.orders)
+      .slice(0, 8)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        value: item.orders,
+        kpi: item.kpi,
+        subtitle: `${item.count} مندوب`,
+        href: `/projects/${item.id}/dashboard`,
+      }));
+    const followUpMix = [
+      { id: "drivers", name: "مناديب تحتاج متابعة", value: driverStats.filter((driver) => driver.kpi < 70 || driver.hasMissingScope || driver.status !== "ACTIVE").length, href: "/drivers", subtitle: "تشغيل" },
+      { id: "tasks", name: "مهام معلقة", value: tasks.length, href: "/supervisor-tasks", subtitle: "مشرفين" },
+      { id: "notifications", name: "تنبيهات", value: notifications.length, href: "/notifications", subtitle: "إشعارات" },
+    ];
+    const quickActions = [
+      { id: "drivers", name: "إجمالي المناديب", value: drivers.length, href: "/drivers", subtitle: "فتح قائمة المناديب" },
+      { id: "active-drivers", name: "المناديب النشطون", value: drivers.filter((driver) => driver.status === "ACTIVE").length, href: "/drivers?status=ACTIVE", subtitle: "فلتر النشطين" },
+      { id: "orders", name: "طلبات الفترة", value: totalOrders, href: buildQuery("/daily-reports", { fromDate: filters.fromDate, toDate: filters.toDate }), subtitle: "فتح التقارير اليومية" },
+      { id: "projects", name: "المشاريع", value: applicationProjects.length, href: "/projects", subtitle: "فتح المشاريع" },
+      { id: "alerts", name: "تحتاج متابعة", value: needsFollowUp, href: "/operations-alerts", subtitle: "فتح التنبيهات" },
+      { id: "payroll", name: "المسير", value: 0, href: "/payroll", subtitle: "فتح مسير الرواتب" },
+    ];
 
     return {
       databaseStatus: "online",
@@ -286,6 +415,14 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         bestCities,
         bestProjects,
       },
+      quickActions,
+      charts: {
+        dailyOrders,
+        cityOrders,
+        projectKpis,
+        applicationOrders,
+        followUpMix,
+      },
     };
   } catch (error) {
     return {
@@ -305,6 +442,14 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         bestSupervisor: { name: "لا توجد بيانات", kpi: 0 },
       },
       lists: { bestDrivers: [], bestSupervisors: [], bestCities: [], bestProjects: [] },
+      quickActions: [],
+      charts: {
+        dailyOrders: [],
+        cityOrders: [],
+        projectKpis: [],
+        applicationOrders: [],
+        followUpMix: [],
+      },
     };
   }
 }
