@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/prisma";
 import { AccountActionButtons, DriverActionButtons } from "@/components/drivers/DriverDetailActions";
+import { displayCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 
 export const dynamic = "force-dynamic";
 
@@ -189,6 +190,7 @@ export default async function DriverDetailsPage({ params, searchParams }: PagePr
           <Info title="الحالة" value={driver.status} />
           <Info title="المدينة" value={driver.city?.nameAr || driver.city?.nameEn} />
           <Info title="المشرف" value={driver.supervisor?.name} />
+          <Info title="Current estimated level" value={displayCurrentEstimatedLevel(driver.currentEstimatedLevel)} />
           <Info title="نوع العلاقة" value={driver.contractType || driver.sponsorshipType} />
           <Info title="رقم الهوية / الإقامة" value={driver.nationalId} />
           <Info title="الجوال" value={driver.phone || driver.mobile} />

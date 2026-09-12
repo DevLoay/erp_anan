@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     driverId: body.driverId || "",
     q: body.q || "",
     status: "",
+    currentEstimatedLevel: body.currentEstimatedLevel || "",
   };
 
   const [legacyProject, applicationProject] = filters.projectId

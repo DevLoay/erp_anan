@@ -15,6 +15,7 @@ export type RiderReportRow = {
   projectName: string;
   appName: string;
   supervisorName: string;
+  currentEstimatedLevel: string;
   account: string;
   orders: number;
   workingHours: number;
@@ -38,6 +39,10 @@ export type RiderReportRow = {
     onTimeRate: number;
     cancellationRate: number;
     rejectionRate: number;
+    attendanceStatus: string;
+    performanceStatus: string;
+    warning: string;
+    isWorkingDay: boolean;
     warnings: string[];
   }[];
 };
@@ -88,14 +93,8 @@ function kpiTone(value: number): Tone {
 
 function warningTone(text: string): Tone {
   if (text.includes("إلغاء") || text.includes("رفض") || text.includes("لا يوجد")) return "red";
-  if (text.includes("On-Time") || text.includes("التارجت") || text.includes("ساعات")) return "amber";
+  if (text.includes("On-Time") || text.includes("التارجت") || text.includes("الحد الأدنى") || text.includes("ساعات")) return "amber";
   return "blue";
-}
-
-function level(row: RiderReportRow) {
-  if (row.achievement >= 100 && row.score >= 80) return "A";
-  if (row.achievement >= 80 && row.score >= 65) return "B";
-  return "Below B";
 }
 
 function statusLabel(row: RiderReportRow) {
@@ -165,11 +164,11 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
   const visibleRows = rows.slice(0, pageSize);
 
   function exportCsv() {
-    const headers = ["المندوب", "الكود", "المدينة", "المشروع", "التطبيق", "المشرف", "الطلبات", "الساعات", "أيام العمل", "On-Time", "إلغاء", "رفض", "KPI", "التحذيرات"];
+    const headers = ["المندوب", "الكود", "المدينة", "المشروع", "التطبيق", "المشرف", "Current estimated level", "الطلبات", "الساعات", "أيام العمل", "On-Time", "إلغاء", "رفض", "KPI", "التحذيرات"];
     const lines = [
       headers.join(","),
       ...rows.map((row) =>
-        [row.driverName, row.driverCode, row.cityName, row.projectName, row.appName, row.supervisorName, row.orders, row.workingHours, row.activeDays, row.onTimeRate, row.cancellationRate, row.rejectionRate, row.score, row.reasons.join(" | ")]
+        [row.driverName, row.driverCode, row.cityName, row.projectName, row.appName, row.supervisorName, row.currentEstimatedLevel, row.orders, row.workingHours, row.activeDays, row.onTimeRate, row.cancellationRate, row.rejectionRate, row.score, row.reasons.join(" | ")]
           .map(csvEscape)
           .join(","),
       ),
@@ -193,6 +192,7 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
       projectId: filters.projectId,
       supervisorId: filters.supervisorId,
       driverId: filters.driverId,
+      currentEstimatedLevel: filters.currentEstimatedLevel,
       q: filters.q,
       status,
     })) {
@@ -242,7 +242,7 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
       </section>
 
       <form id="rider-report-filters" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
           <input type="hidden" name="month" value={filters.month} />
           <label htmlFor="rider-q" className="grid gap-1 text-xs font-black text-slate-800 xl:col-span-2">
             بحث مندوب / ID / حساب
@@ -280,7 +280,7 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
             الحالة / الأداء
             <select id="rider-status" name="status" defaultValue={filters.status} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">كل الحالات</option>
-              <option value="weakPerformance">الأداء الضعيف فقط</option>
+              <option value="weakPerformance">أقل من الحد الأدنى فقط</option>
               <option value="valid">مؤهل</option>
               <option value="invalid">غير مؤهل</option>
               <option value="GOOD">جيد</option>
@@ -288,11 +288,18 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
               <option value="CRITICAL">حرج</option>
             </select>
           </label>
+          <label htmlFor="rider-level" className="grid gap-1 text-xs font-black text-slate-800">
+            Current estimated level
+            <select id="rider-level" name="currentEstimatedLevel" defaultValue={filters.currentEstimatedLevel} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">كل المستويات</option>
+              {options.currentEstimatedLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+            </select>
+          </label>
           <button type="submit" className={oldButtonClass("dark")}>تطبيق</button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/rider-reports" className="grid h-9 place-items-center rounded-lg border border-slate-200 bg-white px-8 text-xs font-black text-slate-800 shadow-sm">عرض الكل</Link>
-          <Link href={statusUrl("weakPerformance")} className="grid h-9 place-items-center rounded-lg border border-red-200 bg-red-50 px-4 text-xs font-black text-red-700 shadow-sm">عرض الأداء الضعيف</Link>
+          <Link href={statusUrl("weakPerformance")} className="grid h-9 place-items-center rounded-lg border border-red-200 bg-red-50 px-4 text-xs font-black text-red-700 shadow-sm">عرض أقل من الحد الأدنى</Link>
           <Link href={statusUrl("CRITICAL")} className="grid h-9 place-items-center rounded-lg border border-red-600 bg-red-600 px-4 text-xs font-black text-white shadow-sm">الحرج فقط</Link>
           <select aria-label="عدد الصفوف" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black shadow-sm">
             <option value={25}>25 صف</option>
@@ -320,10 +327,10 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-[1550px] w-full text-right text-sm">
+          <table className="min-w-[1680px] w-full text-right text-sm">
             <thead className="bg-slate-100 text-xs font-black text-slate-700">
               <tr>
-                {["المندوب", "المدينة", "التطبيق", "المشروع", "المشرف", "الحساب", "الطلبات", "الساعات", "أيام العمل", "ON-TIME", "إلغاء / رفض", "KPI", "الحالة", "التحذيرات", "إجراءات"].map((head) => (
+                {["المندوب", "المدينة", "التطبيق", "المشروع", "المشرف", "Current estimated level", "الحساب", "الطلبات", "الساعات", "أيام العمل", "ON-TIME", "إلغاء / رفض", "KPI", "الحالة", "التحذيرات", "إجراءات"].map((head) => (
                   <th key={head} className="border-b border-slate-200 px-3 py-3">{head}</th>
                 ))}
               </tr>
@@ -339,6 +346,7 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.appName}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.projectName}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.supervisorName}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-black">{row.currentEstimatedLevel}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.account}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-black">{fmt(row.orders)}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{fmt(row.workingHours)}</td>
@@ -380,7 +388,7 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
             </div>
 
             <div className="mt-3 grid gap-2 md:grid-cols-4">
-              <Stat title="Level" value={level(selected)} tone={kpiTone(selected.achievement)} />
+              <Stat title="Current estimated level" value={selected.currentEstimatedLevel} tone="blue" />
               <Stat title="KPI" value={pct(selected.score)} tone={kpiTone(selected.score)} />
               <Stat title="الطلبات" value={fmt(selected.orders)} hint={`التارجت ${fmt(selected.targetOrders)}`} />
               <Stat title="الساعات" value={fmt(selected.workingHours)} hint={`المطلوب ${fmt(selected.targetHours)}`} />
@@ -401,10 +409,10 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
                 {hasSavedDriver(selected) ? <Link href={`/daily-reports?driverId=${encodeURIComponent(selected.driverId)}&fromDate=${filters.dateFrom}&toDate=${filters.dateTo}&appName=${encodeURIComponent(selected.appName)}`} className={oldButtonClass("green")}>فتح اليوميات</Link> : null}
               </div>
               <div className="max-h-72 overflow-auto">
-                <table className="min-w-[760px] w-full text-right text-xs">
+                <table className="min-w-[960px] w-full text-right text-xs">
                   <thead className="bg-slate-100 text-slate-700">
                     <tr>
-                      {["التاريخ", "الطلبات", "الساعات", "ON TIME", "إلغاء", "رفض", "ملاحظات"].map((head) => (
+                      {["التاريخ", "حالة الحضور", "الطلبات", "الساعات", "ON TIME", "إلغاء", "رفض", "حالة الأداء", "ملاحظات"].map((head) => (
                         <th key={head} className="border-b border-slate-200 px-2 py-2">{head}</th>
                       ))}
                     </tr>
@@ -413,11 +421,13 @@ export function RiderReportsOldClient({ filters, options, summary, rows }: Props
                     {selected.dailyReports.map((report) => (
                       <tr key={report.id}>
                         <td className="border-b border-slate-100 px-2 py-2 font-bold">{report.date}</td>
+                        <td className="border-b border-slate-100 px-2 py-2 font-bold">{report.attendanceStatus}</td>
                         <td className="border-b border-slate-100 px-2 py-2 font-black">{fmt(report.orders)}</td>
                         <td className="border-b border-slate-100 px-2 py-2">{fmt(report.workingHours)}</td>
                         <td className="border-b border-slate-100 px-2 py-2">{pct(report.onTimeRate)}</td>
                         <td className="border-b border-slate-100 px-2 py-2">{pct(report.cancellationRate)}</td>
                         <td className="border-b border-slate-100 px-2 py-2">{pct(report.rejectionRate)}</td>
+                        <td className="border-b border-slate-100 px-2 py-2 font-bold">{report.warning || (report.isWorkingDay ? "محقق" : report.attendanceStatus)}</td>
                         <td className="border-b border-slate-100 px-2 py-2"><WarningBadges warnings={report.warnings} /></td>
                       </tr>
                     ))}

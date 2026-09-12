@@ -385,7 +385,7 @@ export async function getPayrollOldPageData(filters: PayrollOldFilters, accessSc
     options = await getFilterOptions(accessScope);
   } catch (error) {
     const message = databaseOfflineMessage(error);
-    options = { months: [], appNames: [], cities: [], projects: [], supervisors: [] };
+    options = { months: [], appNames: [], cities: [], projects: [], supervisors: [], currentEstimatedLevels: [] };
     if (message) return emptyData(filters, options, message);
     throw error;
   }

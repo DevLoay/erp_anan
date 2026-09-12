@@ -377,10 +377,10 @@ export function DriverManagementClient({ data }: Props) {
   }
 
   function exportCurrentDrivers() {
-    const headers = ["internalCode", "name", "phone", "nationalId", "city", "applicationProject", "application", "supervisor", "vehicle", "vehicleOwnershipType", "appUserId", "status"];
+    const headers = ["internalCode", "name", "phone", "nationalId", "city", "applicationProject", "application", "supervisor", "Current estimated level", "vehicle", "vehicleOwnershipType", "appUserId", "status"];
     downloadCsv(`drivers-${new Date().toISOString().slice(0, 10)}.csv`,
       headers,
-      rows.map((row) => [row.driverCode, row.name, row.mobile, row.nationalId, row.city, row.project, row.application, row.supervisor, row.vehiclePlate, vehicleLabel(row.vehicleOwnershipType), row.appUserId, row.statusLabel]),
+      rows.map((row) => [row.driverCode, row.name, row.mobile, row.nationalId, row.city, row.project, row.application, row.supervisor, row.currentEstimatedLevel, row.vehiclePlate, vehicleLabel(row.vehicleOwnershipType), row.appUserId, row.statusLabel]),
     );
     setToast("تم تجهيز ملف المناديب الحالي.");
   }
@@ -515,7 +515,7 @@ export function DriverManagementClient({ data }: Props) {
       <form method="get" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <input type="hidden" name="fromDate" value={data.filters.fromDate} />
         <input type="hidden" name="toDate" value={data.filters.toDate} />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
           <input name="q" defaultValue={data.filters.q} placeholder="بحث بالاسم / الكود / الجوال / الهوية / حساب التطبيق" className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:border-blue-400 xl:col-span-2" />
           <select name="cityId" defaultValue={data.filters.cityId} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
             <option value="">كل المدن</option>
@@ -552,6 +552,14 @@ export function DriverManagementClient({ data }: Props) {
             {vehicleOwnershipOptions.map((option) => (
               <option key={option.value || "ALL"} value={option.value}>
                 {option.label}
+              </option>
+            ))}
+          </select>
+          <select name="currentEstimatedLevel" defaultValue={data.filters.currentEstimatedLevel} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <option value="">كل المستويات</option>
+            {data.currentEstimatedLevels.map((level) => (
+              <option key={level} value={level}>
+                {level}
               </option>
             ))}
           </select>
@@ -604,7 +612,7 @@ export function DriverManagementClient({ data }: Props) {
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {visibleRows.length ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[1500px] w-full border-separate border-spacing-0 text-sm">
+            <table className="min-w-[1600px] w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="bg-slate-100 text-xs font-black text-slate-700">
                   <th className="rounded-r-xl px-3 py-3 text-right">
@@ -617,6 +625,7 @@ export function DriverManagementClient({ data }: Props) {
                   <th className="px-3 py-3 text-right">مشروع التطبيق</th>
                   <th className="px-3 py-3 text-right">التطبيق</th>
                   <th className="px-3 py-3 text-right">حساب التطبيق</th>
+                  <th className="px-3 py-3 text-right">Current estimated level</th>
                   <th className="px-3 py-3 text-right">المشرف</th>
                   <th className="px-3 py-3 text-right">نوع السيارة</th>
                   <th className="px-3 py-3 text-right">لوحة السيارة</th>
@@ -646,6 +655,7 @@ export function DriverManagementClient({ data }: Props) {
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.project}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.application}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.appUserId}</td>
+                    <td className="border-b border-slate-100 px-3 py-4 font-black">{row.currentEstimatedLevel}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.supervisor}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{vehicleLabel(row.vehicleOwnershipType)}</td>
                     <td className="border-b border-slate-100 px-3 py-4 font-bold">{row.vehiclePlate}</td>
@@ -722,6 +732,7 @@ export function DriverManagementClient({ data }: Props) {
                 ["التطبيق", selectedDriver.application],
                 ["حساب التطبيق", selectedDriver.appUserId],
                 ["اسم الحساب", selectedDriver.appUsername],
+                ["Current estimated level", selectedDriver.currentEstimatedLevel],
                 ["المشرف", selectedDriver.supervisor],
                 ["نوع السيارة", vehicleLabel(selectedDriver.vehicleOwnershipType)],
                 ["لوحة السيارة", selectedDriver.vehiclePlate],

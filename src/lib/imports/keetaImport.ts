@@ -4,6 +4,7 @@ import type { ImportPreviewPayload } from "./previewImport";
 import { validateImportRows, type ImportPreviewRow } from "./validateRows";
 import type { ImportColumn, ImportColumnMapping } from "./templates";
 import { upsertOperationalApplicationAccount } from "@/lib/application-accounts/accountLinking";
+import { normalizeCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 import {
   KEETA_DRIVER_INVOICE_TEMPLATE,
   KEETA_PERIOD_REPORT_TEMPLATE,
@@ -413,9 +414,13 @@ export async function commitKeetaRecords(args: {
       applicationProjectId: args.applicationProjectId,
       cityId: args.cityId,
     });
+    const importedCourierIds = new Set<string>();
+    const updatedDriverIds = new Set<string>();
     for (const row of validRows) {
       const link = requiredLinks.get(row.rowNumber)!;
       const courierId = text(row.mappedData.courierId || row.mappedData.appUserId);
+      const currentEstimatedLevel = normalizeCurrentEstimatedLevel(row.mappedData.currentEstimatedLevel || row.mappedData.rank);
+      if (courierId) importedCourierIds.add(courierId);
       const rankData = {
         projectId: "keeta",
         applicationProjectId: args.applicationProjectId,
@@ -427,7 +432,7 @@ export async function commitKeetaRecords(args: {
         month,
         periodStart,
         periodEnd,
-        currentEstimatedLevel: text(row.mappedData.currentEstimatedLevel || row.mappedData.rank) || null,
+        currentEstimatedLevel,
         currentEstimatedRanking: numberValue(row.mappedData.currentEstimatedRanking),
         courierRankingPercentile: rateValue(row.mappedData.courierRankingPercentile),
         currentScoreForForcedAssignment: numberValue(row.mappedData.currentScoreForForcedAssignment),
@@ -458,6 +463,35 @@ export async function commitKeetaRecords(args: {
         if (duplicateIds.length) await tx.keetaRankRecord.deleteMany({ where: { id: { in: duplicateIds } } });
       } else {
         await tx.keetaRankRecord.create({ data: rankData });
+      }
+      if (link.driverId) {
+        updatedDriverIds.add(link.driverId);
+        await tx.driver.update({ where: { id: link.driverId }, data: { currentEstimatedLevel } });
+      }
+    }
+
+    if (args.applicationProjectId && importedCourierIds.size) {
+      const accountsOutsideLatestSheet = await tx.applicationAccount.findMany({
+        where: {
+          ...(preview.summary.applicationId ? { applicationId: preview.summary.applicationId } : { appName: "Keeta" }),
+          applicationProjectId: args.applicationProjectId,
+          ...(args.cityId ? { cityId: args.cityId } : {}),
+          appUserId: { notIn: [...importedCourierIds] },
+          driverId: { not: null },
+        },
+        select: { driverId: true },
+      });
+      const staleDriverIds = [
+        ...new Set(
+          accountsOutsideLatestSheet
+            .map((account) => account.driverId)
+            .filter((driverId): driverId is string => {
+              return Boolean(driverId) && !updatedDriverIds.has(driverId as string);
+            }),
+        ),
+      ];
+      if (staleDriverIds.length) {
+        await tx.driver.updateMany({ where: { id: { in: staleDriverIds } }, data: { currentEstimatedLevel: null } });
       }
     }
     return { keetaRankRecords: validRows.length };

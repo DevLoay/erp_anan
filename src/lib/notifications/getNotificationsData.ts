@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
 import { calculateExpectedTarget, calculatePerformancePercentage } from "@/lib/performance/expectedTargets";
+import { DAILY_MINIMUM_ORDERS, getDailyPerformanceStatus } from "@/lib/performance/dailyPerformance";
 import { getRulesForApp, getSystemRules } from "@/lib/reporting";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -136,6 +137,21 @@ function appDisplayName(value: string | null | undefined) {
   return raw || "-";
 }
 
+function dailyHintKey(args: { driverId?: string | null; applicationProjectId?: string | null; cityId?: string | null; reportDate: Date | string }) {
+  const day = args.reportDate instanceof Date ? isoDate(args.reportDate) : args.reportDate;
+  return [args.driverId ?? "", args.applicationProjectId ?? "", args.cityId ?? "", day].join(":");
+}
+
+function dailyHintKeys(args: { driverId?: string | null; applicationProjectId?: string | null; cityId?: string | null; reportDate: Date | string }) {
+  if (!args.driverId) return [];
+  return [
+    dailyHintKey(args),
+    dailyHintKey({ ...args, cityId: "" }),
+    dailyHintKey({ ...args, applicationProjectId: "" }),
+    dailyHintKey({ ...args, applicationProjectId: "", cityId: "" }),
+  ];
+}
+
 export function resolveNotificationFilters(params: SearchParams): NotificationsData["filters"] {
   const today = isoDate(new Date());
   return {
@@ -187,7 +203,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
 
   try {
     const kpiSettings = await getSystemRules();
-    const [savedNotifications, reports, activeDrivers, emptyAccounts, appProjects] = await Promise.all([
+    const [savedNotifications, reports, activeDrivers, emptyAccounts, appProjects, keetaHints] = await Promise.all([
       prisma.notification.findMany({
         where: { createdAt: { gte: from, lte: to } },
         include: {
@@ -265,7 +281,34 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       prisma.applicationProject.findMany({
         select: { id: true, projectId: true, dailyTarget: true, monthlyTarget: true, name: true, application: { select: { name: true } } },
       }),
+      prisma.keetaPerformanceRecord.findMany({
+        where: { reportDate: { gte: from, lte: to } },
+        select: {
+          driverId: true,
+          applicationProjectId: true,
+          cityId: true,
+          reportDate: true,
+          shiftAttendanceSummary: true,
+          onShift: true,
+          validDay: true,
+        },
+        orderBy: [{ reportDate: "desc" }, { updatedAt: "desc" }],
+        take: 3000,
+      }).catch(() => []),
     ]);
+
+    const keetaHintMap = new Map<string, { shiftAttendanceSummary: string | null; onShift: boolean | null; validDay: boolean | null }>();
+    for (const hint of keetaHints) {
+      for (const key of dailyHintKeys(hint)) {
+        if (!keetaHintMap.has(key)) {
+          keetaHintMap.set(key, {
+            shiftAttendanceSummary: hint.shiftAttendanceSummary,
+            onShift: hint.onShift,
+            validDay: hint.validDay,
+          });
+        }
+      }
+    }
 
     const targetByProject = new Map<string, { dailyTarget: number; monthlyTarget: number; appName: string }>();
     for (const project of appProjects) {
@@ -314,12 +357,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       const reportDay = isoDate(report.reportDate);
       const reportMonth = report.month || reportDay.slice(0, 7);
       const rules = getRulesForApp(projectTarget?.appName || appName, kpiSettings);
-      const dailyTarget =
-        projectTarget?.monthlyTarget && projectTarget.monthlyTarget > 0
-          ? calculateExpectedTarget({ monthlyTarget: projectTarget.monthlyTarget, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected
-          : projectTarget?.dailyTarget && projectTarget.dailyTarget > 0
-            ? projectTarget.dailyTarget
-            : calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
+      const dailyTarget = DAILY_MINIMUM_ORDERS;
       const dailyHoursTarget = calculateExpectedTarget({
         monthlyTarget: rules.workingHours,
         month: reportMonth,
@@ -340,8 +378,26 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
         status: "PENDING" as NotificationStatus,
         statusLabel: "قيد المتابعة",
       };
+      const hint = dailyHintKeys({
+        driverId: report.driverId,
+        applicationProjectId: report.applicationProjectId,
+        cityId: report.cityId ?? driver?.cityId,
+        reportDate: report.reportDate,
+      })
+        .map((key) => keetaHintMap.get(key))
+        .find(Boolean);
+      const dailyStatus = getDailyPerformanceStatus({
+        attendanceStatus: hint?.shiftAttendanceSummary,
+        orders: report.orders,
+        minimumOrders: DAILY_MINIMUM_ORDERS,
+        hints: {
+          workingHours: report.workingHours,
+          onShift: hint?.onShift,
+          validDay: hint?.validDay,
+        },
+      });
 
-      if (dailyTarget > 0 && report.orders < dailyTarget) {
+      if (dailyStatus.performanceStatusCode === "BELOW_MINIMUM") {
         const source: NotificationSource = "daily-report";
         const severe = calculatePerformancePercentage(report.orders, dailyTarget) < 80;
         rows.push({
@@ -349,18 +405,35 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
           id: `orders-${report.id}`,
           source,
           sourceLabel: sourceLabel(source),
-          title: `طلبات أقل من المعدل المتوقع حتى اليوم: ${base.driverName}`,
+          title: `أقل من الحد الأدنى: ${base.driverName}`,
           detail: `Orders - ${displayDate(report.reportDate)}`,
           severity: severe ? "CRITICAL" : "WARNING",
           severityLabel: severe ? "حرج" : "تحذير",
-          currentValue: String(report.orders),
-          requiredValue: String(dailyTarget),
-          recommendation: "افتح تقرير المندوب وراجع سبب انخفاض الطلبات مقارنة بالمعدل المتوقع لهذه الفترة.",
+          currentValue: `${report.orders} طلب`,
+          requiredValue: `>= ${DAILY_MINIMUM_ORDERS} طلبات`,
+          recommendation: "افتح تقرير المندوب وراجع سبب انخفاض الطلبات عن الحد الأدنى اليومي.",
+        });
+      }
+
+      if (dailyStatus.performanceStatusCode === "ABSENT") {
+        const source: NotificationSource = "daily-report";
+        rows.push({
+          ...base,
+          id: `absent-${report.id}`,
+          source,
+          sourceLabel: sourceLabel(source),
+          title: `غياب: ${base.driverName}`,
+          detail: `Attendance - ${displayDate(report.reportDate)}`,
+          severity: "WARNING",
+          severityLabel: "تحذير",
+          currentValue: "غياب",
+          requiredValue: "دوام",
+          recommendation: "مراجعة سبب الغياب مع المشرف قبل اتخاذ أي إجراء.",
         });
       }
 
       const onTime = numberValue(report.onTimeRate);
-      if (onTime > 0 && onTime < 99) {
+      if (dailyStatus.shouldEvaluate && onTime > 0 && onTime < 99) {
         const source: NotificationSource = "daily-report";
         const severe = onTime < 95;
         rows.push({
@@ -379,7 +452,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       }
 
       const cancellation = numberValue(report.cancellationRate);
-      if (cancellation > 0) {
+      if (dailyStatus.shouldEvaluate && cancellation > 0) {
         const source: NotificationSource = "daily-report";
         rows.push({
           ...base,
@@ -397,7 +470,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       }
 
       const rejection = numberValue(report.rejectionRate);
-      if (rejection > 0) {
+      if (dailyStatus.shouldEvaluate && rejection > 0) {
         const source: NotificationSource = "daily-report";
         rows.push({
           ...base,
@@ -415,7 +488,7 @@ export async function getNotificationsData(filters: NotificationsData["filters"]
       }
 
       const hours = numberValue(report.workingHours);
-      if (hours > 0 && hours < dailyHoursTarget) {
+      if (dailyStatus.shouldEvaluate && hours > 0 && hours < dailyHoursTarget) {
         const source: NotificationSource = "daily-report";
         const severe = calculatePerformancePercentage(hours, dailyHoursTarget) < 80;
         rows.push({

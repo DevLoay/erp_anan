@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { calculateExpectedTarget, calculatePerformancePercentage } from "@/lib/performance/expectedTargets";
+import { DAILY_MINIMUM_ORDERS, getDailyPerformanceStatus } from "@/lib/performance/dailyPerformance";
+import { displayCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 import { getRulesForApp, getSystemRules } from "@/lib/reporting";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -101,7 +103,8 @@ function performanceScore(
 ) {
   const reportDay = report.reportDate ? isoDate(report.reportDate) : isoDate(new Date());
   const reportMonth = report.month || reportDay.slice(0, 7);
-  const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
+  const dailyStatus = getDailyPerformanceStatus({ orders: report.orders, minimumOrders: DAILY_MINIMUM_ORDERS, hints: { workingHours: report.workingHours } });
+  const expectedOrders = dailyStatus.shouldEvaluate ? DAILY_MINIMUM_ORDERS : 0;
   const expectedHours = calculateExpectedTarget({
     monthlyTarget: rules.workingHours,
     month: reportMonth,
@@ -181,6 +184,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
             report.driver?.project?.name,
             report.project?.name,
             report.driver?.supervisor?.name,
+            report.driver?.currentEstimatedLevel,
             report.appName,
           ]
             .filter(Boolean)
@@ -204,6 +208,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
         cityName: driver.city?.nameAr || "-",
         projectName: driver.project?.name || "-",
         supervisorName: driver.supervisor?.name || "-",
+        currentEstimatedLevel: displayCurrentEstimatedLevel(driver.currentEstimatedLevel),
         orders,
         kpi,
         hasMissingScope,
@@ -244,7 +249,7 @@ export async function getAdminDashboardOldData(filters: AdminDashboardFilters): 
       };
     });
 
-    const bestDrivers = topRows(driverStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => item.cityName);
+    const bestDrivers = topRows(driverStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.cityName} · Level ${item.currentEstimatedLevel}`);
     const bestCities = topRows(cityStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.count} مندوب`);
     const bestProjects = topRows(projectStats, (item) => item.id, (item) => item.name, (item) => item.kpi, (item) => item.orders, (item) => `${item.count} مندوب`);
     const bestSupervisors = topRows(

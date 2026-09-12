@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 import type { KeetaRankMatchedRow } from "./matchDrivers";
 
 export type KeetaRankCommitInput = {
@@ -81,6 +82,41 @@ export async function commitKeetaRankImport(input: KeetaRankCommitInput) {
         },
       },
     });
+
+    const importedAppUserIds = new Set<string>();
+    const updatedDriverIds = new Set<string>();
+    for (const row of input.rows.filter((item) => item.status === "Valid" && item.driverId)) {
+      if (row.appUserId) importedAppUserIds.add(row.appUserId);
+      updatedDriverIds.add(row.driverId!);
+      await tx.driver.update({
+        where: { id: row.driverId! },
+        data: { currentEstimatedLevel: normalizeCurrentEstimatedLevel(row.rank) },
+      });
+    }
+
+    if (input.applicationProjectId && importedAppUserIds.size) {
+      const staleAccounts = await tx.applicationAccount.findMany({
+        where: {
+          ...(input.applicationId ? { applicationId: input.applicationId } : { appName: "Keeta" }),
+          applicationProjectId: input.applicationProjectId,
+          appUserId: { notIn: [...importedAppUserIds] },
+          driverId: { not: null },
+        },
+        select: { driverId: true },
+      });
+      const staleDriverIds = [
+        ...new Set(
+          staleAccounts
+            .map((account) => account.driverId)
+            .filter((driverId): driverId is string => {
+              return Boolean(driverId) && !updatedDriverIds.has(driverId as string);
+            }),
+        ),
+      ];
+      if (staleDriverIds.length) {
+        await tx.driver.updateMany({ where: { id: { in: staleDriverIds } }, data: { currentEstimatedLevel: null } });
+      }
+    }
 
     return batch;
   });

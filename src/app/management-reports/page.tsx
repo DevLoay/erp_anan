@@ -107,6 +107,7 @@ export default async function ManagementReportsPage({ searchParams }: PageProps)
     projectName: row.projectName,
     appName: row.appName,
     supervisorName: row.supervisorName,
+    currentEstimatedLevel: row.currentEstimatedLevel,
     account: row.account,
     orders: row.orders,
     workingHours: row.workingHours,

@@ -75,7 +75,9 @@ export default async function PerformanceAnalysisPage({ searchParams }: PageProp
                     <strong className="text-sm font-black text-red-950">{row.driverName}</strong>
                     <span className="text-sm font-black text-red-700">{row.score}%</span>
                   </div>
-                  <p className="mt-1 text-xs font-bold text-red-700">{row.reasons.slice(0, 3).join("، ") || "مؤشر غير طبيعي"}</p>
+                  <p className="mt-1 text-xs font-bold text-red-700">
+                    Level {row.currentEstimatedLevel}، {row.reasons.slice(0, 3).join("، ") || "مؤشر غير طبيعي"}
+                  </p>
                 </div>
               ))}
             {!kpi.rows.filter((row) => !row.valid).length ? <p className="text-sm font-bold text-slate-500">لا توجد مؤشرات حرجة في الفلاتر الحالية.</p> : null}

@@ -12,7 +12,7 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
   return (
     <form className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" dir="rtl">
       {filters.driverId ? <input type="hidden" name="driverId" value={filters.driverId} /> : null}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-10">
         <label htmlFor="month-filter" className="grid gap-1 text-sm font-bold text-slate-700">
           الشهر
           <select id="month-filter" name="month" defaultValue={filters.month} className="rounded-md border border-slate-300 px-3 py-2">
@@ -106,7 +106,7 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
             الحالة / الأداء
             <select id="status-filter" name="status" defaultValue={filters.status} className="rounded-md border border-slate-300 px-3 py-2">
               <option value="">كل الحالات</option>
-              <option value="weakPerformance">الأداء الضعيف فقط</option>
+              <option value="weakPerformance">أقل من الحد الأدنى فقط</option>
               <option value="valid">مؤهل</option>
               <option value="invalid">غير مؤهل</option>
               <option value="GOOD">جيد</option>
@@ -115,6 +115,18 @@ export function ReportFilterBar({ filters, options, showStatus = true, resetHref
             </select>
           </label>
         ) : null}
+
+        <label htmlFor="level-filter" className="grid gap-1 text-sm font-bold text-slate-700">
+          Current estimated level
+          <select id="level-filter" name="currentEstimatedLevel" defaultValue={filters.currentEstimatedLevel} className="rounded-md border border-slate-300 px-3 py-2">
+            <option value="">كل المستويات</option>
+            {options.currentEstimatedLevels.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label htmlFor="q-filter" className="grid gap-1 text-sm font-bold text-slate-700">
           بحث

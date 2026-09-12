@@ -392,6 +392,7 @@ export function ProjectPayrollView({ data }: { data: OnlineWorkspace }) {
     driverId: "",
     q: "",
     status: "",
+    currentEstimatedLevel: "",
   };
   return (
     <main className="w-full max-w-none space-y-5 bg-slate-50 p-4" dir="rtl">

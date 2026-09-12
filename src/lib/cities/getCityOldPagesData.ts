@@ -258,6 +258,7 @@ export async function getCityOldPagesData(filters: CityPageFilters, options: Cit
       driverId: filters.driverId,
       q: filters.q,
       status: filters.status,
+      currentEstimatedLevel: filters.currentEstimatedLevel,
       accessScope: filters.accessScope,
     };
     const accessScope = filters.accessScope;

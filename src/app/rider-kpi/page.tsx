@@ -59,6 +59,7 @@ export default async function RiderKpiPage({ searchParams }: PageProps) {
               <th className="px-4 py-3">المدينة</th>
               <th className="px-4 py-3">المشروع</th>
               <th className="px-4 py-3">المشرف</th>
+              <th className="px-4 py-3">Current estimated level</th>
               <th className="px-4 py-3">الطلبات</th>
               <th className="px-4 py-3">الساعات</th>
               <th className="px-4 py-3">On-Time</th>
@@ -84,6 +85,7 @@ export default async function RiderKpiPage({ searchParams }: PageProps) {
                     <div className="text-xs text-slate-500">{row.appName}</div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 font-semibold">{row.supervisorName}</td>
+                  <td className="whitespace-nowrap px-4 py-3 font-black">{row.currentEstimatedLevel}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-black">{row.orders}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-semibold">{row.workingHours}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-semibold">{row.onTimeRate}%</td>
@@ -120,7 +122,7 @@ export default async function RiderKpiPage({ searchParams }: PageProps) {
               ))
             ) : (
               <tr>
-                <td colSpan={13} className="px-4 py-10 text-center font-bold text-slate-500">
+                <td colSpan={14} className="px-4 py-10 text-center font-bold text-slate-500">
                   لا توجد بيانات مطابقة للفلاتر الحالية.
                 </td>
               </tr>

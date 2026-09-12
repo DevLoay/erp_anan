@@ -170,6 +170,7 @@ model Driver {
   vehicleId         String?
   vehicleOwnershipType String   @default("no_vehicle")
   accountId         String?
+  currentEstimatedLevel String?
   status            DriverStatus @default(ACTIVE)
   contractType      String?
   sponsorshipType   String?
@@ -219,6 +220,7 @@ model Driver {
 
   @@index([driverCode])
   @@index([nationalId])
+  @@index([currentEstimatedLevel])
   @@index([cityId, projectId, supervisorId])
 }
 

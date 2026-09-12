@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import type { AccessScope } from "@/lib/auth/accessScope";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
-import { calculateExpectedTarget } from "@/lib/performance/expectedTargets";
-import { getRulesForApp, getSystemRules } from "@/lib/reporting";
+import { DAILY_MINIMUM_ORDERS, getDailyPerformanceStatus, type DailyPerformanceStatusCode } from "@/lib/performance/dailyPerformance";
+import { displayCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 import type { Prisma } from "@prisma/client";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -147,17 +147,30 @@ function scopedDriverWhere(scope?: AccessScope): Prisma.DriverWhereInput {
 
 function statusFromReport(
   row: { orders: number; workingHours: number; onTimeRate: number; cancellationRate: number; rejectionRate: number },
-  expected?: { orders: number; workingHours: number },
+  attendanceStatus?: unknown,
+  hints?: { onShift?: boolean | null; validDay?: boolean | null; noShows?: unknown },
 ) {
-  const warnings: string[] = [];
-  const expectedOrders = expected?.orders ?? 10;
-  const expectedHours = expected?.workingHours ?? 8;
-  if (row.orders < expectedOrders) warnings.push(`طلبات أقل من المعدل المتوقع: ${row.orders} من ${expectedOrders}`);
-  if (row.workingHours < expectedHours) warnings.push(`ساعات أقل من المعدل المتوقع: ${Math.round(row.workingHours * 10) / 10} من ${Math.round(expectedHours * 10) / 10}`);
-  if (row.onTimeRate < 95) warnings.push("On-Time منخفض");
-  if (row.cancellationRate > 0) warnings.push("إلغاء");
-  if (row.rejectionRate > 0) warnings.push("رفض");
-  return warnings.length ? { label: "يحتاج متابعة", warnings, tone: "red" as const } : { label: "طبيعي", warnings: ["طبيعي"], tone: "green" as const };
+  const daily = getDailyPerformanceStatus({
+    attendanceStatus,
+    orders: row.orders,
+    minimumOrders: DAILY_MINIMUM_ORDERS,
+    hints: { ...hints, workingHours: row.workingHours },
+  });
+  const warnings = [
+    daily.warning,
+    daily.shouldEvaluate && row.onTimeRate > 0 && row.onTimeRate < 95 ? "On-Time منخفض" : "",
+    daily.shouldEvaluate && row.cancellationRate > 0 ? "إلغاء" : "",
+    daily.shouldEvaluate && row.rejectionRate > 0 ? "رفض" : "",
+  ].filter(Boolean);
+  return {
+    label: daily.performanceStatusLabel,
+    warnings: warnings.length ? warnings : ["طبيعي"],
+    tone: daily.tone,
+    attendanceStatus: daily.attendanceStatusLabel,
+    performanceStatus: daily.performanceStatusCode,
+    warning: daily.warning,
+    isWorkingDay: daily.shouldEvaluate,
+  };
 }
 
 function textFromJson(value: unknown, keys: string[]) {
@@ -168,6 +181,35 @@ function textFromJson(value: unknown, keys: string[]) {
     if (text) return text;
   }
   return "";
+}
+
+type KeetaDailyHint = {
+  shiftAttendanceSummary: string | null;
+  onShift: boolean | null;
+  validDay: boolean | null;
+};
+
+function dailyHintKey(args: { driverId?: string | null; applicationProjectId?: string | null; cityId?: string | null; reportDate: Date | string }) {
+  const day = args.reportDate instanceof Date ? isoDate(args.reportDate) : args.reportDate;
+  return [args.driverId ?? "", args.applicationProjectId ?? "", args.cityId ?? "", day].join(":");
+}
+
+function dailyHintKeys(args: { driverId?: string | null; applicationProjectId?: string | null; cityId?: string | null; reportDate: Date | string }) {
+  if (!args.driverId) return [];
+  return [
+    dailyHintKey(args),
+    dailyHintKey({ ...args, cityId: "" }),
+    dailyHintKey({ ...args, applicationProjectId: "" }),
+    dailyHintKey({ ...args, applicationProjectId: "", cityId: "" }),
+  ];
+}
+
+function getDailyHint(hintMap: Map<string, KeetaDailyHint>, args: { driverId?: string | null; applicationProjectId?: string | null; cityId?: string | null; reportDate: Date | string }) {
+  for (const key of dailyHintKeys(args)) {
+    const hint = hintMap.get(key);
+    if (hint) return hint;
+  }
+  return null;
 }
 
 export type DailyReportsFilters = {
@@ -182,6 +224,7 @@ export type DailyReportsFilters = {
   riderId: string;
   q: string;
   performanceStatus: string;
+  currentEstimatedLevel: string;
   accessScope?: AccessScope;
 };
 
@@ -196,6 +239,7 @@ export type DailyReportsOldData = {
     projects: { id: string; name: string; appName: string }[];
     supervisors: { id: string; name: string }[];
     riders: { id: string; name: string; code: string }[];
+    currentEstimatedLevels: string[];
   };
   summary: {
     reportsCount: number;
@@ -227,10 +271,16 @@ export type DailyReportsOldData = {
     orders: number;
     workingHours: number;
     onTimeRate: number;
+    acceptanceRate: number;
     cancellationRate: number;
     rejectionRate: number;
+    currentEstimatedLevel: string;
+    attendanceStatus: string;
+    performanceStatus: DailyPerformanceStatusCode;
+    warning: string;
+    isWorkingDay: boolean;
     statusLabel: string;
-    statusTone: "green" | "red";
+    statusTone: "green" | "amber" | "red" | "slate" | "blue";
     warnings: string[];
     updatedAt: string;
   }[];
@@ -300,6 +350,7 @@ export async function resolveDailyReportsFilters(params: SearchParams, accessSco
     riderId: one(params, "riderId") || one(params, "driverId"),
     q: one(params, "q").trim(),
     performanceStatus: one(params, "performanceStatus") || one(params, "status"),
+    currentEstimatedLevel: one(params, "currentEstimatedLevel"),
     accessScope,
   };
 }
@@ -308,9 +359,16 @@ function performanceStatusMatch(row: DailyReportsOldData["rows"][number], status
   const normalized = status.toLowerCase();
   if (!normalized) return true;
   const hasWarning = row.statusTone === "red" || row.warnings.some((warning) => warning && warning !== "طبيعي");
-  if (["weakperformance", "weak", "needsfollowup", "bad", "warning", "critical", "criticalonly"].includes(normalized)) return hasWarning;
+  if (["weakperformance", "weak", "needsfollowup", "bad"].includes(normalized)) return row.performanceStatus === "BELOW_MINIMUM";
+  if (["warning", "critical", "criticalonly"].includes(normalized)) return hasWarning;
+  if (["absent", "absence"].includes(normalized)) return row.performanceStatus === "ABSENT";
   if (["good", "normal", "green"].includes(normalized)) return !hasWarning;
   return true;
+}
+
+function levelMatch(row: DailyReportsOldData["rows"][number], currentEstimatedLevel: string) {
+  if (!currentEstimatedLevel) return true;
+  return row.currentEstimatedLevel === currentEstimatedLevel;
 }
 
 function emptyData(filters: DailyReportsFilters, message?: string): DailyReportsOldData {
@@ -318,7 +376,7 @@ function emptyData(filters: DailyReportsFilters, message?: string): DailyReports
     databaseStatus: message ? "offline" : "online",
     databaseMessage: message,
     filters,
-    options: { months: filters.month ? [filters.month] : [], appNames: [], cities: [], projects: [], supervisors: [], riders: [] },
+    options: { months: filters.month ? [filters.month] : [], appNames: [], cities: [], projects: [], supervisors: [], riders: [], currentEstimatedLevels: [] },
     summary: {
       reportsCount: 0,
       uploadedReports: 0,
@@ -340,7 +398,6 @@ function emptyData(filters: DailyReportsFilters, message?: string): DailyReports
 
 export async function getDailyReportsOldPageData(filters: DailyReportsFilters): Promise<DailyReportsOldData> {
   try {
-    const kpiSettings = await getSystemRules();
     const driverWhere: Prisma.DriverWhereInput = scopedDriverWhere(filters.accessScope);
     if (filters.supervisorId) driverWhere.supervisorId = filters.supervisorId;
     if (filters.q) {
@@ -382,7 +439,32 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       ].filter((item) => Object.keys(item).length),
     };
 
-    const [reports, monthReports, uploadedReports, importBatches, latestBatch, cities, projects, supervisors, riders, monthRows, appRows] = await Promise.all([
+    const includeKeetaHints = !filters.appName || appDisplayName(filters.appName) === "Keeta";
+    const keetaHintScopeAnd: Prisma.KeetaPerformanceRecordWhereInput[] = [];
+    if (filters.accessScope && !filters.accessScope.isGlobal) {
+      if (filters.accessScope.driverId) keetaHintScopeAnd.push({ driverId: filters.accessScope.driverId });
+      if (filters.accessScope.cityIds.length) keetaHintScopeAnd.push({ cityId: { in: filters.accessScope.cityIds } });
+      if (filters.accessScope.projectIds.length) keetaHintScopeAnd.push({ applicationProjectId: { in: filters.accessScope.projectIds } });
+      if (filters.accessScope.supervisorId) keetaHintScopeAnd.push({ driver: { is: { supervisorId: filters.accessScope.supervisorId } } });
+    }
+    const keetaHintWhere: Prisma.KeetaPerformanceRecordWhereInput = includeKeetaHints
+      ? {
+          AND: [
+            ...keetaHintScopeAnd,
+            {
+              reportDate: {
+                gte: startOfDay(filters.fromDate),
+                lte: endOfDay(filters.toDate),
+              },
+            },
+            filters.cityId ? { cityId: filters.cityId } : {},
+            filters.projectId ? { applicationProjectId: filters.projectId } : {},
+            filters.riderId ? { driverId: filters.riderId } : {},
+          ].filter((item) => Object.keys(item).length),
+        }
+      : { id: "__NO_KEETA_HINTS__" };
+
+    const [reports, monthReports, uploadedReports, importBatches, latestBatch, cities, projects, supervisors, riders, monthRows, appRows, levelRows, keetaHints] = await Promise.all([
       prisma.dailyReport.findMany({
         where: reportWhere,
         include: {
@@ -399,6 +481,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
               nationalId: true,
               phone: true,
               mobile: true,
+              currentEstimatedLevel: true,
               cityId: true,
               supervisorId: true,
               supervisor: { select: { id: true, name: true } },
@@ -438,7 +521,40 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       prisma.driver.findMany({ where: scopedDriverWhere(filters.accessScope), select: { id: true, name: true, actualName: true, internalCode: true, driverCode: true }, orderBy: { name: "asc" }, take: 500 }),
       prisma.dailyReport.findMany({ where: scopeReportWhere(filters.accessScope), select: { month: true }, distinct: ["month"], orderBy: { month: "desc" }, take: 12 }),
       prisma.dailyReport.findMany({ where: scopeReportWhere(filters.accessScope), select: { appName: true }, distinct: ["appName"], orderBy: { appName: "asc" } }),
+      prisma.driver.findMany({
+        where: { AND: [scopedDriverWhere(filters.accessScope), { currentEstimatedLevel: { not: null } }] },
+        distinct: ["currentEstimatedLevel"],
+        select: { currentEstimatedLevel: true },
+        take: 100,
+      }),
+      prisma.keetaPerformanceRecord.findMany({
+        where: keetaHintWhere,
+        select: {
+          driverId: true,
+          applicationProjectId: true,
+          cityId: true,
+          reportDate: true,
+          shiftAttendanceSummary: true,
+          onShift: true,
+          validDay: true,
+        },
+        orderBy: [{ reportDate: "desc" }, { updatedAt: "desc" }],
+        take: 3000,
+      }).catch(() => []),
     ]);
+
+    const keetaHintMap = new Map<string, KeetaDailyHint>();
+    for (const hint of keetaHints) {
+      for (const key of dailyHintKeys(hint)) {
+        if (!keetaHintMap.has(key)) {
+          keetaHintMap.set(key, {
+            shiftAttendanceSummary: hint.shiftAttendanceSummary,
+            onShift: hint.onShift,
+            validDay: hint.validDay,
+          });
+        }
+      }
+    }
 
     const hsScopeAnd: Prisma.HungerStationDailyPerformanceRecordWhereInput[] = [];
     if (filters.accessScope && !filters.accessScope.isGlobal) {
@@ -506,6 +622,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
               nationalId: true,
               phone: true,
               mobile: true,
+              currentEstimatedLevel: true,
               cityId: true,
               supervisorId: true,
               supervisor: { select: { id: true, name: true } },
@@ -523,17 +640,6 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       const driver = report.driver;
       const account = driver?.account ?? driver?.applicationAccounts[0] ?? null;
       const appNameValue = appDisplayName(report.applicationProject?.application.name || report.appName || report.project?.appName);
-      const reportDay = isoDate(report.reportDate);
-      const reportMonth = report.month || monthFromDate(reportDay) || filters.month;
-      const rules = getRulesForApp(appNameValue, kpiSettings);
-      const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
-      const expectedWorkingHours = calculateExpectedTarget({
-        monthlyTarget: rules.workingHours,
-        month: reportMonth,
-        dateFrom: reportDay,
-        dateTo: reportDay,
-        precision: "decimal",
-      }).expected;
       const normalized = {
         orders: report.orders,
         workingHours: toNumber(report.workingHours),
@@ -541,7 +647,16 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         cancellationRate: normalizeRate(report.cancellationRate),
         rejectionRate: normalizeRate(report.rejectionRate),
       };
-      const status = statusFromReport(normalized, { orders: expectedOrders, workingHours: expectedWorkingHours });
+      const hint = getDailyHint(keetaHintMap, {
+        driverId: report.driverId,
+        applicationProjectId: report.applicationProjectId,
+        cityId: report.cityId || driver?.cityId,
+        reportDate: report.reportDate,
+      });
+      const status = statusFromReport(normalized, hint?.shiftAttendanceSummary, {
+        onShift: hint?.onShift,
+        validDay: hint?.validDay,
+      });
       return {
         id: report.id,
         reportDate: isoDate(report.reportDate),
@@ -560,8 +675,14 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         orders: normalized.orders,
         workingHours: Math.round(normalized.workingHours * 10) / 10,
         onTimeRate: normalized.onTimeRate,
+        acceptanceRate: normalized.onTimeRate,
         cancellationRate: normalized.cancellationRate,
         rejectionRate: normalized.rejectionRate,
+        currentEstimatedLevel: displayCurrentEstimatedLevel(driver?.currentEstimatedLevel),
+        attendanceStatus: status.attendanceStatus,
+        performanceStatus: status.performanceStatus,
+        warning: status.warning,
+        isWorkingDay: status.isWorkingDay,
         statusLabel: status.label,
         statusTone: status.tone,
         warnings: status.warnings,
@@ -572,29 +693,28 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
     const hsRows = hsReports.map((report) => {
       const driver = report.driver;
       const account = report.applicationAccount;
-      const reportDay = isoDate(report.reportDate);
-      const reportMonth = report.month || monthFromDate(reportDay) || filters.month;
-      const rules = getRulesForApp("HungerStation", kpiSettings);
-      const expectedOrders = calculateExpectedTarget({ monthlyTarget: rules.monthlyOrders, month: reportMonth, dateFrom: reportDay, dateTo: reportDay }).expected;
-      const expectedWorkingHours = calculateExpectedTarget({
-        monthlyTarget: rules.workingHours,
-        month: reportMonth,
-        dateFrom: reportDay,
-        dateTo: reportDay,
-        precision: "decimal",
-      }).expected;
       const attendance = normalizeRate(report.attendanceRate);
       const acceptance = normalizeRate(report.acceptanceRate);
       const cancelled = toNumber(report.cancelledDeliveries);
       const declined = toNumber(report.declinedDeliveries);
+      const status = statusFromReport(
+        {
+          orders: toNumber(report.completedDeliveries),
+          workingHours: toNumber(report.actualWorkingHours),
+          onTimeRate: acceptance,
+          cancellationRate: cancelled,
+          rejectionRate: declined,
+        },
+        textFromJson(report.rawData, ["Attendance Status", "attendanceStatus", "Attendance", "Status", "status"]),
+        { noShows: report.noShows, validDay: toNumber(report.workingDays) > 0 ? true : null },
+      );
       const warnings = [
         report.matchingStatus !== "MATCHED" ? "يحتاج ربط حساب" : "طبيعي",
-        toNumber(report.completedDeliveries) < expectedOrders ? `طلبات أقل من المعدل المتوقع: ${toNumber(report.completedDeliveries)} من ${expectedOrders}` : "",
-        toNumber(report.actualWorkingHours) < expectedWorkingHours ? `ساعات أقل من المعدل المتوقع: ${Math.round(toNumber(report.actualWorkingHours) * 10) / 10} من ${expectedWorkingHours}` : "",
-        attendance && attendance < 85 ? "حضور منخفض" : "",
-        acceptance && acceptance < 85 ? "قبول منخفض" : "",
-        cancelled > 0 ? "طلبات ملغاة" : "",
-        declined > 0 ? "طلبات مرفوضة" : "",
+        ...status.warnings.filter((warning) => warning !== "طبيعي"),
+        status.isWorkingDay && attendance && attendance < 85 ? "حضور منخفض" : "",
+        status.isWorkingDay && acceptance && acceptance < 85 ? "قبول منخفض" : "",
+        status.isWorkingDay && cancelled > 0 ? "طلبات ملغاة" : "",
+        status.isWorkingDay && declined > 0 ? "طلبات مرفوضة" : "",
       ].filter(Boolean);
       return {
         id: report.id,
@@ -614,17 +734,24 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         orders: toNumber(report.completedDeliveries),
         workingHours: Math.round(toNumber(report.actualWorkingHours) * 10) / 10,
         onTimeRate: attendance,
+        acceptanceRate: acceptance,
         cancellationRate: cancelled,
         rejectionRate: declined,
-        statusLabel: report.matchingStatus === "MATCHED" ? "طبيعي" : "مراجعة حساب",
-        statusTone: report.matchingStatus === "MATCHED" ? ("green" as const) : ("red" as const),
-        warnings,
+        currentEstimatedLevel: displayCurrentEstimatedLevel(driver?.currentEstimatedLevel),
+        attendanceStatus: status.attendanceStatus,
+        performanceStatus: status.performanceStatus,
+        warning: status.warning,
+        isWorkingDay: status.isWorkingDay,
+        statusLabel: report.matchingStatus === "MATCHED" ? status.label : "مراجعة حساب",
+        statusTone: report.matchingStatus === "MATCHED" ? status.tone : ("red" as const),
+        warnings: warnings.length ? warnings : ["طبيعي"],
         updatedAt: isoDate(report.updatedAt),
       };
     });
 
     const allRows = [...rows, ...hsRows]
       .filter((row) => performanceStatusMatch(row, filters.performanceStatus))
+      .filter((row) => levelMatch(row, filters.currentEstimatedLevel))
       .sort((a, b) => b.reportDate.localeCompare(a.reportDate));
 
     const missingRows =
@@ -639,6 +766,13 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       })) ?? [];
 
     const allAppNames = Array.from(new Set([...appRows.map((row) => appDisplayName(row.appName)), ...(hsReports.length ? ["HungerStation"] : [])].filter(Boolean)));
+    const currentEstimatedLevels = Array.from(
+      new Set(
+        levelRows
+          .map((row) => displayCurrentEstimatedLevel(row.currentEstimatedLevel))
+          .filter((level) => level !== "Not Available"),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "ar"));
     const uniqueProjects = Array.from(
       new Map(
         projects
@@ -651,6 +785,8 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
       ).values(),
     );
     const lastImport = importBatches[0]?.createdAt ? isoDate(importBatches[0].createdAt) : uploadedReports[0]?.createdAt ? isoDate(uploadedReports[0].createdAt) : "-";
+    const workingRows = allRows.filter((row) => row.isWorkingDay);
+    const hourRows = workingRows.length ? workingRows : allRows;
 
     return {
       databaseStatus: "online",
@@ -662,6 +798,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         projects: uniqueProjects,
         supervisors: supervisors.map((supervisor) => ({ id: supervisor.id, name: supervisor.name })),
         riders: riders.map((rider) => ({ id: rider.id, name: driverName(rider), code: rider.internalCode || rider.driverCode || "-" })),
+        currentEstimatedLevels,
       },
       summary: {
         reportsCount: allRows.length,
@@ -669,7 +806,7 @@ export async function getDailyReportsOldPageData(filters: DailyReportsFilters): 
         totalOrders: allRows.reduce((sum, row) => sum + row.orders, 0),
         monthOrders: monthReports.reduce((sum, row) => sum + row.orders, 0) + hsMonthReports.reduce((sum, row) => sum + toNumber(row.completedDeliveries), 0),
         activeDrivers: new Set(allRows.map((row) => row.driverId).filter(Boolean)).size,
-        avgWorkingHours: avg(allRows.map((row) => row.workingHours)),
+        avgWorkingHours: avg(hourRows.map((row) => row.workingHours)),
         avgOnTime: avg(allRows.map((row) => row.onTimeRate)),
         avgCancellation: avg(allRows.map((row) => row.cancellationRate)),
         avgRejection: avg(allRows.map((row) => row.rejectionRate)),

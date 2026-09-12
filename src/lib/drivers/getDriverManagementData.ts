@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { databaseOfflineMessage } from "@/lib/imports/templates";
 import type { AccessScope } from "@/lib/auth/accessScope";
+import { displayCurrentEstimatedLevel } from "@/lib/performance/driverLevel";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -58,6 +59,7 @@ export type DriverManagementFilters = {
   status: string;
   nationality: string;
   vehicleOwnershipType: string;
+  currentEstimatedLevel: string;
   newDriver: string;
   fromDate: string;
   toDate: string;
@@ -79,6 +81,7 @@ export type DriverManagementRow = {
   accountId: string;
   appUserId: string;
   appUsername: string;
+  currentEstimatedLevel: string;
   supervisor: string;
   vehicleId: string;
   vehiclePlate: string;
@@ -109,6 +112,7 @@ export type DriverManagementData = {
   vehicles: { id: string; label: string; cityId: string; currentDriverId: string }[];
   accounts: { id: string; label: string; cityId: string; applicationProjectId: string; driverId: string }[];
   nationalities: string[];
+  currentEstimatedLevels: string[];
   summary: {
     totalDrivers: number;
     activeDrivers: number;
@@ -135,6 +139,7 @@ export function resolveDriverManagementFilters(params: SearchParams): DriverMana
     status: one(params, "status"),
     nationality: one(params, "nationality"),
     vehicleOwnershipType: one(params, "vehicleOwnershipType"),
+    currentEstimatedLevel: one(params, "currentEstimatedLevel"),
     newDriver: one(params, "newDriver") || one(params, "new"),
     fromDate: one(params, "fromDate") || formatDateInput(defaultFrom),
     toDate: one(params, "toDate") || formatDateInput(now),
@@ -181,6 +186,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
         : {}),
       ...(filters.status ? { status: filters.status as Prisma.EnumDriverStatusFilter["equals"] } : {}),
       ...(filters.nationality ? { nationality: filters.nationality } : {}),
+      ...(filters.currentEstimatedLevel ? { currentEstimatedLevel: filters.currentEstimatedLevel } : {}),
       ...(filters.supervisorId ? { supervisorId: filters.supervisorId } : {}),
       ...(filters.vehicleOwnershipType ? { vehicleOwnershipType: filters.vehicleOwnershipType } : {}),
       ...(filters.q
@@ -193,6 +199,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
               { nationalId: { contains: filters.q, mode: "insensitive" } },
               { phone: { contains: filters.q, mode: "insensitive" } },
               { mobile: { contains: filters.q, mode: "insensitive" } },
+              { currentEstimatedLevel: { contains: filters.q, mode: "insensitive" } },
               { applicationAccounts: { some: { appUserId: { contains: filters.q, mode: "insensitive" } } } },
               { applicationAccounts: { some: { appUsername: { contains: filters.q, mode: "insensitive" } } } },
               { applicationAccounts: { some: { username: { contains: filters.q, mode: "insensitive" } } } },
@@ -231,7 +238,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
       if (accessScope.projectIds.length) accountScopeAnd.push({ applicationProjectId: { in: accessScope.projectIds } });
     }
 
-    const [drivers, cities, projects, supervisors, vehicles, accounts, allNationalities, totalDrivers, activeDrivers, suspendedDrivers] = await Promise.all([
+    const [drivers, cities, projects, supervisors, vehicles, accounts, allNationalities, levelRows, totalDrivers, activeDrivers, suspendedDrivers] = await Promise.all([
       prisma.driver.findMany({
         where,
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
@@ -318,6 +325,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
         take: 500,
       }),
       prisma.driver.findMany({ distinct: ["nationality"], where: { AND: [scopeWhere, { nationality: { not: null } }] }, select: { nationality: true }, take: 200 }),
+      prisma.driver.findMany({ distinct: ["currentEstimatedLevel"], where: { AND: [scopeWhere, { currentEstimatedLevel: { not: null } }] }, select: { currentEstimatedLevel: true }, orderBy: { currentEstimatedLevel: "asc" }, take: 100 }),
       prisma.driver.count({ where: scopeWhere }),
       prisma.driver.count({ where: { AND: [scopeWhere, { status: "ACTIVE" }] } }),
       prisma.driver.count({ where: { AND: [scopeWhere, { status: { in: ["SUSPENDED", "INACTIVE"] } }] } }),
@@ -353,6 +361,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
         accountId: account?.id || "",
         appUserId: account?.appUserId || account?.username || "-",
         appUsername: account?.appUsername || account?.username || "-",
+        currentEstimatedLevel: displayCurrentEstimatedLevel(driver.currentEstimatedLevel),
         supervisor: driver.supervisor?.name || "-",
         vehicleId: driver.vehicleId || "",
         vehiclePlate: vehicle?.plateArabic || vehicle?.plateAr || vehicle?.plateEnglish || vehicle?.plateEn || "-",
@@ -404,6 +413,9 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
         driverId: account.driverId || "",
       })),
       nationalities: allNationalities.map((row) => row.nationality).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b, "ar")),
+      currentEstimatedLevels: Array.from(
+        new Set(levelRows.map((row) => displayCurrentEstimatedLevel(row.currentEstimatedLevel)).filter((level) => level !== "Not Available")),
+      ).sort((a, b) => a.localeCompare(b, "ar")),
       summary,
       insight: buildInsight(summary),
       rows,
@@ -420,6 +432,7 @@ export async function getDriverManagementData(filters: DriverManagementFilters, 
       vehicles: [],
       accounts: [],
       nationalities: [],
+      currentEstimatedLevels: [],
       summary: {
         totalDrivers: 0,
         activeDrivers: 0,

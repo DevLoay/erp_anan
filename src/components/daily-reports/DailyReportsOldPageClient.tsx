@@ -71,8 +71,14 @@ function RateBadge({ value, type = "positive" }: { value: number; type?: "positi
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${klass}`}>{pct(value)}</span>;
 }
 
-function StatusBadge({ label, tone }: { label: string; tone: "green" | "red" }) {
-  const klass = tone === "green" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800";
+function StatusBadge({ label, tone }: { label: string; tone: "green" | "amber" | "red" | "slate" | "blue" }) {
+  const klass = {
+    green: "bg-emerald-100 text-emerald-800",
+    amber: "bg-amber-100 text-amber-800",
+    red: "bg-red-100 text-red-800",
+    slate: "bg-slate-100 text-slate-700",
+    blue: "bg-blue-100 text-blue-800",
+  }[tone];
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${klass}`}>{label}</span>;
 }
 
@@ -111,7 +117,9 @@ function DetailModal({ row, onClose, onAction }: { row: ReportRow; onClose: () =
     ["المدينة", row.city],
     ["المشروع", row.project],
     ["التطبيق", row.appName],
-    ["الحساب", row.account],
+    ["Courier ID", row.account],
+    ["Current estimated level", row.currentEstimatedLevel],
+    ["حالة الحضور", row.attendanceStatus],
     ["المشرف", row.supervisor],
   ];
 
@@ -169,9 +177,9 @@ function DetailModal({ row, onClose, onAction }: { row: ReportRow; onClose: () =
 }
 
 function downloadCsv(rows: ReportRow[]) {
-  const header = ["التاريخ", "المندوب", "كود المندوب", "المدينة", "المشروع", "التطبيق", "الحساب", "الطلبات", "ساعات العمل", "On-Time", "Cancellation", "Rejection", "الحالة"];
+  const header = ["التاريخ", "Courier ID", "المندوب", "المشروع", "المدينة", "Current estimated level", "حالة الحضور", "الطلبات", "Acceptance Rate", "حالة الأداء", "التنبيه"];
   const lines = rows.map((row) =>
-    [row.reportDate, row.driverName, row.driverCode, row.city, row.project, row.appName, row.account, row.orders, row.workingHours, row.onTimeRate, row.cancellationRate, row.rejectionRate, row.statusLabel]
+    [row.reportDate, row.account, row.driverName, row.project, row.city, row.currentEstimatedLevel, row.attendanceStatus, row.orders, row.acceptanceRate, row.statusLabel, row.warning || row.warnings.filter((warning) => warning !== "طبيعي").join(" | ")]
       .map((value) => `"${String(value).replaceAll('"', '""')}"`)
       .join(","),
   );
@@ -204,6 +212,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
       supervisorId: data.filters.supervisorId,
       riderId: data.filters.riderId,
       q: data.filters.q,
+      currentEstimatedLevel: data.filters.currentEstimatedLevel,
       performanceStatus: status,
     })) {
       if (value) params.set(key, value);
@@ -366,8 +375,16 @@ export function DailyReportsOldPageClient({ data }: Props) {
             الأداء
             <select id="daily-performance" name="performanceStatus" defaultValue={data.filters.performanceStatus} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
               <option value="">كل الأداء</option>
-              <option value="weakPerformance">التحذيرات فقط</option>
-              <option value="good">الطبيعي فقط</option>
+              <option value="weakPerformance">أقل من الحد الأدنى فقط</option>
+              <option value="absent">الغياب فقط</option>
+              <option value="good">المحقق فقط</option>
+            </select>
+          </label>
+          <label htmlFor="daily-level" className="grid gap-1 text-xs font-black text-slate-800">
+            Current estimated level
+            <select id="daily-level" name="currentEstimatedLevel" defaultValue={data.filters.currentEstimatedLevel} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+              <option value="">كل المستويات</option>
+              {data.options.currentEstimatedLevels.map((level) => <option key={level} value={level}>{level}</option>)}
             </select>
           </label>
           <label htmlFor="daily-search" className="grid gap-1 text-xs font-black text-slate-800">
@@ -383,7 +400,7 @@ export function DailyReportsOldPageClient({ data }: Props) {
             عرض الكل
           </Link>
           <Link href={performanceStatusUrl("weakPerformance")} className="grid h-11 place-items-center rounded-xl border border-red-200 bg-red-50 px-5 text-sm font-black text-red-700 shadow-sm">
-            عرض التحذيرات فقط
+            عرض أقل من الحد الأدنى
           </Link>
         </div>
       </form>
@@ -400,26 +417,24 @@ export function DailyReportsOldPageClient({ data }: Props) {
           الجدول بيتحرك من الشريط الداخلي تحت الصفوف الظاهرة. اسحب يمين/شمال أو استخدم Shift + Mouse Wheel.
         </div>
         <div dir="ltr" className="daily-reports-table-scroll -mx-1 max-w-full overflow-auto px-1">
-          <table dir="rtl" className="daily-reports-table w-full min-w-[1480px] table-fixed border-collapse text-right text-sm">
+          <table dir="rtl" className="daily-reports-table w-full min-w-[1520px] table-fixed border-collapse text-right text-sm">
             <colgroup>
               <col className="w-[90px]" />
+              <col className="w-[130px]" />
               <col className="w-[220px]" />
-              <col className="w-[90px]" />
               <col className="w-[230px]" />
               <col className="w-[120px]" />
               <col className="w-[130px]" />
+              <col className="w-[130px]" />
               <col className="w-[75px]" />
               <col className="w-[85px]" />
-              <col className="w-[90px]" />
-              <col className="w-[90px]" />
-              <col className="w-[90px]" />
               <col className="w-[105px]" />
               <col className="w-[200px]" />
               <col className="w-[120px]" />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-black text-slate-700">
               <tr>
-                {["التاريخ", "المندوب", "المدينة", "المشروع", "التطبيق", "الحساب", "الطلبات", "الساعات", "ON-TIME", "إلغاء", "رفض", "الحالة", "تنبيهات", "إجراءات"].map((head) => (
+                {["التاريخ", "Courier ID", "المندوب", "المشروع", "المدينة", "Current estimated level", "حالة الحضور", "الطلبات", "Acceptance Rate", "حالة الأداء", "التنبيه", "إجراءات"].map((head) => (
                   <th key={head} className="border-b border-slate-200 px-3 py-3 whitespace-nowrap">{head}</th>
                 ))}
               </tr>
@@ -428,25 +443,19 @@ export function DailyReportsOldPageClient({ data }: Props) {
               {visibleRows.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50">
                   <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.reportDate}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.account}</td>
                   <td className="border-b border-slate-100 px-3 py-3 daily-reports-long-cell">
                     <strong className="block text-slate-950">{row.driverName}</strong>
                     <span className="text-xs font-bold text-slate-500">{row.nationalId}</span>
                   </td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.city}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.project}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.appName}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 font-bold daily-reports-long-cell">{row.account}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.city}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.currentEstimatedLevel}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 font-bold">{row.attendanceStatus}</td>
                   <td className="border-b border-slate-100 px-3 py-3 font-black">{fmt(row.orders)}</td>
-                  <td className="border-b border-slate-100 px-3 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-black ${row.workingHours >= 10 ? "bg-emerald-100 text-emerald-800" : row.workingHours >= 8 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>
-                      {row.workingHours}
-                    </span>
-                  </td>
-                  <td className="border-b border-slate-100 px-3 py-3"><RateBadge value={row.onTimeRate} /></td>
-                  <td className="border-b border-slate-100 px-3 py-3"><RateBadge value={row.cancellationRate} type="zero-good" /></td>
-                  <td className="border-b border-slate-100 px-3 py-3"><RateBadge value={row.rejectionRate} type="zero-good" /></td>
+                  <td className="border-b border-slate-100 px-3 py-3"><RateBadge value={row.acceptanceRate} /></td>
                   <td className="border-b border-slate-100 px-3 py-3"><StatusBadge label={row.statusLabel} tone={row.statusTone} /></td>
-                  <td className="border-b border-slate-100 px-3 py-3"><WarningBadges warnings={row.warnings} /></td>
+                  <td className="border-b border-slate-100 px-3 py-3"><WarningBadges warnings={row.warning ? [row.warning] : row.warnings} /></td>
                   <td className="border-b border-slate-100 px-3 py-3">
                     <div className="flex flex-wrap gap-1">
                       <button type="button" onClick={() => setSelected(row)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-900">
